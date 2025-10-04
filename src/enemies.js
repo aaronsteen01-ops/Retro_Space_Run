@@ -6,19 +6,176 @@ import { getViewSize } from './ui.js';
 import { getDifficulty } from './difficulty.js';
 import { resolvePaletteSection } from './themes.js';
 
-const spawnTimers = {
-  asteroid: -1,
-  strafer: -1,
-  drone: -1,
-  turret: -1,
-};
-
-const SPAWN_WINDOW_MS = 80;
-
 const DEFAULT_BOSS_HP = 540;
 const ASSIST_DENSITY = 0.7;
 const BOSS_PHASE_THRESHOLDS = [0.7, 0.4];
 const MAX_BOSS_PHASE = 3;
+
+const randInt = (min, max) => Math.floor(rand(min, max + 1));
+
+function resolveSpawnCount(baseCount, assistEnabled) {
+  if (!assistEnabled) {
+    return baseCount;
+  }
+  if (baseCount <= 1) {
+    return Math.random() < ASSIST_DENSITY ? 1 : 0;
+  }
+  const scaled = Math.floor(baseCount * ASSIST_DENSITY);
+  return Math.max(1, scaled);
+}
+
+function spawnAsteroids(state, count, params) {
+  const { w } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const asteroidMax = Math.max(viewW - 40, 40);
+  const {
+    vxMin = -50,
+    vxMax = 50,
+    vyMin = 80,
+    vyMax = 160,
+    radiusMin = 12,
+    radiusMax = 24,
+    spawnYOffsetMin = 0,
+    spawnYOffsetMax = 200,
+    hp = 2,
+  } = params;
+  for (let i = 0; i < count; i++) {
+    state.enemies.push({
+      type: 'asteroid',
+      x: rand(40, asteroidMax),
+      y: -20 - rand(spawnYOffsetMin, spawnYOffsetMax),
+      vx: rand(vxMin, vxMax),
+      vy: rand(vyMin, vyMax),
+      r: rand(radiusMin, radiusMax),
+      hp,
+    });
+  }
+}
+
+function spawnStrafers(state, count, params) {
+  const { w, h } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const viewH = Math.max(h, 1);
+  const {
+    speedMin = 120,
+    speedMax = 180,
+    fireCdMin: fireCdMinRaw,
+    fireCdMax: fireCdMaxRaw,
+    fireCdMsMin,
+    fireCdMsMax,
+    radius = 14,
+    hp = 3,
+    yMin = 60,
+    yMax = viewH * 0.5,
+    direction,
+  } = params;
+  const fireCdMin = fireCdMinRaw ?? fireCdMsMin ?? 600;
+  const fireCdMax = fireCdMaxRaw ?? fireCdMsMax ?? 1100;
+  const dir = direction ?? (Math.random() < 0.5 ? -1 : 1);
+  const yMinVal = yMin <= 1 ? viewH * yMin : yMin;
+  const yMaxVal = yMax <= 1 ? viewH * yMax : yMax;
+  for (let i = 0; i < count; i++) {
+    state.enemies.push({
+      type: 'strafer',
+      x: dir < 0 ? -30 : viewW + 30,
+      y: rand(yMinVal, Math.max(yMinVal, yMaxVal)),
+      vx: dir * rand(speedMin, speedMax),
+      vy: 0,
+      r: radius,
+      hp,
+      cd: rand(fireCdMin, fireCdMax),
+    });
+  }
+}
+
+function spawnDrones(state, count, params) {
+  const { w } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const droneMax = Math.max(viewW - 40, 40);
+  const {
+    vyMin = 60,
+    vyMax = 100,
+    accel: accelRaw,
+    steerAccel,
+    hp = 2,
+    startY = -40,
+  } = params;
+  const accel = accelRaw ?? steerAccel ?? 60;
+  for (let i = 0; i < count; i++) {
+    state.enemies.push({
+      type: 'drone',
+      x: rand(40, droneMax),
+      y: startY,
+      vx: 0,
+      vy: rand(vyMin, vyMax),
+      r: 12,
+      hp,
+      accel,
+    });
+  }
+}
+
+function spawnTurrets(state, count, params) {
+  const { w } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const turretMax = Math.max(viewW - 80, 80);
+  const {
+    vyMin = 70,
+    vyMax = 110,
+    fireCdMin: fireCdMinRaw,
+    fireCdMax: fireCdMaxRaw,
+    fireCdMsMin,
+    fireCdMsMax,
+    bulletSpeed = 220,
+    hp = 4,
+    radius = 16,
+  } = params;
+  const fireCdMin = fireCdMinRaw ?? fireCdMsMin ?? 600;
+  const fireCdMax = fireCdMaxRaw ?? fireCdMsMax ?? 1200;
+  for (let i = 0; i < count; i++) {
+    state.enemies.push({
+      type: 'turret',
+      x: rand(80, turretMax),
+      y: -30,
+      vx: 0,
+      vy: rand(vyMin, vyMax),
+      r: radius,
+      hp,
+      cd: rand(fireCdMin, fireCdMax),
+      bulletSpeed,
+    });
+  }
+}
+
+export function spawn(state, type, params = {}) {
+  if (!type) {
+    return;
+  }
+  const { count = 1, countRange, ...config } = params;
+  let resolvedCount = count;
+  if (Array.isArray(countRange) && countRange.length >= 2) {
+    const [min, max] = countRange;
+    const minInt = Math.floor(min);
+    const maxInt = Math.floor(max);
+    const low = Math.max(0, Math.min(minInt, maxInt));
+    const high = Math.max(low, Math.max(minInt, maxInt));
+    resolvedCount = randInt(low, high);
+  }
+  resolvedCount = Math.max(0, Math.round(resolvedCount));
+  resolvedCount = resolveSpawnCount(resolvedCount, Boolean(state.assistEnabled));
+  if (resolvedCount <= 0) {
+    return;
+  }
+  if (type === 'asteroid') {
+    spawnAsteroids(state, resolvedCount, config);
+  } else if (type === 'strafer') {
+    spawnStrafers(state, resolvedCount, config);
+  } else if (type === 'drone') {
+    spawnDrones(state, resolvedCount, config);
+  } else if (type === 'turret') {
+    spawnTurrets(state, resolvedCount, config);
+  }
+}
 
 function pushBossBullet(state, x, y, speed, angle, radius = 8) {
   const bornAt = state.time * 1000;
@@ -72,141 +229,18 @@ function emitBossRing(state, boss, player, count = 24) {
   }
 }
 
-function shouldSpawn(now, key, intervalMs, offsetMs = 0) {
-  if (!intervalMs || intervalMs <= 0) {
-    return false;
-  }
-  const adjusted = now + offsetMs;
-  const cycle = Math.floor(adjusted / intervalMs);
-  if (cycle <= spawnTimers[key]) {
-    return false;
-  }
-  const phase = adjusted % intervalMs;
-  if (phase > SPAWN_WINDOW_MS) {
-    return false;
-  }
-  spawnTimers[key] = cycle;
-  return true;
-}
-
-function resolveSpawnCount(baseCount, assistEnabled) {
-  if (!assistEnabled) {
-    return baseCount;
-  }
-  if (baseCount <= 1) {
-    return Math.random() < ASSIST_DENSITY ? 1 : 0;
-  }
-  const scaled = Math.floor(baseCount * ASSIST_DENSITY);
-  return Math.max(1, scaled);
-}
-
-export function spawnEnemies(state, now) {
-  const { w, h } = getViewSize();
-  const viewW = Math.max(w, 1);
-  const viewH = Math.max(h, 1);
-  const difficulty = getDifficulty(state.levelIndex);
-  const spawnConfig = difficulty?.spawn || {};
-  const assistEnabled = Boolean(state.assistEnabled);
-  const asteroidSettings = spawnConfig.asteroid || difficulty?.asteroid || {};
-  const straferSettings = spawnConfig.strafer || difficulty?.strafer || {};
-  const droneSettings = spawnConfig.drone || difficulty?.drone || {};
-  const turretSettings = spawnConfig.turret || difficulty?.turret || {};
-  const asteroidInterval = asteroidSettings.every ?? asteroidSettings.intervalMs ?? 900;
-  const asteroidOffset = asteroidSettings.offset ?? 0;
-  const asteroidVyMin = asteroidSettings.vyMin ?? 80;
-  const asteroidVyMax = asteroidSettings.vyMax ?? 160;
-  const straferInterval = straferSettings.every ?? 1400;
-  const straferOffset = straferSettings.offset ?? 0;
-  const straferCount = Math.max(1, Math.round(straferSettings.count ?? 3));
-  const straferCdMin = straferSettings.fireCdMin ?? straferSettings.fireCdMsMin ?? 600;
-  const straferCdMax = straferSettings.fireCdMax ?? straferSettings.fireCdMsMax ?? 1100;
-  const droneInterval = droneSettings.every ?? 2000;
-  const droneOffset = droneSettings.offset ?? 0;
-  const droneAccel = droneSettings.steerAccel ?? 60;
-  const turretInterval = turretSettings.every ?? 2600;
-  const turretOffset = turretSettings.offset ?? 0;
-  const turretCdMin = turretSettings.fireCdMin ?? 600;
-  const turretCdMax = turretSettings.fireCdMax ?? 1200;
-  const turretBulletSpeed = turretSettings.bulletSpeed ?? 220;
-  const asteroidMax = Math.max(viewW - 40, 40);
-  const droneMax = Math.max(viewW - 40, 40);
-  const turretMax = Math.max(viewW - 80, 80);
-  if (shouldSpawn(now, 'asteroid', asteroidInterval, asteroidOffset)) {
-    const base = 5 + Math.floor(Math.random() * 3);
-    const count = resolveSpawnCount(base, assistEnabled);
-    for (let i = 0; i < count; i++) {
-      state.enemies.push({
-        type: 'asteroid',
-        x: rand(40, asteroidMax),
-        y: -20 - rand(0, 200),
-        vx: rand(-50, 50),
-        vy: rand(asteroidVyMin, asteroidVyMax),
-        r: rand(12, 24),
-        hp: 2,
-      });
-    }
-  }
-  if (shouldSpawn(now, 'strafer', straferInterval, straferOffset)) {
-    const dir = Math.random() < 0.5 ? -1 : 1;
-    const count = resolveSpawnCount(straferCount, assistEnabled);
-    for (let i = 0; i < count; i++) {
-      state.enemies.push({
-        type: 'strafer',
-        x: dir < 0 ? -30 : viewW + 30,
-        y: rand(60, viewH * 0.5),
-        vx: dir * rand(120, 180),
-        vy: 20 * Math.sin(now * 0.001 + i),
-        r: 14,
-        hp: 3,
-        cd: rand(straferCdMin, straferCdMax),
-      });
-    }
-  }
-  if (shouldSpawn(now, 'drone', droneInterval, droneOffset)) {
-    const count = resolveSpawnCount(2, assistEnabled);
-    for (let i = 0; i < count; i++) {
-      state.enemies.push({
-        type: 'drone',
-        x: rand(40, droneMax),
-        y: -40,
-        vx: 0,
-        vy: rand(60, 100),
-        r: 12,
-        hp: 2,
-        accel: droneAccel,
-      });
-    }
-  }
-  if (shouldSpawn(now, 'turret', turretInterval, turretOffset)) {
-    const count = resolveSpawnCount(2, assistEnabled);
-    for (let i = 0; i < count; i++) {
-      state.enemies.push({
-        type: 'turret',
-        x: rand(80, turretMax),
-        y: -30,
-        vx: 0,
-        vy: rand(70, 110),
-        r: 16,
-        hp: 4,
-        cd: rand(turretCdMin, turretCdMax),
-        bulletSpeed: turretBulletSpeed,
-      });
-    }
-  }
-}
-
 export function updateEnemies(state, dt, now, player) {
   const { w, h } = getViewSize();
   const viewW = Math.max(w, 1);
   const viewH = Math.max(h, 1);
   const difficulty = getDifficulty(state.levelIndex);
   const spawnConfig = difficulty?.spawn || {};
-  const straferSettings = spawnConfig.strafer || difficulty?.strafer || {};
-  const droneSettings = spawnConfig.drone || difficulty?.drone || {};
-  const turretSettings = spawnConfig.turret || difficulty?.turret || {};
+  const straferSettings = spawnConfig.strafer || {};
+  const droneSettings = spawnConfig.drone || {};
+  const turretSettings = spawnConfig.turret || {};
   const straferCdMin = straferSettings.fireCdMin ?? straferSettings.fireCdMsMin ?? 600;
   const straferCdMax = straferSettings.fireCdMax ?? straferSettings.fireCdMsMax ?? 1100;
-  const droneAccel = droneSettings.steerAccel ?? 60;
+  const droneAccel = droneSettings.steerAccel ?? droneSettings.accel ?? 60;
   const turretCdMin = turretSettings.fireCdMin ?? 600;
   const turretCdMax = turretSettings.fireCdMax ?? 1200;
   const turretBulletSpeed = turretSettings.bulletSpeed ?? 220;
@@ -278,24 +312,29 @@ export function updateEnemies(state, dt, now, player) {
   }
 }
 
-export function spawnBoss(state) {
+export function spawnBoss(state, bossConfig = {}) {
   const { w } = getViewSize();
   const viewW = Math.max(w, 1);
   state.enemies.length = 0;
   const difficulty = getDifficulty(state.levelIndex);
-  const bossHp = difficulty?.bossHp ?? DEFAULT_BOSS_HP;
+  const baseHp = bossConfig.hp ?? difficulty?.bossHp ?? DEFAULT_BOSS_HP;
+  const phases = Array.isArray(bossConfig.phases)
+    ? bossConfig.phases
+    : bossConfig.phaseThresholds ?? BOSS_PHASE_THRESHOLDS;
+  const maxPhase = bossConfig.maxPhase ?? Math.max(1, (phases?.length ?? 0) + 1);
   const boss = {
     type: 'boss',
+    kind: bossConfig.kind ?? 'standard',
     x: viewW / 2,
     y: -160,
     vx: 0,
     vy: 160,
     r: 60,
-    hp: bossHp,
-    maxHp: bossHp,
+    hp: baseHp,
+    maxHp: baseHp,
     phase: 1,
-    maxPhase: MAX_BOSS_PHASE,
-    phaseThresholds: [...BOSS_PHASE_THRESHOLDS],
+    maxPhase: maxPhase ?? MAX_BOSS_PHASE,
+    phaseThresholds: [...(phases ?? BOSS_PHASE_THRESHOLDS)],
     nextPhaseIndex: 0,
     cooldown: 1400,
     volleyTimer: 1200,
@@ -313,6 +352,9 @@ export function spawnBoss(state) {
     warningPulse: 0,
     rewardDropped: false,
   };
+  if (boss.maxPhase < 1) {
+    boss.maxPhase = MAX_BOSS_PHASE;
+  }
   state.enemyBullets.length = 0;
   state.boss = boss;
   return boss;

@@ -4,12 +4,28 @@
 export const DIFFICULTY = {
   l1: {
     spawn: {
-      asteroid: { every: 1200, offset: 0, vyMin: 60, vyMax: 130 },
-      drone: { every: 2200, offset: 900, steerAccel: 28 },
-      strafer: { every: 2000, offset: 600, count: 2, fireCdMin: 1200, fireCdMax: 1800 },
-      turret: { every: 2600, offset: 1300, fireCdMin: 1200, fireCdMax: 1600, bulletSpeed: 140 },
+      asteroid: { density: 1, countRange: [5, 7], vyMin: 60, vyMax: 130 },
+      drone: { density: 1, count: 2, steerAccel: 28, vyMin: 60, vyMax: 100 },
+      strafer: {
+        density: 1,
+        count: 2,
+        fireCdMin: 1200,
+        fireCdMax: 1800,
+        speedMin: 120,
+        speedMax: 180,
+        yMin: 60,
+        yMax: 0.5,
+      },
+      turret: {
+        density: 1,
+        count: 2,
+        fireCdMin: 1200,
+        fireCdMax: 1600,
+        bulletSpeed: 140,
+        vyMin: 70,
+        vyMax: 110,
+      },
     },
-    powerupEvery: 9000,
     powerupIntervalMs: 9000,
     bossHp: 360,
   },

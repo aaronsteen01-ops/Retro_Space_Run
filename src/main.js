@@ -22,7 +22,7 @@ import {
 import { playZap, playHit, toggleAudio, resumeAudioContext, playPow } from './audio.js';
 import { resetPlayer, updatePlayer, clampPlayerToBounds, drawPlayer } from './player.js';
 import {
-  spawnEnemies,
+  spawn,
   updateEnemies,
   drawEnemies,
   spawnBoss,
@@ -52,14 +52,20 @@ import {
   ensureGuaranteedWeaponDrop,
 } from './weapons.js';
 import { DEFAULT_THEME_PALETTE, resolvePaletteSection } from './themes.js';
+import { LEVELS } from './levels.js';
+import { getDifficulty } from './difficulty.js';
 
 let activePalette = getActiveThemePalette() ?? DEFAULT_THEME_PALETTE;
+
+const DEFAULT_LEVEL = LEVELS[0] ?? null;
 
 const state = {
   running: false,
   paused: false,
-  levelDur: 90,
+  levelDur: DEFAULT_LEVEL?.duration ?? 0,
   levelIndex: 1,
+  level: DEFAULT_LEVEL,
+  nextWaveIndex: 0,
   time: 0,
   score: 0,
   lives: 3,
@@ -195,10 +201,66 @@ function drawGate(gate, palette) {
   ctx.restore();
 }
 
+function spawnWaveFromSchedule(wave, difficulty) {
+  if (!wave || !wave.type) {
+    return;
+  }
+  const spawnConfig = difficulty?.spawn || {};
+  const typeConfig = spawnConfig[wave.type] || {};
+  const { density = 1, count: typeCount, countRange: typeRange, ...typeParams } = typeConfig;
+  const rawWaveParams = wave.params ? { ...wave.params } : {};
+  const { countRange: waveRange, ...waveParams } = rawWaveParams;
+  let baseCount = typeof wave.count === 'number' ? wave.count : undefined;
+  if (baseCount === undefined && typeof typeCount === 'number') {
+    baseCount = typeCount;
+  }
+  const range = Array.isArray(waveRange) && waveRange.length >= 2
+    ? waveRange
+    : Array.isArray(typeRange) && typeRange.length >= 2
+      ? typeRange
+      : null;
+  if (range) {
+    const min = Math.floor(range[0]);
+    const max = Math.floor(range[1]);
+    const low = Math.min(min, max);
+    const high = Math.max(min, max);
+    const safeLow = Math.max(0, low);
+    const safeHigh = Math.max(safeLow, high);
+    baseCount = Math.floor(rand(safeLow, safeHigh + 1));
+  }
+  if (baseCount === undefined) {
+    baseCount = 1;
+  }
+  const densityMultiplier = Number.isFinite(density) ? density : 1;
+  const finalCount = Math.max(0, Math.round(baseCount * densityMultiplier));
+  const finalParams = { ...typeParams, ...waveParams, count: finalCount, spawnTime: state.time };
+  delete finalParams.countRange;
+  spawn(state, wave.type, finalParams);
+}
+
+function scheduleLevelWaves() {
+  const level = state.level;
+  if (!level || state.boss || state.bossSpawned) {
+    return;
+  }
+  const difficulty = getDifficulty(state.levelIndex);
+  while (state.nextWaveIndex < level.waves.length) {
+    const wave = level.waves[state.nextWaveIndex];
+    if (!wave || state.time < wave.at) {
+      break;
+    }
+    spawnWaveFromSchedule(wave, difficulty);
+    state.nextWaveIndex += 1;
+  }
+}
+
 function resetState() {
   state.running = true;
   state.paused = false;
   state.levelIndex = 1;
+  state.level = LEVELS[state.levelIndex - 1] ?? DEFAULT_LEVEL;
+  state.levelDur = state.level?.duration ?? 0;
+  state.nextWaveIndex = 0;
   state.time = 0;
   state.score = 0;
   state.assistEnabled = getAssistMode();
@@ -291,10 +353,11 @@ function loop(now) {
   state.time += dt;
   updateTime(Math.floor(state.time));
   ensureGuaranteedWeaponDrop(state);
+  scheduleLevelWaves();
 
   if (state.time >= state.levelDur) {
     if (!state.bossSpawned) {
-      spawnBoss(state);
+      spawnBoss(state, state.level?.boss);
       state.bossSpawned = true;
     } else if (!state.boss && !state.finishGate && now - state.bossDefeatedAt > 600) {
       ensureFinishGate();
@@ -321,9 +384,6 @@ function loop(now) {
   handlePlayerShooting(state, keys, now);
   updatePlayerBullets(state, dt);
 
-  if (!state.boss) {
-    spawnEnemies(state, now);
-  }
   updateEnemies(state, dt, now, player);
   updateBoss(state, dt, now, player, palette);
   updateEnemyBullets(state, dt);
