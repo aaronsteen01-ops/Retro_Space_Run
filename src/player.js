@@ -2,11 +2,13 @@
  * player.js — player creation, movement, and rendering helpers for Retro Space Run.
  */
 import { clamp, lerp, drawGlowCircle } from './utils.js';
+import { getViewSize } from './ui.js';
 
-export function createPlayer(canvas) {
+export function createPlayer() {
+  const { w, h } = getViewSize();
   return {
-    x: canvas.width / 2,
-    y: canvas.height * 0.75,
+    x: (w || 0) / 2,
+    y: (h || 0) * 0.75,
     vx: 0,
     vy: 0,
     speed: 260,
@@ -16,8 +18,8 @@ export function createPlayer(canvas) {
   };
 }
 
-export function resetPlayer(state, canvas) {
-  state.player = createPlayer(canvas);
+export function resetPlayer(state) {
+  state.player = createPlayer();
 }
 
 export function updatePlayer(player, keys, dt, hasBoost) {
@@ -34,9 +36,10 @@ export function updatePlayer(player, keys, dt, hasBoost) {
   player.y += player.vy * dt;
 }
 
-export function clampPlayerToBounds(player, canvas) {
-  player.x = clamp(player.x, 20, canvas.width - 20);
-  player.y = clamp(player.y, 40, canvas.height - 40);
+export function clampPlayerToBounds(player) {
+  const { w, h } = getViewSize();
+  player.x = clamp(player.x, 20, Math.max(w - 20, 20));
+  player.y = clamp(player.y, 40, Math.max(h - 40, 40));
 }
 
 export function drawPlayer(ctx, player, keys, palette) {
