@@ -67,12 +67,15 @@ function populateThemeControl() {
   if (!themeSelect) {
     return;
   }
-  const keys = getThemeKeys();
+  const entries = getThemeKeys()
+    .map((key) => ({ key, label: getThemeLabel(key) }))
+    .sort((a, b) => a.label.localeCompare(b.label));
   themeSelect.innerHTML = '';
-  for (const key of keys) {
+  for (const { key, label } of entries) {
     const option = document.createElement('option');
     option.value = key;
-    option.textContent = getThemeLabel(key);
+    option.textContent = label;
+    option.setAttribute('aria-label', label);
     themeSelect.appendChild(option);
   }
 }

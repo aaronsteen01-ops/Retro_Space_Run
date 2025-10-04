@@ -4,6 +4,9 @@
 import { coll } from './utils.js';
 import { playPew, playPow } from './audio.js';
 import { updateWeapon, updateScore, getViewSize } from './ui.js';
+import { resolvePaletteSection, DEFAULT_THEME_PALETTE } from './themes.js';
+
+const DEFAULT_BULLET_LEVELS = DEFAULT_THEME_PALETTE.bullets.playerLevels;
 
 export const WEAPON_DISPLAY_NAMES = Object.freeze({
   pulse: 'Pulse Cannon',
@@ -573,9 +576,10 @@ export function setupWeapons(state) {
 }
 
 function projectileColour(state, index = 0) {
-  const palette = state.theme?.bullets?.playerLevels;
-  const fallback = ['#ffb8ff', '#ffd6ff', '#ffeeff'];
-  const colours = Array.isArray(palette) && palette.length ? palette : fallback;
+  const bulletPalette = resolvePaletteSection(state.theme, 'bullets');
+  const colours = Array.isArray(bulletPalette.playerLevels) && bulletPalette.playerLevels.length
+    ? bulletPalette.playerLevels
+    : DEFAULT_BULLET_LEVELS;
   const idx = Math.max(0, Math.min(colours.length - 1, index));
   return colours[idx];
 }
@@ -641,12 +645,14 @@ export function updatePlayerBullets(state, dt) {
 }
 
 export function drawPlayerBullets(ctx, bullets) {
+  const fallbackColour = DEFAULT_BULLET_LEVELS[0];
   for (const b of bullets) {
     ctx.save();
     ctx.translate(b.x, b.y);
-    ctx.shadowColor = (b.colour || '#ffb8ff') + 'aa';
+    const colour = b.colour ?? fallbackColour;
+    ctx.shadowColor = `${colour}aa`;
     ctx.shadowBlur = 10;
-    ctx.fillStyle = b.colour || '#ffb8ff';
+    ctx.fillStyle = colour;
     const w = b.w ?? 4;
     const h = b.h ?? 12;
     ctx.fillRect(-w / 2, -h / 2, w, h);
@@ -679,13 +685,13 @@ export function updateEnemyBullets(state, dt) {
 }
 
 export function drawEnemyBullets(ctx, bullets, palette) {
-  const bulletPalette = palette?.bullets ?? {};
+  const bulletPalette = resolvePaletteSection(palette, 'bullets');
   for (const b of bullets) {
     ctx.save();
     ctx.translate(b.x, b.y);
-    ctx.shadowColor = bulletPalette.enemyGlow || '#00e5ffaa';
+    ctx.shadowColor = bulletPalette.enemyGlow;
     ctx.shadowBlur = 8;
-    ctx.fillStyle = bulletPalette.enemyFill || '#8af5ff';
+    ctx.fillStyle = bulletPalette.enemyFill;
     ctx.fillRect(-2, -5, 4, 9);
     ctx.restore();
   }
@@ -747,12 +753,12 @@ export function updateWeaponDrops(state, dt) {
 }
 
 export function drawWeaponDrops(ctx, drops, palette) {
-  const tokenPalette = palette?.weaponToken ?? {};
+  const tokenPalette = resolvePaletteSection(palette, 'weaponToken');
   for (const drop of drops) {
     const def = weaponDefs[drop.weapon];
-    const fill = tokenPalette.fill || '#ff3df7';
-    const stroke = tokenPalette.stroke || '#00e5ff';
-    const glow = tokenPalette.glow || `${stroke}aa`;
+    const fill = tokenPalette.fill;
+    const stroke = tokenPalette.stroke;
+    const glow = tokenPalette.glow;
     ctx.save();
     ctx.translate(drop.x, drop.y);
     ctx.rotate(drop.spin || 0);
@@ -770,7 +776,7 @@ export function drawWeaponDrops(ctx, drops, palette) {
     ctx.strokeStyle = stroke;
     ctx.lineWidth = 2;
     ctx.stroke();
-    ctx.fillStyle = tokenPalette.text || stroke;
+    ctx.fillStyle = tokenPalette.text;
     ctx.font = '10px "IBM Plex Mono", monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';

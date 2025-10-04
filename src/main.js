@@ -51,8 +51,9 @@ import {
   maybeDropWeaponToken,
   ensureGuaranteedWeaponDrop,
 } from './weapons.js';
+import { DEFAULT_THEME_PALETTE, resolvePaletteSection } from './themes.js';
 
-let activePalette = getActiveThemePalette();
+let activePalette = getActiveThemePalette() ?? DEFAULT_THEME_PALETTE;
 
 const state = {
   running: false,
@@ -87,8 +88,8 @@ const state = {
 };
 
 onThemeChange((_, palette) => {
-  activePalette = palette;
-  state.theme = palette;
+  activePalette = palette ?? DEFAULT_THEME_PALETTE;
+  state.theme = activePalette;
 });
 
 onAssistChange((enabled) => {
@@ -174,16 +175,16 @@ function ensureFinishGate() {
 }
 
 function drawGate(gate, palette) {
-  const gatePalette = palette?.gate ?? {};
+  const gatePalette = resolvePaletteSection(palette, 'gate');
   ctx.save();
   ctx.translate(gate.x, gate.y);
   const glow = (Math.sin(performance.now() * 0.003) + 1) * 0.5;
-  ctx.shadowColor = gatePalette.glow || '#00e5ffaa';
+  ctx.shadowColor = gatePalette.glow;
   ctx.shadowBlur = 20 + 20 * glow;
-  ctx.fillStyle = gatePalette.fill || '#00e5ff';
+  ctx.fillStyle = gatePalette.fill;
   ctx.fillRect(-gate.w / 2, -gate.h / 2, gate.w, gate.h);
   ctx.shadowBlur = 0;
-  ctx.strokeStyle = gatePalette.strut || gatePalette.trim || '#ff3df7';
+  ctx.strokeStyle = gatePalette.strut;
   ctx.lineWidth = 3;
   ctx.beginPath();
   ctx.moveTo(-gate.w / 2, -40);
@@ -249,10 +250,10 @@ function gameOver(win) {
 
 function handlePlayerHit() {
   const player = state.player;
-  const particles = state.theme?.particles ?? {};
+  const particles = resolvePaletteSection(state.theme, 'particles');
   if (player.shield > 0) {
     player.shield -= 400;
-    addParticle(state, player.x, player.y, particles.shieldHit || '#00e5ff', 20, 3, 400);
+    addParticle(state, player.x, player.y, particles.shieldHit, 20, 3, 400);
     playHit();
     return false;
   }
@@ -261,7 +262,7 @@ function handlePlayerHit() {
   }
   state.lives -= 1;
   updateLives(state.lives);
-  addParticle(state, player.x, player.y, particles.playerHit || '#ff3df7', 30, 3.2, 500);
+  addParticle(state, player.x, player.y, particles.playerHit, 30, 3.2, 500);
   playZap();
   player.invuln = state.assistEnabled ? 3000 : 2000;
   if (state.lives <= 0) {
@@ -280,8 +281,8 @@ function loop(now) {
   const dt = (now - lastFrame) / 1000;
   lastFrame = now;
   const { w: viewW, h: viewH } = getViewSize();
-  const palette = activePalette;
-  const starPalette = palette?.stars ?? {};
+  const palette = activePalette ?? DEFAULT_THEME_PALETTE;
+  const starPalette = resolvePaletteSection(palette, 'stars');
   if (state.paused) {
     requestAnimationFrame(loop);
     return;
@@ -308,7 +309,7 @@ function loop(now) {
       star.x = rand(0, viewW);
     }
     ctx.globalAlpha = 0.4 * star.z;
-    ctx.fillStyle = star.z > 1.1 ? starPalette.bright || '#00e5ff' : starPalette.dim || '#ff3df7';
+    ctx.fillStyle = star.z > 1.1 ? starPalette.bright : starPalette.dim;
     ctx.fillRect(star.x, star.y, 2, 2);
   }
   ctx.globalAlpha = 1;
@@ -348,7 +349,7 @@ function loop(now) {
     }
   }
 
-  const particles = state.theme?.particles ?? {};
+  const particles = resolvePaletteSection(state.theme, 'particles');
   for (let i = state.enemies.length - 1; i >= 0; i--) {
     const enemy = state.enemies[i];
     for (let j = state.bullets.length - 1; j >= 0; j--) {
@@ -357,8 +358,8 @@ function loop(now) {
         state.bullets.splice(j, 1);
         enemy.hp -= bullet.damage || 1;
         const enemyCol = enemy.type === 'strafer'
-          ? particles.enemyHitStrafer || '#ff3df7'
-          : particles.enemyHitDefault || '#00e5ff';
+          ? particles.enemyHitStrafer
+          : particles.enemyHitDefault;
         addParticle(state, enemy.x, enemy.y, enemyCol, 12, 2.6, 300);
         if (enemy.hp <= 0) {
           state.enemies.splice(i, 1);
@@ -378,12 +379,12 @@ function loop(now) {
       if (coll(state.boss, bullet, -12)) {
         state.bullets.splice(j, 1);
         state.boss.hp -= bullet.damage || 1;
-        addParticle(state, state.boss.x, state.boss.y, particles.bossHit || '#ff3df7', 18, 3.4, 320);
+        addParticle(state, state.boss.x, state.boss.y, particles.bossHit, 18, 3.4, 320);
         playHit();
         if (state.boss.hp <= 0) {
           const defeatedBoss = state.boss;
-          addParticle(state, defeatedBoss.x, defeatedBoss.y, particles.bossHit || '#ff3df7', 60, 5, 1000);
-          addParticle(state, defeatedBoss.x, defeatedBoss.y, particles.bossCore || '#00e5ff', 40, 4, 1000);
+          addParticle(state, defeatedBoss.x, defeatedBoss.y, particles.bossHit, 60, 5, 1000);
+          addParticle(state, defeatedBoss.x, defeatedBoss.y, particles.bossCore, 40, 4, 1000);
           playPow();
           state.score += 600;
           updateScore(state.score);
