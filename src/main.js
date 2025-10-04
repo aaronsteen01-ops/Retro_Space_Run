@@ -13,6 +13,8 @@ import {
   updateScore,
   updateTime,
   updatePower,
+  getActiveThemePalette,
+  onThemeChange,
 } from './ui.js';
 import { playZap, playHit, toggleAudio, resumeAudioContext, playPow } from './audio.js';
 import { resetPlayer, updatePlayer, clampPlayerToBounds, drawPlayer } from './player.js';
@@ -45,6 +47,8 @@ import {
   maybeDropWeaponToken,
 } from './weapons.js';
 
+let activePalette = getActiveThemePalette();
+
 const state = {
   running: false,
   paused: false,
@@ -69,7 +73,13 @@ const state = {
   speed: 260,
   power: { name: null, until: 0 },
   weapon: null,
+  theme: activePalette,
 };
+
+onThemeChange((_, palette) => {
+  activePalette = palette;
+  state.theme = palette;
+});
 
 const keys = new Set();
 
@@ -130,16 +140,17 @@ function ensureFinishGate() {
   };
 }
 
-function drawGate(gate) {
+function drawGate(gate, palette) {
+  const gatePalette = palette?.gate ?? {};
   ctx.save();
   ctx.translate(gate.x, gate.y);
   const glow = (Math.sin(performance.now() * 0.003) + 1) * 0.5;
-  ctx.shadowColor = '#00e5ffaa';
+  ctx.shadowColor = gatePalette.glow || '#00e5ffaa';
   ctx.shadowBlur = 20 + 20 * glow;
-  ctx.fillStyle = '#00e5ff';
+  ctx.fillStyle = gatePalette.fill || '#00e5ff';
   ctx.fillRect(-gate.w / 2, -gate.h / 2, gate.w, gate.h);
   ctx.shadowBlur = 0;
-  ctx.strokeStyle = '#ff3df7';
+  ctx.strokeStyle = gatePalette.strut || gatePalette.trim || '#ff3df7';
   ctx.lineWidth = 3;
   ctx.beginPath();
   ctx.moveTo(-gate.w / 2, -40);
@@ -166,6 +177,7 @@ function resetState() {
   state.bossSpawned = false;
   state.bossDefeatedAt = 0;
   state.lastShot = 0;
+  state.theme = activePalette;
   resetPlayer(state, canvas);
   resetPowerState(state);
   resetPowerTimers();
@@ -199,9 +211,10 @@ function gameOver(win) {
 
 function handlePlayerHit() {
   const player = state.player;
+  const particles = state.theme?.particles ?? {};
   if (player.shield > 0) {
     player.shield -= 400;
-    addParticle(state, player.x, player.y, '#00e5ff', 20, 3, 400);
+    addParticle(state, player.x, player.y, particles.shieldHit || '#00e5ff', 20, 3, 400);
     playHit();
     return false;
   }
@@ -210,7 +223,7 @@ function handlePlayerHit() {
   }
   state.lives -= 1;
   updateLives(state.lives);
-  addParticle(state, player.x, player.y, '#ff3df7', 30, 3.2, 500);
+  addParticle(state, player.x, player.y, particles.playerHit || '#ff3df7', 30, 3.2, 500);
   playZap();
   player.invuln = 2000;
   if (state.lives <= 0) {
@@ -228,6 +241,8 @@ function loop(now) {
   }
   const dt = (now - lastFrame) / 1000;
   lastFrame = now;
+  const palette = activePalette;
+  const starPalette = palette?.stars ?? {};
   if (state.paused) {
     requestAnimationFrame(loop);
     return;
@@ -253,7 +268,7 @@ function loop(now) {
       star.x = rand(0, canvas.width);
     }
     ctx.globalAlpha = 0.4 * star.z;
-    ctx.fillStyle = star.z > 1.1 ? '#00e5ff' : '#ff3df7';
+    ctx.fillStyle = star.z > 1.1 ? starPalette.bright || '#00e5ff' : starPalette.dim || '#ff3df7';
     ctx.fillRect(star.x, star.y, 2, 2);
   }
   ctx.globalAlpha = 1;
@@ -269,7 +284,7 @@ function loop(now) {
     spawnEnemies(state, now, canvas);
   }
   updateEnemies(state, dt, now, player, canvas);
-  updateBoss(state, dt, now, player, canvas);
+  updateBoss(state, dt, now, player, canvas, palette);
   updateEnemyBullets(state, dt, canvas);
 
   maybeSpawnPowerup(state, now, canvas);
@@ -292,6 +307,7 @@ function loop(now) {
     }
   }
 
+  const particles = state.theme?.particles ?? {};
   for (let i = state.enemies.length - 1; i >= 0; i--) {
     const enemy = state.enemies[i];
     for (let j = state.bullets.length - 1; j >= 0; j--) {
@@ -299,7 +315,10 @@ function loop(now) {
       if (coll(enemy, bullet, -4)) {
         state.bullets.splice(j, 1);
         enemy.hp -= bullet.damage || 1;
-        addParticle(state, enemy.x, enemy.y, enemy.type === 'strafer' ? '#ff3df7' : '#00e5ff', 12, 2.6, 300);
+        const enemyCol = enemy.type === 'strafer'
+          ? particles.enemyHitStrafer || '#ff3df7'
+          : particles.enemyHitDefault || '#00e5ff';
+        addParticle(state, enemy.x, enemy.y, enemyCol, 12, 2.6, 300);
         if (enemy.hp <= 0) {
           state.enemies.splice(i, 1);
           state.score += 25;
@@ -318,11 +337,11 @@ function loop(now) {
       if (coll(state.boss, bullet, -12)) {
         state.bullets.splice(j, 1);
         state.boss.hp -= bullet.damage || 1;
-        addParticle(state, state.boss.x, state.boss.y, '#ff3df7', 18, 3.4, 320);
+        addParticle(state, state.boss.x, state.boss.y, particles.bossHit || '#ff3df7', 18, 3.4, 320);
         playHit();
         if (state.boss.hp <= 0) {
-          addParticle(state, state.boss.x, state.boss.y, '#ff3df7', 60, 5, 1000);
-          addParticle(state, state.boss.x, state.boss.y, '#00e5ff', 40, 4, 1000);
+          addParticle(state, state.boss.x, state.boss.y, particles.bossHit || '#ff3df7', 60, 5, 1000);
+          addParticle(state, state.boss.x, state.boss.y, particles.bossCore || '#00e5ff', 40, 4, 1000);
           playPow();
           state.score += 600;
           updateScore(state.score);
@@ -361,21 +380,21 @@ function loop(now) {
     player.invuln -= dt * 1000;
   }
 
-  drawWeaponDrops(ctx, state.weaponDrops);
-  drawPowerups(ctx, state.powerups);
-  drawEnemies(ctx, state.enemies);
+  drawWeaponDrops(ctx, state.weaponDrops, palette);
+  drawPowerups(ctx, state.powerups, palette);
+  drawEnemies(ctx, state.enemies, palette);
   if (state.boss) {
-    drawBoss(ctx, state.boss);
+    drawBoss(ctx, state.boss, palette);
   }
-  drawEnemyBullets(ctx, state.enemyBullets);
+  drawEnemyBullets(ctx, state.enemyBullets, palette);
   drawPlayerBullets(ctx, state.bullets);
   if (state.finishGate) {
-    drawGate(state.finishGate);
+    drawGate(state.finishGate, palette);
   }
-  drawPlayer(ctx, player, keys);
+  drawPlayer(ctx, player, keys, palette);
 
   if (state.boss) {
-    drawBossHealth(ctx, state.boss, canvas);
+    drawBossHealth(ctx, state.boss, canvas, palette);
   }
 
   for (let i = state.particles.length - 1; i >= 0; i--) {

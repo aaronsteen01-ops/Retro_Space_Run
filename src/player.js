@@ -39,7 +39,8 @@ export function clampPlayerToBounds(player, canvas) {
   player.y = clamp(player.y, 40, canvas.height - 40);
 }
 
-export function drawPlayer(ctx, player, keys) {
+export function drawPlayer(ctx, player, keys, palette) {
+  const ship = palette?.ship ?? {};
   ctx.save();
   ctx.translate(player.x, player.y);
   const tilt = clamp(
@@ -52,8 +53,8 @@ export function drawPlayer(ctx, player, keys) {
 
   const engLen = 14 + (Math.sin(performance.now() * 0.02) + 1) * 6;
   const trail = ctx.createLinearGradient(0, 0, 0, 30);
-  trail.addColorStop(0, '#00e5ffcc');
-  trail.addColorStop(1, '#ff3df700');
+  trail.addColorStop(0, ship.trailStart || '#00e5ffcc');
+  trail.addColorStop(1, ship.trailEnd || '#ff3df700');
   ctx.fillStyle = trail;
   ctx.beginPath();
   ctx.moveTo(0, 10);
@@ -62,10 +63,10 @@ export function drawPlayer(ctx, player, keys) {
   ctx.closePath();
   ctx.fill();
 
-  ctx.shadowColor = '#00e5ff88';
+  ctx.shadowColor = ship.glow || '#00e5ff88';
   ctx.shadowBlur = 12;
-  ctx.fillStyle = '#0ae6ff';
-  ctx.strokeStyle = '#ff3df7';
+  ctx.fillStyle = ship.primary || '#0ae6ff';
+  ctx.strokeStyle = ship.trim || '#ff3df7';
   ctx.lineWidth = 1.6;
   ctx.beginPath();
   ctx.moveTo(0, -16);
@@ -77,14 +78,21 @@ export function drawPlayer(ctx, player, keys) {
   ctx.stroke();
 
   ctx.shadowBlur = 0;
-  ctx.fillStyle = '#1efcff';
+  ctx.fillStyle = ship.cockpit || '#1efcff';
   ctx.beginPath();
   ctx.ellipse(0, -6, 5, 7, 0, 0, Math.PI * 2);
   ctx.fill();
 
   if (player.shield > 0) {
     ctx.globalAlpha = 0.6 + 0.4 * Math.sin(performance.now() * 0.01);
-    drawGlowCircle(ctx, 0, 0, player.r + 6, '#00e5ff55', '#00e5ff00');
+    drawGlowCircle(
+      ctx,
+      0,
+      0,
+      player.r + 6,
+      ship.shieldInner || '#00e5ff55',
+      ship.shieldOuter || '#00e5ff00',
+    );
   }
   ctx.restore();
 }

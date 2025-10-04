@@ -58,6 +58,13 @@
   <span class="pill">Time: <span id="time">0</span>s</span>
   <span class="pill">Weapon: <span id="weapon">Pulse Cannon · I</span></span>
   <span class="pill">Power-up: <span id="pup">—</span></span>
+  <span class="pill pill--theme">Theme:
+    <select id="theme-select" class="hud-theme">
+      <option value="synth-horizon">Synth Horizon</option>
+      <option value="luminous-depths">Luminous Depths</option>
+      <option value="ember-overdrive">Ember Overdrive</option>
+    </select>
+  </span>
 </div>
 
 <div id="msg">
@@ -103,6 +110,374 @@ const hudWeapon = document.getElementById('weapon');
 const hudPup   = document.getElementById('pup');
 const overlay  = document.getElementById('overlay');
 const startBtn = document.getElementById('btn');
+const themeSelect = document.getElementById('theme-select');
+
+const THEME_STORAGE_KEY = 'retro-space-run.theme';
+const DEFAULT_THEME_KEY = 'synth-horizon';
+const THEMES = {
+  'synth-horizon': {
+    label: 'Synth Horizon',
+    palette: {
+      background: {
+        gradient: 'radial-gradient(1200px 800px at 50% 20%, #0c0f2a 0%, #060712 60%, #03040b 100%)',
+        base: '#060712',
+      },
+      hud: {
+        text: '#e7faff',
+        shadow: '#00e5ff88',
+        panel: '#0a0d1acc',
+        accent: '#ff3df7',
+        secondary: '#00e5ff',
+      },
+      ship: {
+        primary: '#0ae6ff',
+        trim: '#ff3df7',
+        cockpit: '#1efcff',
+        glow: '#00e5ff88',
+        trailStart: '#00e5ffcc',
+        trailEnd: '#ff3df700',
+        shieldInner: '#00e5ff55',
+        shieldOuter: '#00e5ff00',
+      },
+      gate: {
+        glow: '#00e5ffaa',
+        fill: '#00e5ff',
+        trim: '#ff3df7',
+        strut: '#ff3df7',
+      },
+      stars: {
+        bright: '#00e5ff',
+        dim: '#ff3df7',
+      },
+      particles: {
+        shieldHit: '#00e5ff',
+        playerHit: '#ff3df7',
+        enemyHitDefault: '#00e5ff',
+        enemyHitStrafer: '#ff3df7',
+        bossHit: '#ff3df7',
+        bossCore: '#00e5ff',
+      },
+      enemies: {
+        asteroidFill: '#11293b',
+        asteroidStroke: '#00e5ff66',
+        asteroidGlow: '#00e5ff55',
+        straferFill: '#2e003b',
+        straferStroke: '#ff3df7',
+        straferGlow: '#ff3df799',
+        droneGlowInner: '#00e5ff88',
+        droneGlowOuter: '#00e5ff00',
+        droneCore: '#00e5ff',
+        turretFill: '#091a2c',
+        turretStroke: '#00e5ff',
+        turretGlow: '#00e5ff88',
+        turretBarrel: '#ff3df7',
+      },
+      boss: {
+        shadowPhase1: '#ff3df7aa',
+        shadowPhase2: '#ff9dfd',
+        bodyFill: '#1a0524',
+        strokePhase1: '#ff3df7',
+        strokePhase2: '#ffb5ff',
+        canopy: '#ffdbff',
+        coreGlow: '#ff3df7aa',
+        coreOuter: '#ff3df700',
+        beam: '#0ae6ff',
+        trim: '#00e5ff',
+        phase2Trim: '#ff3df7',
+        introText: '#ff3df7',
+        introGlow: '#ff3df788',
+        healthBackground: '#060712cc',
+        healthFill: '#ff3df7',
+        healthShadow: '#ff3df799',
+        healthStroke: '#00e5ffaa',
+        healthText: '#e7faff',
+      },
+      bullets: {
+        playerLevels: ['#ffb8ff', '#ffd6ff', '#ffeeff'],
+        enemyGlow: '#00e5ffaa',
+        enemyFill: '#8af5ff',
+      },
+      weaponToken: {
+        fill: '#ff3df7',
+        stroke: '#00e5ff',
+        glow: '#00e5ffaa',
+        text: '#00e5ff',
+      },
+      powerups: {
+        glow: '#ffffff',
+        shield: '#00e5ff',
+        rapid: '#ff3df7',
+        boost: '#ffffff',
+      },
+    },
+  },
+  'luminous-depths': {
+    label: 'Luminous Depths',
+    palette: {
+      background: {
+        gradient: 'radial-gradient(1200px 800px at 50% 20%, #041625 0%, #010910 60%, #000407 100%)',
+        base: '#010910',
+      },
+      hud: {
+        text: '#d9faff',
+        shadow: '#24f5d988',
+        panel: '#03141fcc',
+        accent: '#24f5d9',
+        secondary: '#1680ff',
+      },
+      ship: {
+        primary: '#24f5d9',
+        trim: '#1680ff',
+        cockpit: '#9df5ff',
+        glow: '#2df5d988',
+        trailStart: '#24f5d9cc',
+        trailEnd: '#1680ff00',
+        shieldInner: '#24f5d955',
+        shieldOuter: '#1680ff00',
+      },
+      gate: {
+        glow: '#24f5d9aa',
+        fill: '#24f5d9',
+        trim: '#1680ff',
+        strut: '#1680ff',
+      },
+      stars: {
+        bright: '#24f5d9',
+        dim: '#1680ff',
+      },
+      particles: {
+        shieldHit: '#24f5d9',
+        playerHit: '#1680ff',
+        enemyHitDefault: '#24f5d9',
+        enemyHitStrafer: '#1680ff',
+        bossHit: '#1680ff',
+        bossCore: '#24f5d9',
+      },
+      enemies: {
+        asteroidFill: '#082839',
+        asteroidStroke: '#1db0ff66',
+        asteroidGlow: '#24f5d955',
+        straferFill: '#021732',
+        straferStroke: '#1680ff',
+        straferGlow: '#1680ff99',
+        droneGlowInner: '#24f5d988',
+        droneGlowOuter: '#1680ff00',
+        droneCore: '#24f5d9',
+        turretFill: '#031e30',
+        turretStroke: '#24f5d9',
+        turretGlow: '#24f5d988',
+        turretBarrel: '#1680ff',
+      },
+      boss: {
+        shadowPhase1: '#1680ffaa',
+        shadowPhase2: '#51c5ff',
+        bodyFill: '#021524',
+        strokePhase1: '#1680ff',
+        strokePhase2: '#6ad5ff',
+        canopy: '#c5f1ff',
+        coreGlow: '#24f5d9aa',
+        coreOuter: '#1680ff00',
+        beam: '#24f5d9',
+        trim: '#24f5d9',
+        phase2Trim: '#1680ff',
+        introText: '#24f5d9',
+        introGlow: '#24f5d988',
+        healthBackground: '#02141dcc',
+        healthFill: '#1680ff',
+        healthShadow: '#1680ff99',
+        healthStroke: '#24f5d9aa',
+        healthText: '#d9faff',
+      },
+      bullets: {
+        playerLevels: ['#a5f6ff', '#c2fbff', '#e2ffff'],
+        enemyGlow: '#24f5d9aa',
+        enemyFill: '#9df5ff',
+      },
+      weaponToken: {
+        fill: '#1680ff',
+        stroke: '#24f5d9',
+        glow: '#24f5d9aa',
+        text: '#24f5d9',
+      },
+      powerups: {
+        glow: '#f4ffff',
+        shield: '#24f5d9',
+        rapid: '#1680ff',
+        boost: '#f4ffff',
+      },
+    },
+  },
+  'ember-overdrive': {
+    label: 'Ember Overdrive',
+    palette: {
+      background: {
+        gradient: 'radial-gradient(1200px 800px at 50% 20%, #2b0b00 0%, #120302 60%, #070101 100%)',
+        base: '#120302',
+      },
+      hud: {
+        text: '#ffeada',
+        shadow: '#ff7b3988',
+        panel: '#200804cc',
+        accent: '#ff7b39',
+        secondary: '#ffbd2d',
+      },
+      ship: {
+        primary: '#ff7b39',
+        trim: '#ffbd2d',
+        cockpit: '#ffd9a6',
+        glow: '#ff7b3988',
+        trailStart: '#ff7b39cc',
+        trailEnd: '#ffbd2d00',
+        shieldInner: '#ff7b3955',
+        shieldOuter: '#ffbd2d00',
+      },
+      gate: {
+        glow: '#ff7b39aa',
+        fill: '#ff7b39',
+        trim: '#ffbd2d',
+        strut: '#ffbd2d',
+      },
+      stars: {
+        bright: '#ffbd2d',
+        dim: '#ff7b39',
+      },
+      particles: {
+        shieldHit: '#ffbd2d',
+        playerHit: '#ff7b39',
+        enemyHitDefault: '#ffbd2d',
+        enemyHitStrafer: '#ff7b39',
+        bossHit: '#ff7b39',
+        bossCore: '#ffbd2d',
+      },
+      enemies: {
+        asteroidFill: '#2f1208',
+        asteroidStroke: '#ff9b3666',
+        asteroidGlow: '#ff7b3955',
+        straferFill: '#2b0500',
+        straferStroke: '#ff7b39',
+        straferGlow: '#ff7b3999',
+        droneGlowInner: '#ffbd2d88',
+        droneGlowOuter: '#ff7b3900',
+        droneCore: '#ffbd2d',
+        turretFill: '#2a0b05',
+        turretStroke: '#ffbd2d',
+        turretGlow: '#ffbd2d88',
+        turretBarrel: '#ff7b39',
+      },
+      boss: {
+        shadowPhase1: '#ff7b39aa',
+        shadowPhase2: '#ffb37a',
+        bodyFill: '#2a0400',
+        strokePhase1: '#ff7b39',
+        strokePhase2: '#ffbd2d',
+        canopy: '#ffe6c6',
+        coreGlow: '#ff7b39aa',
+        coreOuter: '#ffbd2d00',
+        beam: '#ffbd2d',
+        trim: '#ffbd2d',
+        phase2Trim: '#ff7b39',
+        introText: '#ff7b39',
+        introGlow: '#ff7b3988',
+        healthBackground: '#1a0502cc',
+        healthFill: '#ff7b39',
+        healthShadow: '#ff7b3999',
+        healthStroke: '#ffbd2daa',
+        healthText: '#ffeada',
+      },
+      bullets: {
+        playerLevels: ['#ffd9a6', '#ffe7c0', '#fff4da'],
+        enemyGlow: '#ffbd2daa',
+        enemyFill: '#ffd18c',
+      },
+      weaponToken: {
+        fill: '#ff7b39',
+        stroke: '#ffbd2d',
+        glow: '#ff7b39aa',
+        text: '#ffbd2d',
+      },
+      powerups: {
+        glow: '#fff1e3',
+        shield: '#ffbd2d',
+        rapid: '#ff7b39',
+        boost: '#fff1e3',
+      },
+    },
+  },
+};
+
+function getThemeKeys(){
+  return Object.keys(THEMES);
+}
+
+function getThemePalette(key){
+  return THEMES[key]?.palette || THEMES[DEFAULT_THEME_KEY].palette;
+}
+
+function getThemeLabel(key){
+  return THEMES[key]?.label || key;
+}
+
+let activeThemeKey = DEFAULT_THEME_KEY;
+try {
+  const stored = window.localStorage?.getItem(THEME_STORAGE_KEY);
+  if (stored && THEMES[stored]) {
+    activeThemeKey = stored;
+  }
+} catch (err) {}
+
+let themePalette = getThemePalette(activeThemeKey);
+
+function applyThemeToDocument(palette){
+  const root = document.documentElement;
+  root.style.setProperty('--mag', palette.hud.accent);
+  root.style.setProperty('--cyn', palette.hud.secondary);
+  root.style.setProperty('--hud', palette.hud.text);
+  root.style.setProperty('--bg', palette.background.base);
+  if (document.body){
+    document.body.style.background = palette.background.gradient;
+  }
+  const hud = document.getElementById('hud');
+  if (hud){
+    hud.style.textShadow = `0 0 6px ${palette.hud.secondary}88, 0 0 12px ${palette.hud.accent}44`;
+  }
+}
+
+function populateThemeControl(){
+  if (!themeSelect) return;
+  themeSelect.innerHTML = '';
+  for (const key of getThemeKeys()){
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = getThemeLabel(key);
+    themeSelect.appendChild(opt);
+  }
+}
+
+function syncThemeControl(){
+  if (themeSelect){
+    themeSelect.value = activeThemeKey;
+  }
+}
+
+function setTheme(key, persist=true){
+  if (!THEMES[key]) return;
+  activeThemeKey = key;
+  themePalette = getThemePalette(key);
+  state.theme = themePalette;
+  syncThemeControl();
+  if (persist){
+    try { window.localStorage?.setItem(THEME_STORAGE_KEY, key); } catch (err) {}
+  }
+  applyThemeToDocument(themePalette);
+}
+
+populateThemeControl();
+applyThemeToDocument(themePalette);
+syncThemeControl();
+
+if (themeSelect){
+  themeSelect.addEventListener('change', e => setTheme(e.target.value));
+}
 
 // ===== Input =====
 const keys = new Set();
@@ -150,7 +525,8 @@ const state = {
   speed: 260,
   scrollY: 0,
   power: {name:null, until:0},
-  weapon: {name:'pulse', level:0}
+  weapon: {name:'pulse', level:0},
+  theme: themePalette,
 };
 
 // ===== Starfield =====
@@ -195,28 +571,26 @@ const ROMAN = ['I','II','III'];
 const weaponDefs = {
   pulse: {
     label: 'Pulse Cannon',
-    tokenFill: '#ff3df7',
-    tokenStroke: '#00e5ff',
     levels: [
       {
         delay: 210,
         projectiles: [
-          { offsetX: 0, offsetY: -18, vx: 0, vy: -620, damage: 1, colour: '#ffb8ff' },
+          { offsetX: 0, offsetY: -18, vx: 0, vy: -620, damage: 1, colourIndex: 0 },
         ],
       },
       {
         delay: 160,
         projectiles: [
-          { offsetX: -12, offsetY: -18, vx: -110, vy: -630, damage: 1, colour: '#ffd6ff' },
-          { offsetX: 12, offsetY: -18, vx: 110, vy: -630, damage: 1, colour: '#ffd6ff' },
+          { offsetX: -12, offsetY: -18, vx: -110, vy: -630, damage: 1, colourIndex: 1 },
+          { offsetX: 12, offsetY: -18, vx: 110, vy: -630, damage: 1, colourIndex: 1 },
         ],
       },
       {
         delay: 140,
         projectiles: [
-          { offsetX: -16, offsetY: -14, vx: -180, vy: -650, damage: 1.4, colour: '#ffeeff' },
-          { offsetX: 0, offsetY: -22, vx: 0, vy: -720, damage: 1.4, colour: '#ffeeff' },
-          { offsetX: 16, offsetY: -14, vx: 180, vy: -650, damage: 1.4, colour: '#ffeeff' },
+          { offsetX: -16, offsetY: -14, vx: -180, vy: -650, damage: 1.4, colourIndex: 2 },
+          { offsetX: 0, offsetY: -22, vx: 0, vy: -720, damage: 1.4, colourIndex: 2 },
+          { offsetX: 16, offsetY: -14, vx: 180, vy: -650, damage: 1.4, colourIndex: 2 },
         ],
       },
     ],
@@ -225,6 +599,14 @@ const weaponDefs = {
 const DROP_CHANCE = 0.18;
 const DROP_LIFETIME = 10000;
 const BOSS_HP = 540;
+
+function projectileColour(index=0){
+  const palette = state.theme?.bullets?.playerLevels;
+  const fallback = ['#ffb8ff', '#ffd6ff', '#ffeeff'];
+  const colours = Array.isArray(palette) && palette.length ? palette : fallback;
+  const idx = Math.max(0, Math.min(colours.length - 1, index));
+  return colours[idx];
+}
 
 function weaponLabel(){
   const def = weaponDefs[state.weapon.name];
@@ -289,12 +671,15 @@ function updateWeaponDrops(dt){
 
 function drawWeaponDrop(drop){
   const def = weaponDefs[drop.weapon];
-  const fill = def? def.tokenFill : '#ff3df7';
-  const stroke = def? def.tokenStroke : '#00e5ff';
+  const tokenPalette = state.theme?.weaponToken || {};
+  const fill = tokenPalette.fill || '#ff3df7';
+  const stroke = tokenPalette.stroke || '#00e5ff';
+  const glow = tokenPalette.glow || `${stroke}aa`;
+  const textColour = tokenPalette.text || stroke;
   ctx.save();
   ctx.translate(drop.x, drop.y);
   ctx.rotate(drop.spin||0);
-  ctx.shadowColor = stroke + 'aa';
+  ctx.shadowColor = glow;
   ctx.shadowBlur = 12;
   ctx.fillStyle = fill;
   ctx.beginPath();
@@ -308,7 +693,7 @@ function drawWeaponDrop(drop){
   ctx.strokeStyle = stroke;
   ctx.lineWidth = 2;
   ctx.stroke();
-  ctx.fillStyle = stroke;
+  ctx.fillStyle = textColour;
   ctx.font = '10px "IBM Plex Mono", monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -349,6 +734,7 @@ function pushBossShot(x, y, speed, angle, radius = 8){
 function updateBoss(dt, now){
   const boss = state.boss;
   if (!boss) return;
+  const particles = state.theme?.particles || {};
 
   if (boss.entering){
     boss.y += boss.vy * dt;
@@ -364,7 +750,7 @@ function updateBoss(dt, now){
     boss.phase = 2;
     boss.cooldown = 500;
     boss.volleyTimer = 400;
-    addParticle(boss.x, boss.y, '#ff3df7', 40, 4, 800);
+    addParticle(boss.x, boss.y, particles.bossHit || '#ff3df7', 40, 4, 800);
   }
 
   boss.intro = Math.max(0, (boss.intro||0) - dt*1000);
@@ -411,12 +797,13 @@ function updateBoss(dt, now){
 
 function drawBoss(boss){
   if (!boss) return;
+  const bossPalette = state.theme?.boss || {};
   ctx.save();
   ctx.translate(boss.x, boss.y);
-  ctx.shadowColor = boss.phase===2 ? '#ff9dfd' : '#ff3df7aa';
+  ctx.shadowColor = boss.phase===2 ? (bossPalette.shadowPhase2 || '#ff9dfd') : (bossPalette.shadowPhase1 || '#ff3df7aa');
   ctx.shadowBlur = boss.phase===2 ? 40 : 28;
-  ctx.fillStyle = '#1a0524';
-  ctx.strokeStyle = boss.phase===2 ? '#ffb5ff' : '#ff3df7';
+  ctx.fillStyle = bossPalette.bodyFill || '#1a0524';
+  ctx.strokeStyle = boss.phase===2 ? (bossPalette.strokePhase2 || '#ffb5ff') : (bossPalette.strokePhase1 || '#ff3df7');
   ctx.lineWidth = 3;
   ctx.beginPath();
   ctx.moveTo(-60, 20);
@@ -428,15 +815,15 @@ function drawBoss(boss){
   ctx.fill();
   ctx.stroke();
   ctx.shadowBlur = 0;
-  ctx.fillStyle = boss.phase===2 ? '#ffdbff' : '#ffd0ff';
+  ctx.fillStyle = bossPalette.canopy || (boss.phase===2 ? '#ffdbff' : '#ffd0ff');
   ctx.fillRect(-14, -16, 28, 32);
-  drawGlowCircle(0,0,16,'#ff3df7aa','#ff3df700');
-  ctx.fillStyle = '#0ae6ff';
+  drawGlowCircle(0,0,16, bossPalette.coreGlow || '#ff3df7aa', bossPalette.coreOuter || '#ff3df700');
+  ctx.fillStyle = bossPalette.beam || '#0ae6ff';
   ctx.fillRect(-4,-10,8,20);
-  ctx.fillStyle = '#00e5ff';
+  ctx.fillStyle = bossPalette.trim || '#00e5ff';
   ctx.fillRect(-22,12,44,6);
   if (boss.phase===2){
-    ctx.fillStyle = '#ff3df7';
+    ctx.fillStyle = bossPalette.phase2Trim || '#ff3df7';
     ctx.fillRect(-40,24,80,6);
   }
   if (boss.intro > 0){
@@ -444,8 +831,8 @@ function drawBoss(boss){
     ctx.translate(0,-80);
     ctx.font = '18px "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#ff3df7';
-    ctx.shadowColor = '#ff3df788';
+    ctx.fillStyle = bossPalette.introText || '#ff3df7';
+    ctx.shadowColor = bossPalette.introGlow || '#ff3df788';
     ctx.shadowBlur = 12;
     ctx.fillText('WARNING — CORE GUARDIAN', 0,0);
     ctx.restore();
@@ -456,24 +843,25 @@ function drawBoss(boss){
 function drawBossHealth(){
   const boss = state.boss;
   if (!boss) return;
+  const bossPalette = state.theme?.boss || {};
   const width = Math.min(canvas.width*0.5, 420);
   const x = (canvas.width - width)/2;
   const y = 42;
   const ratio = Math.max(0, boss.hp) / boss.maxHp;
   ctx.save();
-  ctx.fillStyle = '#060712cc';
+  ctx.fillStyle = bossPalette.healthBackground || '#060712cc';
   ctx.fillRect(x,y,width,12);
-  ctx.shadowColor = '#ff3df799';
+  ctx.shadowColor = bossPalette.healthShadow || '#ff3df799';
   ctx.shadowBlur = 14;
-  ctx.fillStyle = '#ff3df7';
+  ctx.fillStyle = bossPalette.healthFill || '#ff3df7';
   ctx.fillRect(x,y,width*ratio,12);
   ctx.shadowBlur = 0;
-  ctx.strokeStyle = '#00e5ffaa';
+  ctx.strokeStyle = bossPalette.healthStroke || '#00e5ffaa';
   ctx.lineWidth = 2;
   ctx.strokeRect(x-1,y-1,width+2,14);
   ctx.font = '14px "Segoe UI", sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#e7faff';
+  ctx.fillStyle = bossPalette.healthText || '#e7faff';
   ctx.fillText(`Boss Integrity ${Math.ceil(ratio*100)}%`, canvas.width/2, y-6);
   ctx.restore();
 }
@@ -556,6 +944,7 @@ function start(){
   state.bullets.length=0; state.enemies.length=0; state.enemyBullets.length=0;
   state.powerups.length=0; state.weaponDrops.length=0; state.particles.length=0; state.finishGate=null;
   state.boss=null; state.bossSpawned=false; state.bossDefeatedAt=0;
+  state.theme = themePalette;
   spawnStars(); makePlayer(); resetWeapon();
   hudLives.textContent = state.lives;
   hudScore.textContent = state.score;
@@ -584,27 +973,29 @@ function drawGlowCircle(x,y,r, c1, c2){
   ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,TAU); ctx.fill();
 }
 function drawShip(p){
+  const ship = state.theme?.ship || {};
   ctx.save();
   ctx.translate(p.x, p.y);
   const tilt = clamp((keys.has('arrowleft')||keys.has('a')?-1:0)+(keys.has('arrowright')||keys.has('d')?1:0), -1, 1);
   ctx.rotate(tilt*0.08);
   const engLen = 14 + (Math.sin(performance.now()*0.02)+1)*6;
   const trail = ctx.createLinearGradient(0,0,0,30);
-  trail.addColorStop(0,'#00e5ffcc'); trail.addColorStop(1,'#ff3df700');
+  trail.addColorStop(0, ship.trailStart || '#00e5ffcc');
+  trail.addColorStop(1, ship.trailEnd || '#ff3df700');
   ctx.fillStyle=trail;
   ctx.beginPath(); ctx.moveTo(0,10); ctx.lineTo(-6,24+engLen); ctx.lineTo(6,24+engLen); ctx.closePath(); ctx.fill();
-  ctx.shadowColor='#00e5ff88'; ctx.shadowBlur=12;
-  ctx.fillStyle='#0ae6ff'; ctx.strokeStyle='#ff3df7';
+  ctx.shadowColor=ship.glow || '#00e5ff88'; ctx.shadowBlur=12;
+  ctx.fillStyle=ship.primary || '#0ae6ff'; ctx.strokeStyle=ship.trim || '#ff3df7';
   ctx.lineWidth=1.6;
   ctx.beginPath();
   ctx.moveTo(0,-16); ctx.lineTo(12,10); ctx.lineTo(0,16); ctx.lineTo(-12,10); ctx.closePath();
   ctx.fill(); ctx.stroke();
   ctx.shadowBlur=0;
-  ctx.fillStyle='#1efcff';
+  ctx.fillStyle=ship.cockpit || '#1efcff';
   ctx.beginPath(); ctx.ellipse(0,-6,5,7,0,0,TAU); ctx.fill();
   if (p.shield>0){
     ctx.globalAlpha = 0.6 + 0.4*Math.sin(performance.now()*0.01);
-    drawGlowCircle(0,0,p.r+6,'#00e5ff55','#00e5ff00');
+    drawGlowCircle(0,0,p.r+6, ship.shieldInner || '#00e5ff55', ship.shieldOuter || '#00e5ff00');
   }
   ctx.restore();
 }
@@ -618,55 +1009,59 @@ function drawBullet(b){
   ctx.restore();
 }
 function drawEnemy(e){
+  const enemyPalette = state.theme?.enemies || {};
   ctx.save(); ctx.translate(e.x,e.y);
   if (e.type==='asteroid'){
-    ctx.shadowColor='#00e5ff55'; ctx.shadowBlur=6;
-    ctx.fillStyle='#11293b'; ctx.strokeStyle='#00e5ff66'; ctx.lineWidth=1;
+    ctx.shadowColor=enemyPalette.asteroidGlow || '#00e5ff55'; ctx.shadowBlur=6;
+    ctx.fillStyle=enemyPalette.asteroidFill || '#11293b'; ctx.strokeStyle=enemyPalette.asteroidStroke || '#00e5ff66'; ctx.lineWidth=1;
     ctx.beginPath(); for(let i=0;i<7;i++){ const ang=i/7*TAU, rr=e.r+rand(-4,4); ctx.lineTo(Math.cos(ang)*rr, Math.sin(ang)*rr); } ctx.closePath();
     ctx.fill(); ctx.stroke();
   } else if (e.type==='strafer'){
-    ctx.shadowColor='#ff3df799'; ctx.shadowBlur=10;
-    ctx.fillStyle='#2e003b'; ctx.strokeStyle='#ff3df7'; ctx.lineWidth=1.5;
+    ctx.shadowColor=enemyPalette.straferGlow || '#ff3df799'; ctx.shadowBlur=10;
+    ctx.fillStyle=enemyPalette.straferFill || '#2e003b'; ctx.strokeStyle=enemyPalette.straferStroke || '#ff3df7'; ctx.lineWidth=1.5;
     ctx.beginPath(); ctx.moveTo(-14,0); ctx.lineTo(0,-10); ctx.lineTo(14,0); ctx.lineTo(0,10); ctx.closePath(); ctx.fill(); ctx.stroke();
   } else if (e.type==='drone'){
-    ctx.shadowColor='#00e5ffaa'; ctx.shadowBlur=12;
-    drawGlowCircle(0,0,e.r,'#00e5ff88','#00e5ff00');
-    ctx.fillStyle='#00e5ff'; ctx.fillRect(-2,-2,4,4);
+    ctx.shadowColor=enemyPalette.droneGlowInner || '#00e5ffaa'; ctx.shadowBlur=12;
+    drawGlowCircle(0,0,e.r, enemyPalette.droneGlowInner || '#00e5ff88', enemyPalette.droneGlowOuter || '#00e5ff00');
+    ctx.fillStyle=enemyPalette.droneCore || '#00e5ff'; ctx.fillRect(-2,-2,4,4);
   } else if (e.type==='turret'){
-    ctx.shadowColor='#00e5ff88'; ctx.shadowBlur=12;
-    ctx.fillStyle='#091a2c'; ctx.strokeStyle='#00e5ff'; ctx.lineWidth=1.8;
+    ctx.shadowColor=enemyPalette.turretGlow || '#00e5ff88'; ctx.shadowBlur=12;
+    ctx.fillStyle=enemyPalette.turretFill || '#091a2c'; ctx.strokeStyle=enemyPalette.turretStroke || '#00e5ff'; ctx.lineWidth=1.8;
     ctx.beginPath(); ctx.arc(0,0,12,0,TAU); ctx.fill(); ctx.stroke();
-    ctx.fillStyle='#ff3df7'; ctx.fillRect(-2,-8,4,8);
+    ctx.fillStyle=enemyPalette.turretBarrel || '#ff3df7'; ctx.fillRect(-2,-8,4,8);
   }
   ctx.restore();
 }
 function drawEnemyBullet(b){
+  const bulletPalette = state.theme?.bullets || {};
   ctx.save(); ctx.translate(b.x,b.y);
-  ctx.shadowColor='#00e5ffaa'; ctx.shadowBlur=8;
-  ctx.fillStyle='#8af5ff'; ctx.fillRect(-2,-5,4,9);
+  ctx.shadowColor=bulletPalette.enemyGlow || '#00e5ffaa'; ctx.shadowBlur=8;
+  ctx.fillStyle=bulletPalette.enemyFill || '#8af5ff'; ctx.fillRect(-2,-5,4,9);
   ctx.restore();
 }
 function drawPowerUp(p){
+  const powerPalette = state.theme?.powerups || {};
   ctx.save(); ctx.translate(p.x,p.y);
-  ctx.shadowColor='#fff'; ctx.shadowBlur=10;
+  ctx.shadowColor=powerPalette.glow || '#fff'; ctx.shadowBlur=10;
   if (p.type==='shield'){
-    ctx.strokeStyle='#00e5ff'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(0,0,10,0,TAU); ctx.stroke();
+    ctx.strokeStyle=powerPalette.shield || '#00e5ff'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(0,0,10,0,TAU); ctx.stroke();
   } else if (p.type==='rapid'){
-    ctx.strokeStyle='#ff3df7'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(-8,-6); ctx.lineTo(8,6); ctx.moveTo(-8,6); ctx.lineTo(8,-6); ctx.stroke();
+    ctx.strokeStyle=powerPalette.rapid || '#ff3df7'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(-8,-6); ctx.lineTo(8,6); ctx.moveTo(-8,6); ctx.lineTo(8,-6); ctx.stroke();
   } else if (p.type==='boost'){
-    ctx.strokeStyle='#ffffff'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(0,-10); ctx.lineTo(-6,8); ctx.lineTo(6,8); ctx.closePath(); ctx.stroke();
+    ctx.strokeStyle=powerPalette.boost || '#ffffff'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(0,-10); ctx.lineTo(-6,8); ctx.lineTo(6,8); ctx.closePath(); ctx.stroke();
   }
   ctx.restore();
 }
 function drawGate(g){
+  const gatePalette = state.theme?.gate || {};
   ctx.save(); ctx.translate(g.x, g.y);
   const w=g.w, h=g.h;
   const glow = (Math.sin(performance.now()*0.003)+1)*0.5;
-  ctx.shadowColor='#00e5ffaa'; ctx.shadowBlur=20+20*glow;
-  ctx.fillStyle='#00e5ff';
+  ctx.shadowColor=gatePalette.glow || '#00e5ffaa'; ctx.shadowBlur=20+20*glow;
+  ctx.fillStyle=gatePalette.fill || '#00e5ff';
   ctx.fillRect(-w/2,-h/2,w,h);
   ctx.shadowBlur=0;
-  ctx.strokeStyle='#ff3df7'; ctx.lineWidth=3;
+  ctx.strokeStyle=gatePalette.strut || gatePalette.trim || '#ff3df7'; ctx.lineWidth=3;
   ctx.beginPath();
   ctx.moveTo(-w/2, -40); ctx.lineTo(-w/2, 40);
   ctx.moveTo(w/2, -40); ctx.lineTo(w/2, 40);
@@ -697,10 +1092,12 @@ function loop(now){
     s.y += (60*s.z + state.speed*0.05* s.z) * dt;
     if (s.y>canvas.height){ s.y = -2; s.x = rand(0,canvas.width); }
     ctx.globalAlpha = 0.4*s.z;
-    ctx.fillStyle = s.z>1.1?'#00e5ff':'#ff3df7';
+    const starPalette = state.theme?.stars || {};
+    ctx.fillStyle = s.z>1.1 ? (starPalette.bright || '#00e5ff') : (starPalette.dim || '#ff3df7');
     ctx.fillRect(s.x, s.y, 2,2);
   }
   ctx.globalAlpha = 1;
+  const particles = state.theme?.particles || {};
 
   const p = state.player;
   const accel = (state.power.name==='boost')? 560: 380;
@@ -730,7 +1127,7 @@ function loop(now){
         vy: proj.vy,
         r: 6,
         damage: proj.damage,
-        colour: proj.colour,
+        colour: projectileColour(proj.colourIndex || 0),
         life: 1200,
       });
     }
@@ -816,7 +1213,8 @@ function loop(now){
       if (coll(e,b, -4)){
         state.bullets.splice(j,1);
         e.hp -= b.damage || 1;
-        addParticle(e.x,e.y, e.type==='strafer'? '#ff3df7':'#00e5ff', 12, 2.6, 300);
+        const enemyCol = e.type==='strafer' ? (particles.enemyHitStrafer || '#ff3df7') : (particles.enemyHitDefault || '#00e5ff');
+        addParticle(e.x,e.y, enemyCol, 12, 2.6, 300);
         if (e.hp<=0){
           state.enemies.splice(i,1);
           state.score += 25;
@@ -835,11 +1233,11 @@ function loop(now){
       if (coll(state.boss, b, -12)){
         state.bullets.splice(j,1);
         state.boss.hp -= b.damage || 1;
-        addParticle(state.boss.x, state.boss.y,'#ff3df7',18,3.4,320);
+        addParticle(state.boss.x, state.boss.y, particles.bossHit || '#ff3df7',18,3.4,320);
         hit();
         if (state.boss.hp<=0){
-          addParticle(state.boss.x, state.boss.y,'#ff3df7',60,5,1000);
-          addParticle(state.boss.x, state.boss.y,'#00e5ff',40,4,1000);
+          addParticle(state.boss.x, state.boss.y, particles.bossHit || '#ff3df7',60,5,1000);
+          addParticle(state.boss.x, state.boss.y, particles.bossCore || '#00e5ff',40,4,1000);
           pow();
           state.score += 600;
           hudScore.textContent = state.score;
@@ -854,10 +1252,10 @@ function loop(now){
   }
 
   function playerHit(){
-    if (p.shield>0){ p.shield-=400; addParticle(p.x,p.y,'#00e5ff',20,3,400); hit(); return; }
+    if (p.shield>0){ p.shield-=400; addParticle(p.x,p.y,particles.shieldHit || '#00e5ff',20,3,400); hit(); return; }
     if (p.invuln>0) return;
     state.lives--; hudLives.textContent = state.lives;
-    addParticle(p.x,p.y,'#ff3df7',30,3.2,500); zap();
+    addParticle(p.x,p.y,particles.playerHit || '#ff3df7',30,3.2,500); zap();
     p.invuln = 2000;
     if (state.lives<=0){ gameOver(false); }
   }

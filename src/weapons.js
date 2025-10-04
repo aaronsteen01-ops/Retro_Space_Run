@@ -10,28 +10,26 @@ const ROMAN = ['I', 'II', 'III'];
 const weaponDefs = {
   pulse: {
     label: 'Pulse Cannon',
-    tokenFill: '#ff3df7',
-    tokenStroke: '#00e5ff',
     levels: [
       {
         delay: 210,
         projectiles: [
-          { offsetX: 0, offsetY: -18, vx: 0, vy: -620, damage: 1, colour: '#ffb8ff' },
+          { offsetX: 0, offsetY: -18, vx: 0, vy: -620, damage: 1, colourIndex: 0 },
         ],
       },
       {
         delay: 160,
         projectiles: [
-          { offsetX: -12, offsetY: -18, vx: -110, vy: -630, damage: 1, colour: '#ffd6ff' },
-          { offsetX: 12, offsetY: -18, vx: 110, vy: -630, damage: 1, colour: '#ffd6ff' },
+          { offsetX: -12, offsetY: -18, vx: -110, vy: -630, damage: 1, colourIndex: 1 },
+          { offsetX: 12, offsetY: -18, vx: 110, vy: -630, damage: 1, colourIndex: 1 },
         ],
       },
       {
         delay: 140,
         projectiles: [
-          { offsetX: -16, offsetY: -14, vx: -180, vy: -650, damage: 1.4, colour: '#ffeeff' },
-          { offsetX: 0, offsetY: -22, vx: 0, vy: -720, damage: 1.4, colour: '#ffeeff' },
-          { offsetX: 16, offsetY: -14, vx: 180, vy: -650, damage: 1.4, colour: '#ffeeff' },
+          { offsetX: -16, offsetY: -14, vx: -180, vy: -650, damage: 1.4, colourIndex: 2 },
+          { offsetX: 0, offsetY: -22, vx: 0, vy: -720, damage: 1.4, colourIndex: 2 },
+          { offsetX: 16, offsetY: -14, vx: 180, vy: -650, damage: 1.4, colourIndex: 2 },
         ],
       },
     ],
@@ -88,6 +86,14 @@ export function setupWeapons(state) {
   updateWeapon(getWeaponLabel(state.weapon));
 }
 
+function projectileColour(state, index = 0) {
+  const palette = state.theme?.bullets?.playerLevels;
+  const fallback = ['#ffb8ff', '#ffd6ff', '#ffeeff'];
+  const colours = Array.isArray(palette) && palette.length ? palette : fallback;
+  const idx = Math.max(0, Math.min(colours.length - 1, index));
+  return colours[idx];
+}
+
 function spawnProjectile(state, projectile) {
   state.bullets.push({
     x: state.player.x + projectile.offsetX,
@@ -96,7 +102,7 @@ function spawnProjectile(state, projectile) {
     vy: projectile.vy,
     r: 6,
     damage: projectile.damage,
-    colour: projectile.colour,
+    colour: projectileColour(state, projectile.colourIndex ?? 0),
     life: 1200,
   });
 }
@@ -164,13 +170,14 @@ export function updateEnemyBullets(state, dt, canvas) {
   }
 }
 
-export function drawEnemyBullets(ctx, bullets) {
+export function drawEnemyBullets(ctx, bullets, palette) {
+  const bulletPalette = palette?.bullets ?? {};
   for (const b of bullets) {
     ctx.save();
     ctx.translate(b.x, b.y);
-    ctx.shadowColor = '#00e5ffaa';
+    ctx.shadowColor = bulletPalette.enemyGlow || '#00e5ffaa';
     ctx.shadowBlur = 8;
-    ctx.fillStyle = '#8af5ff';
+    ctx.fillStyle = bulletPalette.enemyFill || '#8af5ff';
     ctx.fillRect(-2, -5, 4, 9);
     ctx.restore();
   }
@@ -229,15 +236,17 @@ export function updateWeaponDrops(state, dt, canvas) {
   }
 }
 
-export function drawWeaponDrops(ctx, drops) {
+export function drawWeaponDrops(ctx, drops, palette) {
+  const tokenPalette = palette?.weaponToken ?? {};
   for (const drop of drops) {
     const def = weaponDefs[drop.weapon];
-    const fill = def?.tokenFill || '#ff3df7';
-    const stroke = def?.tokenStroke || '#00e5ff';
+    const fill = tokenPalette.fill || '#ff3df7';
+    const stroke = tokenPalette.stroke || '#00e5ff';
+    const glow = tokenPalette.glow || `${stroke}aa`;
     ctx.save();
     ctx.translate(drop.x, drop.y);
     ctx.rotate(drop.spin || 0);
-    ctx.shadowColor = stroke + 'aa';
+    ctx.shadowColor = glow;
     ctx.shadowBlur = 12;
     ctx.fillStyle = fill;
     ctx.beginPath();
@@ -251,7 +260,7 @@ export function drawWeaponDrops(ctx, drops) {
     ctx.strokeStyle = stroke;
     ctx.lineWidth = 2;
     ctx.stroke();
-    ctx.fillStyle = stroke;
+    ctx.fillStyle = tokenPalette.text || stroke;
     ctx.font = '10px "IBM Plex Mono", monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';

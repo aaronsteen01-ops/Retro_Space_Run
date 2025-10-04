@@ -169,11 +169,12 @@ export function spawnBoss(state, canvas) {
   return boss;
 }
 
-export function updateBoss(state, dt, now, player, canvas) {
+export function updateBoss(state, dt, now, player, canvas, palette) {
   const boss = state.boss;
   if (!boss) {
     return;
   }
+  const particles = palette?.particles ?? {};
 
   if (boss.entering) {
     boss.y += boss.vy * dt;
@@ -189,7 +190,7 @@ export function updateBoss(state, dt, now, player, canvas) {
     boss.phase = 2;
     boss.cooldown = 500;
     boss.volleyTimer = 400;
-    addParticle(state, boss.x, boss.y, '#ff3df7', 40, 4, 800);
+    addParticle(state, boss.x, boss.y, particles.bossHit || '#ff3df7', 40, 4, 800);
   }
 
   boss.introTimer = Math.max(0, boss.introTimer - dt * 1000);
@@ -239,16 +240,21 @@ export function updateBoss(state, dt, now, player, canvas) {
   }
 }
 
-export function drawBoss(ctx, boss) {
+export function drawBoss(ctx, boss, palette) {
   if (!boss) {
     return;
   }
+  const bossPalette = palette?.boss ?? {};
   ctx.save();
   ctx.translate(boss.x, boss.y);
-  ctx.shadowColor = boss.phase === 2 ? '#ff9dfd' : '#ff3df7aa';
+  ctx.shadowColor = boss.phase === 2
+    ? bossPalette.shadowPhase2 || '#ff9dfd'
+    : bossPalette.shadowPhase1 || '#ff3df7aa';
   ctx.shadowBlur = boss.phase === 2 ? 40 : 28;
-  ctx.fillStyle = '#1a0524';
-  ctx.strokeStyle = boss.phase === 2 ? '#ffb5ff' : '#ff3df7';
+  ctx.fillStyle = bossPalette.bodyFill || '#1a0524';
+  ctx.strokeStyle = boss.phase === 2
+    ? bossPalette.strokePhase2 || '#ffb5ff'
+    : bossPalette.strokePhase1 || '#ff3df7';
   ctx.lineWidth = 3;
   ctx.beginPath();
   ctx.moveTo(-60, 20);
@@ -260,15 +266,22 @@ export function drawBoss(ctx, boss) {
   ctx.fill();
   ctx.stroke();
   ctx.shadowBlur = 0;
-  ctx.fillStyle = boss.phase === 2 ? '#ffdbff' : '#ffd0ff';
+  ctx.fillStyle = bossPalette.canopy || (boss.phase === 2 ? '#ffdbff' : '#ffd0ff');
   ctx.fillRect(-14, -16, 28, 32);
-  drawGlowCircle(ctx, 0, 0, 16, '#ff3df7aa', '#ff3df700');
-  ctx.fillStyle = '#0ae6ff';
+  drawGlowCircle(
+    ctx,
+    0,
+    0,
+    16,
+    bossPalette.coreGlow || '#ff3df7aa',
+    bossPalette.coreOuter || '#ff3df700',
+  );
+  ctx.fillStyle = bossPalette.beam || '#0ae6ff';
   ctx.fillRect(-4, -10, 8, 20);
-  ctx.fillStyle = '#00e5ff';
+  ctx.fillStyle = bossPalette.trim || '#00e5ff';
   ctx.fillRect(-22, 12, 44, 6);
   if (boss.phase === 2) {
-    ctx.fillStyle = '#ff3df7';
+    ctx.fillStyle = bossPalette.phase2Trim || '#ff3df7';
     ctx.fillRect(-40, 24, 80, 6);
   }
   if (boss.introTimer > 0) {
@@ -276,8 +289,8 @@ export function drawBoss(ctx, boss) {
     ctx.translate(0, -80);
     ctx.font = '18px "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#ff3df7';
-    ctx.shadowColor = '#ff3df788';
+    ctx.fillStyle = bossPalette.introText || '#ff3df7';
+    ctx.shadowColor = bossPalette.introGlow || '#ff3df788';
     ctx.shadowBlur = 12;
     ctx.fillText('WARNING — CORE GUARDIAN', 0, 0);
     ctx.restore();
@@ -285,41 +298,43 @@ export function drawBoss(ctx, boss) {
   ctx.restore();
 }
 
-export function drawBossHealth(ctx, boss, canvas) {
+export function drawBossHealth(ctx, boss, canvas, palette) {
   if (!boss) {
     return;
   }
+  const bossPalette = palette?.boss ?? {};
   const width = Math.min(canvas.width * 0.5, 420);
   const x = (canvas.width - width) / 2;
   const y = 42;
   const ratio = Math.max(0, boss.hp) / boss.maxHp;
   ctx.save();
-  ctx.fillStyle = '#060712cc';
+  ctx.fillStyle = bossPalette.healthBackground || '#060712cc';
   ctx.fillRect(x, y, width, 12);
-  ctx.shadowColor = '#ff3df799';
+  ctx.shadowColor = bossPalette.healthShadow || '#ff3df799';
   ctx.shadowBlur = 14;
-  ctx.fillStyle = '#ff3df7';
+  ctx.fillStyle = bossPalette.healthFill || '#ff3df7';
   ctx.fillRect(x, y, width * ratio, 12);
   ctx.shadowBlur = 0;
-  ctx.strokeStyle = '#00e5ffaa';
+  ctx.strokeStyle = bossPalette.healthStroke || '#00e5ffaa';
   ctx.lineWidth = 2;
   ctx.strokeRect(x - 1, y - 1, width + 2, 14);
   ctx.font = '14px "Segoe UI", sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#e7faff';
+  ctx.fillStyle = bossPalette.healthText || '#e7faff';
   ctx.fillText(`Boss Integrity ${Math.ceil(ratio * 100)}%`, canvas.width / 2, y - 6);
   ctx.restore();
 }
 
-export function drawEnemies(ctx, enemies) {
+export function drawEnemies(ctx, enemies, palette) {
+  const enemyPalette = palette?.enemies ?? {};
   for (const e of enemies) {
     ctx.save();
     ctx.translate(e.x, e.y);
     if (e.type === 'asteroid') {
-      ctx.shadowColor = '#00e5ff55';
+      ctx.shadowColor = enemyPalette.asteroidGlow || '#00e5ff55';
       ctx.shadowBlur = 6;
-      ctx.fillStyle = '#11293b';
-      ctx.strokeStyle = '#00e5ff66';
+      ctx.fillStyle = enemyPalette.asteroidFill || '#11293b';
+      ctx.strokeStyle = enemyPalette.asteroidStroke || '#00e5ff66';
       ctx.lineWidth = 1;
       ctx.beginPath();
       for (let i = 0; i < 7; i++) {
@@ -331,10 +346,10 @@ export function drawEnemies(ctx, enemies) {
       ctx.fill();
       ctx.stroke();
     } else if (e.type === 'strafer') {
-      ctx.shadowColor = '#ff3df799';
+      ctx.shadowColor = enemyPalette.straferGlow || '#ff3df799';
       ctx.shadowBlur = 10;
-      ctx.fillStyle = '#2e003b';
-      ctx.strokeStyle = '#ff3df7';
+      ctx.fillStyle = enemyPalette.straferFill || '#2e003b';
+      ctx.strokeStyle = enemyPalette.straferStroke || '#ff3df7';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.moveTo(-14, 0);
@@ -345,22 +360,29 @@ export function drawEnemies(ctx, enemies) {
       ctx.fill();
       ctx.stroke();
     } else if (e.type === 'drone') {
-      ctx.shadowColor = '#00e5ffaa';
+      ctx.shadowColor = enemyPalette.droneGlowInner || '#00e5ffaa';
       ctx.shadowBlur = 12;
-      drawGlowCircle(ctx, 0, 0, e.r, '#00e5ff88', '#00e5ff00');
-      ctx.fillStyle = '#00e5ff';
+      drawGlowCircle(
+        ctx,
+        0,
+        0,
+        e.r,
+        enemyPalette.droneGlowInner || '#00e5ff88',
+        enemyPalette.droneGlowOuter || '#00e5ff00',
+      );
+      ctx.fillStyle = enemyPalette.droneCore || '#00e5ff';
       ctx.fillRect(-2, -2, 4, 4);
     } else if (e.type === 'turret') {
-      ctx.shadowColor = '#00e5ff88';
+      ctx.shadowColor = enemyPalette.turretGlow || '#00e5ff88';
       ctx.shadowBlur = 12;
-      ctx.fillStyle = '#091a2c';
-      ctx.strokeStyle = '#00e5ff';
+      ctx.fillStyle = enemyPalette.turretFill || '#091a2c';
+      ctx.strokeStyle = enemyPalette.turretStroke || '#00e5ff';
       ctx.lineWidth = 1.8;
       ctx.beginPath();
       ctx.arc(0, 0, 12, 0, TAU);
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = '#ff3df7';
+      ctx.fillStyle = enemyPalette.turretBarrel || '#ff3df7';
       ctx.fillRect(-2, -8, 4, 8);
     }
     ctx.restore();
