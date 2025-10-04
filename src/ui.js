@@ -281,7 +281,7 @@ function showUpgradeBanner(name, level) {
   if (!cleanName || !cleanLevel) {
     return;
   }
-  const message = `UPGRADE: ${cleanName} ${cleanLevel}`;
+  const message = `UPGRADE: ${cleanName} · ${cleanLevel}`;
   upgradeBanner.textContent = message;
   upgradeBanner.classList.remove('is-visible');
   void upgradeBanner.offsetWidth;
@@ -294,8 +294,16 @@ function showUpgradeBanner(name, level) {
   }, 1200);
 }
 
-export function updateWeapon(label, { flash = false, upgradeName, upgradeLevel } = {}) {
-  hudWeapon.textContent = label || 'None';
+export function updateWeapon(
+  label,
+  { flash = false, upgradeName, upgradeLevel, icon } = {},
+) {
+  const value = label || 'None';
+  if (icon) {
+    hudWeapon.innerHTML = `<span class="weapon-icon" aria-hidden="true">${icon}</span><span class="weapon-text">${value}</span>`;
+  } else {
+    hudWeapon.textContent = value;
+  }
   if (!flash) {
     return;
   }

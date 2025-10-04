@@ -80,6 +80,7 @@ const state = {
   weaponDrops: [],
   weaponDropSecured: false,
   muzzleFlashes: [],
+  weaponPickupFlash: null,
   screenShake: { time: 0, duration: 0, magnitude: 0, offsetX: 0, offsetY: 0 },
   stars: [],
   finishGate: null,
@@ -438,13 +439,15 @@ function loop(now) {
   updatePlayer(player, keys, dt, state.power.name === 'boost');
   clampPlayerToBounds(player);
 
+  const bulletTime = state.time * 1000;
+
   handlePlayerShooting(state, keys, now);
-  updateBullets(state.bullets, now, bulletBounds);
+  updateBullets(state.bullets, bulletTime, bulletBounds);
   updateMuzzleFlashes(state, dt);
 
   updateEnemies(state, dt, now, player);
   updateBoss(state, dt, now, player, palette);
-  updateBullets(state.enemyBullets, now, bulletBounds);
+  updateBullets(state.enemyBullets, bulletTime, bulletBounds);
 
   ensureGuaranteedPowerups(state, now);
   maybeSpawnPowerup(state, now);
@@ -574,7 +577,7 @@ function loop(now) {
   if (state.finishGate) {
     drawGate(state.finishGate, palette);
   }
-  drawPlayer(ctx, player, keys, palette);
+  drawPlayer(ctx, player, keys, palette, state.weaponPickupFlash);
 
   if (state.boss) {
     drawBossHealth(ctx, state.boss, palette);
