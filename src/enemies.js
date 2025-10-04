@@ -4,6 +4,7 @@
 import { rand, TAU, drawGlowCircle, addParticle, clamp } from './utils.js';
 import { getViewSize } from './ui.js';
 import { getDifficulty } from './difficulty.js';
+import { resolvePaletteSection } from './themes.js';
 
 const spawnTimers = {
   asteroid: -1,
@@ -325,7 +326,7 @@ export function updateBoss(state, dt, now, player, palette) {
   const { w, h } = getViewSize();
   const viewW = Math.max(w, 1);
   const viewH = Math.max(h, 1);
-  const particles = palette?.particles ?? {};
+  const particles = resolvePaletteSection(palette, 'particles');
 
   if (boss.entering) {
     boss.y += boss.vy * dt;
@@ -350,7 +351,7 @@ export function updateBoss(state, dt, now, player, palette) {
     }
     boss.phase = targetPhase;
     boss.phaseFlashTimer = 720;
-    addParticle(state, boss.x, boss.y, particles.bossHit || '#ff3df7', 48, 4.4, 900);
+    addParticle(state, boss.x, boss.y, particles.bossHit, 48, 4.4, 900);
     if (boss.phase === 2) {
       boss.cooldown = 520;
       boss.volleyTimer = 460;
@@ -481,24 +482,24 @@ export function drawBoss(ctx, boss, palette) {
   if (!boss) {
     return;
   }
-  const bossPalette = palette?.boss ?? {};
+  const bossPalette = resolvePaletteSection(palette, 'boss');
   if (boss.warningTimer > 0) {
     const { w, h } = getViewSize();
     const intensity = clamp(boss.warningTimer / 2000, 0, 1);
     const pulse = 0.65 + 0.35 * Math.sin(boss.warningPulse || 0);
     ctx.save();
-    ctx.fillStyle = bossPalette.warningBackdrop || 'rgba(255, 61, 247, 0.12)';
+    ctx.fillStyle = bossPalette.warningBackdrop;
     ctx.globalAlpha = intensity * 0.9;
     ctx.fillRect(0, 0, w, h);
     ctx.globalAlpha = 1;
     ctx.font = 'bold 64px "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
-    ctx.shadowColor = bossPalette.warningGlow || '#ff3df7';
+    ctx.shadowColor = bossPalette.warningGlow;
     ctx.shadowBlur = 28;
-    ctx.strokeStyle = bossPalette.warningStroke || 'rgba(255, 61, 247, 0.8)';
+    ctx.strokeStyle = bossPalette.warningStroke;
     ctx.lineWidth = 3;
     const y = h * 0.2;
-    const fill = bossPalette.warningFill || 'rgba(255, 245, 160, 0.88)';
+    const fill = bossPalette.warningFill;
     ctx.strokeText('WARNING', w / 2, y);
     ctx.fillStyle = fill;
     ctx.globalAlpha = pulse;
@@ -515,24 +516,24 @@ export function drawBoss(ctx, boss, palette) {
   );
   const telegraphPulse = 0.65 + 0.35 * Math.sin((boss.glowPulse || 0) * 2);
   let shadowColor = isPhase3
-    ? bossPalette.shadowPhase3 || '#ffe55c'
+    ? bossPalette.shadowPhase3
     : isPhase2
-      ? bossPalette.shadowPhase2 || '#ff9dfd'
-      : bossPalette.shadowPhase1 || '#ff3df7aa';
+      ? bossPalette.shadowPhase2
+      : bossPalette.shadowPhase1;
   let shadowBlur = isPhase3 ? 46 : isPhase2 ? 40 : 28;
   let strokeStyle = isPhase3
-    ? bossPalette.strokePhase3 || '#ffe066'
+    ? bossPalette.strokePhase3
     : isPhase2
-      ? bossPalette.strokePhase2 || '#ffb5ff'
-      : bossPalette.strokePhase1 || '#ff3df7';
+      ? bossPalette.strokePhase2
+      : bossPalette.strokePhase1;
   if (telegraphStrength > 0.01) {
-    shadowColor = bossPalette.phaseShiftGlow || '#fff6a6';
+    shadowColor = bossPalette.phaseShiftGlow;
     shadowBlur = 52 + telegraphPulse * 12 * clamp(telegraphStrength, 0, 1);
-    strokeStyle = bossPalette.strokePhaseShift || '#fff6a6';
+    strokeStyle = bossPalette.strokePhaseShift;
   }
   ctx.shadowColor = shadowColor;
   ctx.shadowBlur = shadowBlur;
-  ctx.fillStyle = bossPalette.bodyFill || '#1a0524';
+  ctx.fillStyle = bossPalette.bodyFill;
   ctx.strokeStyle = strokeStyle;
   ctx.lineWidth = 3;
   ctx.beginPath();
@@ -545,20 +546,20 @@ export function drawBoss(ctx, boss, palette) {
   ctx.fill();
   ctx.stroke();
   ctx.shadowBlur = 0;
-  const canopyPhase2 = bossPalette.canopyPhase2 || '#ffdbff';
-  const canopyPhase3 = bossPalette.canopyPhase3 || '#fff0b0';
+  const canopyPhase2 = bossPalette.canopyPhase2;
+  const canopyPhase3 = bossPalette.canopyPhase3;
   ctx.fillStyle = isPhase3
     ? canopyPhase3
     : isPhase2
       ? canopyPhase2
-      : bossPalette.canopy || '#ffd0ff';
+      : bossPalette.canopy;
   ctx.fillRect(-14, -16, 28, 32);
   const coreInner = telegraphStrength > 0.01
-    ? bossPalette.phaseShiftGlow || '#fff6a6'
-    : bossPalette.coreGlow || '#ff3df7aa';
+    ? bossPalette.phaseShiftGlow
+    : bossPalette.coreGlow;
   const coreOuter = telegraphStrength > 0.01
-    ? 'rgba(255, 246, 166, 0)'
-    : bossPalette.coreOuter || '#ff3df700';
+    ? bossPalette.phaseShiftOuter
+    : bossPalette.coreOuter;
   drawGlowCircle(
     ctx,
     0,
@@ -567,20 +568,20 @@ export function drawBoss(ctx, boss, palette) {
     coreInner,
     coreOuter,
   );
-  ctx.fillStyle = bossPalette.beam || '#0ae6ff';
+  ctx.fillStyle = bossPalette.beam;
   ctx.fillRect(-4, -10, 8, 20);
-  let trimColor = bossPalette.trim || '#00e5ff';
+  let trimColor = bossPalette.trim;
   if (telegraphStrength > 0.01) {
-    trimColor = bossPalette.phaseShiftTrim || '#ffe066';
+    trimColor = bossPalette.phaseShiftTrim;
   }
   ctx.fillStyle = trimColor;
   ctx.fillRect(-22, 12, 44, 6);
   if (isPhase2) {
-    ctx.fillStyle = bossPalette.phase2Trim || '#ff3df7';
+    ctx.fillStyle = bossPalette.phase2Trim;
     ctx.fillRect(-40, 24, 80, 6);
   }
   if (isPhase3) {
-    ctx.fillStyle = bossPalette.phase3Trim || '#ffe066';
+    ctx.fillStyle = bossPalette.phase3Trim;
     ctx.fillRect(-46, 30, 92, 6);
   }
   if (boss.introTimer > 0) {
@@ -588,8 +589,8 @@ export function drawBoss(ctx, boss, palette) {
     ctx.translate(0, -80);
     ctx.font = '18px "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillStyle = bossPalette.introText || '#ff3df7';
-    ctx.shadowColor = bossPalette.introGlow || '#ff3df788';
+    ctx.fillStyle = bossPalette.introText;
+    ctx.shadowColor = bossPalette.introGlow;
     ctx.shadowBlur = 12;
     ctx.fillText('WARNING — CORE GUARDIAN', 0, 0);
     ctx.restore();
@@ -603,39 +604,39 @@ export function drawBossHealth(ctx, boss, palette) {
   }
   const { w } = getViewSize();
   const viewW = Math.max(w, 1);
-  const bossPalette = palette?.boss ?? {};
+  const bossPalette = resolvePaletteSection(palette, 'boss');
   const width = Math.min(viewW * 0.5, 420);
   const x = (viewW - width) / 2;
   const y = 42;
   const ratio = Math.max(0, boss.hp) / boss.maxHp;
   ctx.save();
-  ctx.fillStyle = bossPalette.healthBackground || '#060712cc';
+  ctx.fillStyle = bossPalette.healthBackground;
   ctx.fillRect(x, y, width, 12);
-  ctx.shadowColor = bossPalette.healthShadow || '#ff3df799';
+  ctx.shadowColor = bossPalette.healthShadow;
   ctx.shadowBlur = 14;
-  ctx.fillStyle = bossPalette.healthFill || '#ff3df7';
+  ctx.fillStyle = bossPalette.healthFill;
   ctx.fillRect(x, y, width * ratio, 12);
   ctx.shadowBlur = 0;
-  ctx.strokeStyle = bossPalette.healthStroke || '#00e5ffaa';
+  ctx.strokeStyle = bossPalette.healthStroke;
   ctx.lineWidth = 2;
   ctx.strokeRect(x - 1, y - 1, width + 2, 14);
   ctx.font = '14px "Segoe UI", sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillStyle = bossPalette.healthText || '#e7faff';
+  ctx.fillStyle = bossPalette.healthText;
   ctx.fillText(`Boss Integrity ${Math.ceil(ratio * 100)}%`, viewW / 2, y - 6);
   ctx.restore();
 }
 
 export function drawEnemies(ctx, enemies, palette) {
-  const enemyPalette = palette?.enemies ?? {};
+  const enemyPalette = resolvePaletteSection(palette, 'enemies');
   for (const e of enemies) {
     ctx.save();
     ctx.translate(e.x, e.y);
     if (e.type === 'asteroid') {
-      ctx.shadowColor = enemyPalette.asteroidGlow || '#00e5ff55';
+      ctx.shadowColor = enemyPalette.asteroidGlow;
       ctx.shadowBlur = 6;
-      ctx.fillStyle = enemyPalette.asteroidFill || '#11293b';
-      ctx.strokeStyle = enemyPalette.asteroidStroke || '#00e5ff66';
+      ctx.fillStyle = enemyPalette.asteroidFill;
+      ctx.strokeStyle = enemyPalette.asteroidStroke;
       ctx.lineWidth = 1;
       ctx.beginPath();
       for (let i = 0; i < 7; i++) {
@@ -647,10 +648,10 @@ export function drawEnemies(ctx, enemies, palette) {
       ctx.fill();
       ctx.stroke();
     } else if (e.type === 'strafer') {
-      ctx.shadowColor = enemyPalette.straferGlow || '#ff3df799';
+      ctx.shadowColor = enemyPalette.straferGlow;
       ctx.shadowBlur = 10;
-      ctx.fillStyle = enemyPalette.straferFill || '#2e003b';
-      ctx.strokeStyle = enemyPalette.straferStroke || '#ff3df7';
+      ctx.fillStyle = enemyPalette.straferFill;
+      ctx.strokeStyle = enemyPalette.straferStroke;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.moveTo(-14, 0);
@@ -661,29 +662,29 @@ export function drawEnemies(ctx, enemies, palette) {
       ctx.fill();
       ctx.stroke();
     } else if (e.type === 'drone') {
-      ctx.shadowColor = enemyPalette.droneGlowInner || '#00e5ffaa';
+      ctx.shadowColor = enemyPalette.droneGlowInner;
       ctx.shadowBlur = 12;
       drawGlowCircle(
         ctx,
         0,
         0,
         e.r,
-        enemyPalette.droneGlowInner || '#00e5ff88',
-        enemyPalette.droneGlowOuter || '#00e5ff00',
+        enemyPalette.droneGlowInner,
+        enemyPalette.droneGlowOuter,
       );
-      ctx.fillStyle = enemyPalette.droneCore || '#00e5ff';
+      ctx.fillStyle = enemyPalette.droneCore;
       ctx.fillRect(-2, -2, 4, 4);
     } else if (e.type === 'turret') {
-      ctx.shadowColor = enemyPalette.turretGlow || '#00e5ff88';
+      ctx.shadowColor = enemyPalette.turretGlow;
       ctx.shadowBlur = 12;
-      ctx.fillStyle = enemyPalette.turretFill || '#091a2c';
-      ctx.strokeStyle = enemyPalette.turretStroke || '#00e5ff';
+      ctx.fillStyle = enemyPalette.turretFill;
+      ctx.strokeStyle = enemyPalette.turretStroke;
       ctx.lineWidth = 1.8;
       ctx.beginPath();
       ctx.arc(0, 0, 12, 0, TAU);
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = enemyPalette.turretBarrel || '#ff3df7';
+      ctx.fillStyle = enemyPalette.turretBarrel;
       ctx.fillRect(-2, -8, 4, 8);
     }
     ctx.restore();

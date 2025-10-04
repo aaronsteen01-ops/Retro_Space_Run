@@ -83,6 +83,7 @@ export const THEMES = {
         phaseShiftGlow: '#fff6a6',
         strokePhaseShift: '#fff6a6',
         phaseShiftTrim: '#ffe066',
+        phaseShiftOuter: '#fff6a600',
         warningBackdrop: 'rgba(255, 61, 247, 0.16)',
         warningFill: 'rgba(255, 245, 160, 0.9)',
         warningStroke: 'rgba(255, 61, 247, 0.85)',
@@ -192,6 +193,7 @@ export const THEMES = {
         phaseShiftGlow: '#bffbff',
         strokePhaseShift: '#bffbff',
         phaseShiftTrim: '#9bf0ff',
+        phaseShiftOuter: '#bffbff00',
         warningBackdrop: 'rgba(36, 245, 217, 0.14)',
         warningFill: 'rgba(201, 255, 255, 0.92)',
         warningStroke: 'rgba(22, 128, 255, 0.8)',
@@ -301,6 +303,7 @@ export const THEMES = {
         phaseShiftGlow: '#ffeaa0',
         strokePhaseShift: '#ffeaa0',
         phaseShiftTrim: '#ffe47a',
+        phaseShiftOuter: '#ffeaa000',
         warningBackdrop: 'rgba(255, 123, 57, 0.16)',
         warningFill: 'rgba(255, 228, 122, 0.92)',
         warningStroke: 'rgba(255, 189, 45, 0.82)',
@@ -332,7 +335,125 @@ export const THEMES = {
       },
     },
   },
+  'neon-void': {
+    label: 'Neon Void',
+    palette: {
+      background: {
+        gradient:
+          'radial-gradient(1200px 800px at 50% 20%, #1b0130 0%, #0a0019 60%, #030008 100%)',
+        base: '#0a0019',
+      },
+      hud: {
+        text: '#f1eaff',
+        shadow: '#6dff8d88',
+        panel: '#130021cc',
+        accent: '#c43dff',
+        secondary: '#6dff8d',
+      },
+      ship: {
+        primary: '#c43dff',
+        trim: '#6dff8d',
+        cockpit: '#f6d6ff',
+        glow: '#c43dff88',
+        trailStart: '#c43dffcc',
+        trailEnd: '#6dff8d00',
+        shieldInner: '#6dff8d55',
+        shieldOuter: '#c43dff00',
+      },
+      gate: {
+        glow: '#6dff8daa',
+        fill: '#6dff8d',
+        trim: '#c43dff',
+        strut: '#c43dff',
+      },
+      stars: {
+        bright: '#6dff8d',
+        dim: '#c43dff',
+      },
+      particles: {
+        shieldHit: '#6dff8d',
+        playerHit: '#c43dff',
+        enemyHitDefault: '#6dff8d',
+        enemyHitStrafer: '#c43dff',
+        bossHit: '#c43dff',
+        bossCore: '#6dff8d',
+      },
+      enemies: {
+        asteroidFill: '#201334',
+        asteroidStroke: '#6dff8d66',
+        asteroidGlow: '#6dff8d55',
+        straferFill: '#1a022f',
+        straferStroke: '#c43dff',
+        straferGlow: '#c43dff99',
+        droneGlowInner: '#6dff8d88',
+        droneGlowOuter: '#c43dff00',
+        droneCore: '#6dff8d',
+        turretFill: '#150423',
+        turretStroke: '#6dff8d',
+        turretGlow: '#6dff8d88',
+        turretBarrel: '#c43dff',
+      },
+      boss: {
+        shadowPhase1: '#c43dffaa',
+        shadowPhase2: '#de8bff',
+        shadowPhase3: '#e4ff71',
+        bodyFill: '#1b0327',
+        strokePhase1: '#c43dff',
+        strokePhase2: '#6dff8d',
+        strokePhase3: '#e4ff71',
+        canopy: '#f9d4ff',
+        canopyPhase2: '#e9ffe1',
+        canopyPhase3: '#faffdb',
+        coreGlow: '#c43dffaa',
+        coreOuter: '#6dff8d00',
+        beam: '#6dff8d',
+        trim: '#6dff8d',
+        phase2Trim: '#c43dff',
+        phase3Trim: '#e4ff71',
+        phaseShiftGlow: '#e7ff8a',
+        strokePhaseShift: '#e7ff8a',
+        phaseShiftTrim: '#e4ff71',
+        phaseShiftOuter: '#e7ff8a00',
+        warningBackdrop: 'rgba(196, 61, 255, 0.16)',
+        warningFill: 'rgba(232, 255, 139, 0.92)',
+        warningStroke: 'rgba(109, 255, 141, 0.85)',
+        warningGlow: '#c43dff',
+        introText: '#c43dff',
+        introGlow: '#c43dff88',
+        healthBackground: '#12001bcc',
+        healthFill: '#c43dff',
+        healthShadow: '#c43dff99',
+        healthStroke: '#6dff8daa',
+        healthText: '#f1eaff',
+      },
+      bullets: {
+        playerLevels: ['#f3b7ff', '#d7ffed', '#f4ffe1'],
+        enemyGlow: '#6dff8daa',
+        enemyFill: '#b6ffd0',
+      },
+      weaponToken: {
+        fill: '#c43dff',
+        stroke: '#6dff8d',
+        glow: '#c43dffaa',
+        text: '#6dff8d',
+      },
+      powerups: {
+        glow: '#faffff',
+        shield: '#6dff8d',
+        rapid: '#c43dff',
+        boost: '#faffff',
+      },
+    },
+  },
 };
+
+export const DEFAULT_THEME_PALETTE = THEMES[DEFAULT_THEME_KEY].palette;
+
+export function resolvePaletteSection(palette, section) {
+  const base = DEFAULT_THEME_PALETTE[section] ?? {};
+  const override = palette?.[section];
+  return { ...base, ...(override ?? {}) };
+}
 
 export function getThemeKeys() {
   return Object.keys(THEMES);
