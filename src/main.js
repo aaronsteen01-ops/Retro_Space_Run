@@ -439,13 +439,15 @@ function loop(now) {
   updatePlayer(player, keys, dt, state.power.name === 'boost');
   clampPlayerToBounds(player);
 
+  const bulletTime = state.time * 1000;
+
   handlePlayerShooting(state, keys, now);
-  updateBullets(state.bullets, now, bulletBounds);
+  updateBullets(state.bullets, bulletTime, bulletBounds);
   updateMuzzleFlashes(state, dt);
 
   updateEnemies(state, dt, now, player);
   updateBoss(state, dt, now, player, palette);
-  updateBullets(state.enemyBullets, now, bulletBounds);
+  updateBullets(state.enemyBullets, bulletTime, bulletBounds);
 
   ensureGuaranteedPowerups(state, now);
   maybeSpawnPowerup(state, now);
