@@ -6,6 +6,7 @@ import { getViewSize } from './ui.js';
 import { getDifficulty } from './difficulty.js';
 import { resolvePaletteSection } from './themes.js';
 import { playPow } from './audio.js';
+import { getBullet, drainBullets } from './bullets.js';
 
 const DEFAULT_BOSS_HP = 540;
 const ASSIST_DENSITY = 0.7;
@@ -185,14 +186,16 @@ export function spawn(state, type, params = {}) {
 
 function pushBossBullet(state, x, y, speed, angle, radius = 8) {
   const bornAt = state.time * 1000;
-  state.enemyBullets.push({
-    x,
-    y,
-    vx: Math.cos(angle) * speed,
-    vy: Math.sin(angle) * speed,
-    r: radius,
-    bornAt,
-  });
+  const bullet = getBullet();
+  bullet.x = x;
+  bullet.y = y;
+  bullet.vx = Math.cos(angle) * speed;
+  bullet.vy = Math.sin(angle) * speed;
+  bullet.r = radius;
+  bullet.bornAt = bornAt;
+  bullet.updatedAt = bornAt;
+  bullet.owner = 'enemy';
+  state.enemyBullets.push(bullet);
 }
 
 function spawnBossMinions(state, boss, count = 2) {
@@ -502,14 +505,17 @@ export function updateEnemies(state, dt, now, player) {
       e.cd -= dt * 1000;
       if (e.cd <= 0) {
         e.cd = rand(straferCdMin, straferCdMax);
-        state.enemyBullets.push({
-          x: e.x,
-          y: e.y + 10,
-          vx: (player.x - e.x) * 0.0025,
-          vy: 180,
-          r: 6,
-          bornAt: state.time * 1000,
-        });
+        const bullet = getBullet();
+        const bornAt = state.time * 1000;
+        bullet.x = e.x;
+        bullet.y = e.y + 10;
+        bullet.vx = (player.x - e.x) * 0.0025;
+        bullet.vy = 180;
+        bullet.r = 6;
+        bullet.bornAt = bornAt;
+        bullet.updatedAt = bornAt;
+        bullet.owner = 'enemy';
+        state.enemyBullets.push(bullet);
       }
       if (e.x < -60 || e.x > viewW + 60) {
         state.enemies.splice(i, 1);
@@ -534,14 +540,17 @@ export function updateEnemies(state, dt, now, player) {
       if (e.cd <= 0) {
         e.cd = rand(turretCdMin, turretCdMax);
         const angle = Math.atan2(player.y - e.y, player.x - e.x);
-        state.enemyBullets.push({
-          x: e.x,
-          y: e.y,
-          vx: Math.cos(angle) * (e.bulletSpeed ?? turretBulletSpeed),
-          vy: Math.sin(angle) * (e.bulletSpeed ?? turretBulletSpeed),
-          r: 6,
-          bornAt: state.time * 1000,
-        });
+        const bullet = getBullet();
+        const bornAt = state.time * 1000;
+        bullet.x = e.x;
+        bullet.y = e.y;
+        bullet.vx = Math.cos(angle) * (e.bulletSpeed ?? turretBulletSpeed);
+        bullet.vy = Math.sin(angle) * (e.bulletSpeed ?? turretBulletSpeed);
+        bullet.r = 6;
+        bullet.bornAt = bornAt;
+        bullet.updatedAt = bornAt;
+        bullet.owner = 'enemy';
+        state.enemyBullets.push(bullet);
       }
       if (e.x < 60 || e.x > viewW - 60) {
         e.vx *= -1;
@@ -594,7 +603,7 @@ export function spawnBoss(state, bossConfig = {}) {
     rewardDropped: false,
     beam: null,
   };
-  state.enemyBullets.length = 0;
+  drainBullets(state.enemyBullets);
   state.boss = boss;
   return boss;
 }

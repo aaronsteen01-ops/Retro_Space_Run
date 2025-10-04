@@ -42,9 +42,7 @@ import {
 } from './powerups.js';
 import {
   handlePlayerShooting,
-  updatePlayerBullets,
   drawPlayerBullets,
-  updateEnemyBullets,
   drawEnemyBullets,
   setupWeapons,
   updateWeaponDrops,
@@ -57,6 +55,7 @@ import {
 import { DEFAULT_THEME_PALETTE, resolvePaletteSection } from './themes.js';
 import { LEVELS } from './levels.js';
 import { getDifficulty } from './difficulty.js';
+import { updateBullets, freeBullet, drainBullets } from './bullets.js';
 
 let activePalette = getActiveThemePalette() ?? DEFAULT_THEME_PALETTE;
 
@@ -311,9 +310,9 @@ function resetState() {
   state.score = 0;
   state.assistEnabled = getAssistMode();
   state.lives = state.assistEnabled ? 4 : 3;
-  state.bullets.length = 0;
+  drainBullets(state.bullets);
   state.enemies.length = 0;
-  state.enemyBullets.length = 0;
+  drainBullets(state.enemyBullets);
   state.powerups.length = 0;
   state.particles.length = 0;
   state.finishGate = null;
@@ -395,6 +394,7 @@ function loop(now) {
   const dt = (now - lastFrame) / 1000;
   lastFrame = now;
   const { w: viewW, h: viewH } = getViewSize();
+  const bulletBounds = { minX: -40, maxX: viewW + 40, minY: -40, maxY: viewH + 40 };
   const palette = activePalette ?? DEFAULT_THEME_PALETTE;
   const starPalette = resolvePaletteSection(palette, 'stars');
   if (state.paused) {
@@ -439,12 +439,12 @@ function loop(now) {
   clampPlayerToBounds(player);
 
   handlePlayerShooting(state, keys, now);
-  updatePlayerBullets(state, dt);
+  updateBullets(state.bullets, now, bulletBounds);
   updateMuzzleFlashes(state, dt);
 
   updateEnemies(state, dt, now, player);
   updateBoss(state, dt, now, player, palette);
-  updateEnemyBullets(state, dt);
+  updateBullets(state.enemyBullets, now, bulletBounds);
 
   ensureGuaranteedPowerups(state, now);
   maybeSpawnPowerup(state, now);
@@ -476,6 +476,7 @@ function loop(now) {
       if (coll(enemy, bullet, -4)) {
         const bulletLevel = bullet.level ?? 0;
         state.bullets.splice(j, 1);
+        freeBullet(bullet);
         enemy.hp -= bullet.damage || 1;
         if (bulletLevel >= 2) {
           triggerScreenShake(rand(2, 4), 160);
@@ -502,6 +503,7 @@ function loop(now) {
       if (coll(state.boss, bullet, -12)) {
         const bulletLevel = bullet.level ?? 0;
         state.bullets.splice(j, 1);
+        freeBullet(bullet);
         state.boss.hp -= bullet.damage || 1;
         if (bulletLevel >= 2) {
           triggerScreenShake(rand(2, 4), 160);
