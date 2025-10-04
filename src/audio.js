@@ -57,6 +57,11 @@ export function playPow() {
   playTone('sine', 560, 0.25, 0.28);
 }
 
+export function playUpgrade() {
+  playTone('triangle', 760, 0.18, 0.28);
+  playTone('square', 520, 0.12, 0.18);
+}
+
 export function toggleAudio() {
   audioOn = !audioOn;
   if (audioOn) {

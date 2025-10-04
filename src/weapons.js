@@ -1,8 +1,8 @@
 /**
  * weapons.js — player and enemy projectile management for Retro Space Run.
  */
-import { coll } from './utils.js';
-import { playPew, playPow } from './audio.js';
+import { coll, lerp } from './utils.js';
+import { playPew, playPow, playUpgrade } from './audio.js';
 import { updateWeapon, updateScore, getViewSize } from './ui.js';
 import { resolvePaletteSection, DEFAULT_THEME_PALETTE } from './themes.js';
 import { getBullet } from './bullets.js';
@@ -14,6 +14,13 @@ export const WEAPON_DISPLAY_NAMES = Object.freeze({
   twin: 'Twin Blaster',
   burst: 'Burst Laser',
   heavy: 'Heavy Plasma',
+});
+
+const WEAPON_PICTOGRAMS = Object.freeze({
+  pulse: '•',
+  twin: '||',
+  burst: '≋',
+  heavy: '◎',
 });
 
 const weaponDefs = {
@@ -487,6 +494,16 @@ const weaponDefs = {
 
 const DROP_CHANCE = 0.18;
 const DROP_LIFETIME = 10000;
+const TOKEN_BASE_VY = 90;
+const TOKEN_ATTRACT_RADIUS = 120;
+const TOKEN_ATTRACT_RADIUS_SQ = TOKEN_ATTRACT_RADIUS * TOKEN_ATTRACT_RADIUS;
+const TOKEN_PULL_ACCEL = 420;
+const TOKEN_MAX_SPEED = 320;
+const TOKEN_VISUAL_RADIUS = 15;
+const TOKEN_PICKUP_RADIUS = 19;
+const TOKEN_FLOAT_SPEED = 1.8;
+const TOKEN_PULSE_SPEED = 2.6;
+const WEAPON_PICKUP_FLASH_TIME = 200;
 
 function ensureWeaponState(state) {
   if (!state.weapon) {
@@ -500,6 +517,9 @@ function ensureWeaponState(state) {
   }
   if (!state.muzzleFlashes) {
     state.muzzleFlashes = [];
+  }
+  if (state.weaponPickupFlash === undefined) {
+    state.weaponPickupFlash = null;
   }
 }
 
@@ -516,10 +536,16 @@ function pushWeaponDrop(state, weapon, x, y) {
   state.weaponDrops.push({
     x,
     y,
-    vy: 90,
-    r: 14,
+    vx: 0,
+    vy: TOKEN_BASE_VY,
+    baseVy: TOKEN_BASE_VY,
+    r: TOKEN_PICKUP_RADIUS,
+    visualRadius: TOKEN_VISUAL_RADIUS,
     weapon,
     spin: Math.random() * Math.PI,
+    floatPhase: Math.random() * Math.PI * 2,
+    pulsePhase: Math.random() * Math.PI * 2,
+    life: DROP_LIFETIME,
     t: DROP_LIFETIME,
   });
   state.weaponDropSecured = true;
@@ -570,6 +596,10 @@ export function getWeaponDisplayName(id) {
   return WEAPON_DISPLAY_NAMES[id] || null;
 }
 
+function getWeaponPictogram(id) {
+  return WEAPON_PICTOGRAMS[id] || '•';
+}
+
 export function updateWeaponHud(state, { flash = false } = {}) {
   const weapon = state?.weapon ?? null;
   const def = weapon ? weaponDefs[weapon.name] : null;
@@ -580,6 +610,7 @@ export function updateWeaponHud(state, { flash = false } = {}) {
     flash: flash && Boolean(name) && Boolean(roman),
     upgradeName: name || undefined,
     upgradeLevel: roman || undefined,
+    icon: weapon ? getWeaponPictogram(weapon.name) : undefined,
   });
 }
 
@@ -591,6 +622,7 @@ export function setupWeapons(state) {
   state.weaponDrops.length = 0;
   state.weaponDropSecured = false;
   state.muzzleFlashes.length = 0;
+  state.weaponPickupFlash = null;
   updateWeaponHud(state, { flash: false });
 }
 
@@ -653,6 +685,24 @@ function pushMuzzleFlash(state, projectile, levelIndex, width, height, colour) {
     spread,
     colour,
   });
+}
+
+function triggerWeaponPickupFlash(state, weaponName) {
+  if (!weaponName) {
+    return;
+  }
+  ensureWeaponState(state);
+  const def = weaponDefs[weaponName];
+  if (!def) {
+    return;
+  }
+  const levelIndex = clampLevel(def, state.weapon?.level ?? 0);
+  const colour = projectileColour(state, levelIndex);
+  state.weaponPickupFlash = {
+    colour,
+    life: WEAPON_PICKUP_FLASH_TIME,
+    t: WEAPON_PICKUP_FLASH_TIME,
+  };
 }
 
 function spawnProjectile(state, projectile, levelIndex) {
@@ -737,6 +787,12 @@ export function updateMuzzleFlashes(state, dt) {
       state.muzzleFlashes.splice(i, 1);
     }
   }
+  if (state.weaponPickupFlash) {
+    state.weaponPickupFlash.t -= dt * 1000;
+    if (state.weaponPickupFlash.t <= 0) {
+      state.weaponPickupFlash = null;
+    }
+  }
 }
 
 export function drawMuzzleFlashes(ctx, flashes) {
@@ -805,8 +861,15 @@ function upgradeWeapon(state, weaponName) {
   }
   state.lastShot = 0;
   state.weaponDropSecured = true;
+  if (upgraded) {
+    triggerWeaponPickupFlash(state, weaponName);
+  }
   updateWeaponHud(state, { flash: upgraded });
-  playPow();
+  if (upgraded) {
+    playUpgrade();
+  } else {
+    playPow();
+  }
 }
 
 export function maybeDropWeaponToken(state, enemy) {
@@ -824,8 +887,39 @@ export function updateWeaponDrops(state, dt) {
   ensureWeaponState(state);
   for (let i = state.weaponDrops.length - 1; i >= 0; i--) {
     const drop = state.weaponDrops[i];
-    drop.y += drop.vy * dt;
+    drop.floatPhase = (drop.floatPhase || 0) + dt * TOKEN_FLOAT_SPEED;
+    drop.pulsePhase = (drop.pulsePhase || 0) + dt * TOKEN_PULSE_SPEED;
     drop.spin = (drop.spin || 0) + dt * 2.4;
+    const baseVy = drop.baseVy ?? TOKEN_BASE_VY;
+    drop.baseVy = baseVy;
+    drop.vx = drop.vx ?? 0;
+    drop.vy = drop.vy ?? baseVy;
+    if (state.player) {
+      const dx = state.player.x - drop.x;
+      const dy = state.player.y - drop.y;
+      const distSq = dx * dx + dy * dy;
+      if (distSq < TOKEN_ATTRACT_RADIUS_SQ) {
+        const dist = Math.sqrt(distSq) || 1;
+        const pull = 1 - Math.min(1, dist / TOKEN_ATTRACT_RADIUS);
+        const accel = TOKEN_PULL_ACCEL * (0.35 + pull * 0.65);
+        drop.vx += (dx / dist) * accel * dt;
+        drop.vy += (dy / dist) * accel * dt;
+      } else {
+        drop.vx = lerp(drop.vx, 0, 0.08);
+        drop.vy = lerp(drop.vy, baseVy, 0.06);
+      }
+    } else {
+      drop.vx = lerp(drop.vx, 0, 0.08);
+      drop.vy = lerp(drop.vy, baseVy, 0.06);
+    }
+    const speed = Math.hypot(drop.vx, drop.vy);
+    if (speed > TOKEN_MAX_SPEED) {
+      const scale = TOKEN_MAX_SPEED / speed;
+      drop.vx *= scale;
+      drop.vy *= scale;
+    }
+    drop.x += drop.vx * dt;
+    drop.y += drop.vy * dt;
     drop.t -= dt * 1000;
     if (drop.t <= 0 || drop.y > viewH + 40) {
       state.weaponDrops.splice(i, 1);
@@ -841,32 +935,55 @@ export function updateWeaponDrops(state, dt) {
 export function drawWeaponDrops(ctx, drops, palette) {
   const tokenPalette = resolvePaletteSection(palette, 'weaponToken');
   for (const drop of drops) {
-    const def = weaponDefs[drop.weapon];
     const fill = tokenPalette.fill;
     const stroke = tokenPalette.stroke;
     const glow = tokenPalette.glow;
+    const radius = drop.visualRadius ?? TOKEN_VISUAL_RADIUS;
+    const drift = Math.sin(drop.floatPhase || 0) * 3;
+    const pulse = 0.7 + 0.3 * Math.sin(drop.pulsePhase || 0);
+    const pictogram = getWeaponPictogram(drop.weapon);
     ctx.save();
-    ctx.translate(drop.x, drop.y);
-    ctx.rotate(drop.spin || 0);
+    ctx.translate(drop.x, drop.y + drift);
     ctx.shadowColor = glow;
-    ctx.shadowBlur = 12;
-    ctx.fillStyle = fill;
+    ctx.shadowBlur = 12 + pulse * 10;
+    const gradient = ctx.createRadialGradient(0, 0, radius * 0.2, 0, 0, radius);
+    gradient.addColorStop(0, colourWithAlpha(fill, 0.92));
+    gradient.addColorStop(0.6, colourWithAlpha(fill, 0.55));
+    gradient.addColorStop(1, colourWithAlpha(fill, 0.08));
+    ctx.fillStyle = gradient;
     ctx.beginPath();
-    ctx.moveTo(0, -12);
-    ctx.lineTo(10, 0);
-    ctx.lineTo(0, 12);
-    ctx.lineTo(-10, 0);
-    ctx.closePath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = stroke;
-    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.85 + pulse * 0.1;
+    ctx.strokeStyle = colourWithAlpha(stroke, 0.8);
+    ctx.lineWidth = 2.6;
+    ctx.save();
+    ctx.rotate(drop.spin || 0);
+    ctx.beginPath();
+    ctx.arc(0, 0, radius - 1.2, -Math.PI / 3, Math.PI / 3);
     ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 0, radius - 1.2, Math.PI - Math.PI / 3, Math.PI + Math.PI / 3);
+    ctx.stroke();
+    ctx.restore();
+    ctx.globalAlpha = 0.95;
+    ctx.lineWidth = 1.4;
+    ctx.strokeStyle = colourWithAlpha(stroke, 0.35);
+    ctx.beginPath();
+    ctx.arc(0, 0, radius - 0.6, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 0.45 + pulse * 0.25;
+    ctx.fillStyle = colourWithAlpha(tokenPalette.text, 0.18);
+    ctx.beginPath();
+    ctx.arc(0, 0, radius * 0.58, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
     ctx.fillStyle = tokenPalette.text;
-    ctx.font = '10px "IBM Plex Mono", monospace';
+    ctx.font = 'bold 18px "IBM Plex Mono", monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(def ? def.label.charAt(0) : 'W', 0, 0);
+    ctx.fillText(pictogram, 0, 0.5);
     ctx.restore();
   }
 }

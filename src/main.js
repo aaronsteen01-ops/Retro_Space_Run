@@ -80,6 +80,7 @@ const state = {
   weaponDrops: [],
   weaponDropSecured: false,
   muzzleFlashes: [],
+  weaponPickupFlash: null,
   screenShake: { time: 0, duration: 0, magnitude: 0, offsetX: 0, offsetY: 0 },
   stars: [],
   finishGate: null,
@@ -574,7 +575,7 @@ function loop(now) {
   if (state.finishGate) {
     drawGate(state.finishGate, palette);
   }
-  drawPlayer(ctx, player, keys, palette);
+  drawPlayer(ctx, player, keys, palette, state.weaponPickupFlash);
 
   if (state.boss) {
     drawBossHealth(ctx, state.boss, palette);
