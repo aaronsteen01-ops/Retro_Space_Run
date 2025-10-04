@@ -13,6 +13,10 @@ import {
 export const canvas = document.getElementById('game');
 export const ctx = canvas.getContext('2d');
 
+let DPR = window.devicePixelRatio || 1;
+let VIEW_W = window.innerWidth || canvas.clientWidth || canvas.width || 0;
+let VIEW_H = window.innerHeight || canvas.clientHeight || canvas.height || 0;
+
 const hudLives = document.getElementById('lives');
 const hudScore = document.getElementById('score');
 const hudTime = document.getElementById('time');
@@ -110,8 +114,11 @@ if (themeSelect) {
 
 function fitCanvas() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const w = window.innerWidth;
-  const h = window.innerHeight;
+  const w = Math.max(window.innerWidth || canvas.clientWidth || 0, 1);
+  const h = Math.max(window.innerHeight || canvas.clientHeight || 0, 1);
+  DPR = dpr;
+  VIEW_W = w;
+  VIEW_H = h;
   canvas.style.width = `${w}px`;
   canvas.style.height = `${h}px`;
   canvas.width = Math.floor(w * dpr);
@@ -121,6 +128,10 @@ function fitCanvas() {
 
 window.addEventListener('resize', fitCanvas);
 fitCanvas();
+
+export function getViewSize() {
+  return { w: VIEW_W, h: VIEW_H, dpr: DPR };
+}
 
 let startHandler = null;
 

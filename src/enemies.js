@@ -2,6 +2,8 @@
  * enemies.js — enemy spawning, behaviour updates, and rendering for Retro Space Run.
  */
 import { rand, TAU, drawGlowCircle, addParticle, clamp } from './utils.js';
+import { getViewSize } from './ui.js';
+import { getDifficulty } from './difficulty.js';
 
 const spawnTimers = {
   asteroid: 0,
@@ -10,7 +12,7 @@ const spawnTimers = {
   turret: 0,
 };
 
-const BOSS_HP = 540;
+const DEFAULT_BOSS_HP = 540;
 
 function pushBossBullet(state, x, y, speed, angle, radius = 8) {
   state.enemyBullets.push({
@@ -30,17 +32,35 @@ function shouldSpawn(now, key, interval) {
   return true;
 }
 
-export function spawnEnemies(state, now, canvas) {
-  const w = canvas.width;
-  if (shouldSpawn(now, 'asteroid', 900)) {
+export function spawnEnemies(state, now) {
+  const { w, h } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const viewH = Math.max(h, 1);
+  const difficulty = getDifficulty(state.levelIndex);
+  const asteroidSettings = difficulty?.asteroid || {};
+  const straferSettings = difficulty?.strafer || {};
+  const droneSettings = difficulty?.drone || {};
+  const turretSettings = difficulty?.turret || {};
+  const asteroidInterval = asteroidSettings.intervalMs ?? 900;
+  const asteroidVyMin = asteroidSettings.vyMin ?? 80;
+  const asteroidVyMax = asteroidSettings.vyMax ?? 160;
+  const straferCount = straferSettings.count ?? 3;
+  const straferCdMin = straferSettings.fireCdMsMin ?? 600;
+  const straferCdMax = straferSettings.fireCdMsMax ?? 1100;
+  const droneAccel = droneSettings.steerAccel ?? 60;
+  const turretBulletSpeed = turretSettings.bulletSpeed ?? 220;
+  const asteroidMax = Math.max(viewW - 40, 40);
+  const droneMax = Math.max(viewW - 40, 40);
+  const turretMax = Math.max(viewW - 80, 80);
+  if (shouldSpawn(now, 'asteroid', asteroidInterval)) {
     const n = 5 + Math.floor(Math.random() * 3);
     for (let i = 0; i < n; i++) {
       state.enemies.push({
         type: 'asteroid',
-        x: rand(40, w - 40),
+        x: rand(40, asteroidMax),
         y: -20 - rand(0, 200),
         vx: rand(-50, 50),
-        vy: rand(80, 160),
+        vy: rand(asteroidVyMin, asteroidVyMax),
         r: rand(12, 24),
         hp: 2,
       });
@@ -48,16 +68,16 @@ export function spawnEnemies(state, now, canvas) {
   }
   if (shouldSpawn(now, 'strafer', 1400)) {
     const dir = Math.random() < 0.5 ? -1 : 1;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < straferCount; i++) {
       state.enemies.push({
         type: 'strafer',
-        x: dir < 0 ? -30 : w + 30,
-        y: rand(60, canvas.height * 0.5),
+        x: dir < 0 ? -30 : viewW + 30,
+        y: rand(60, viewH * 0.5),
         vx: dir * rand(120, 180),
         vy: 20 * Math.sin(now * 0.001 + i),
         r: 14,
         hp: 3,
-        cd: rand(300, 700),
+        cd: rand(straferCdMin, straferCdMax),
       });
     }
   }
@@ -65,12 +85,13 @@ export function spawnEnemies(state, now, canvas) {
     for (let i = 0; i < 2; i++) {
       state.enemies.push({
         type: 'drone',
-        x: rand(40, w - 40),
+        x: rand(40, droneMax),
         y: -40,
         vx: 0,
         vy: rand(60, 100),
         r: 12,
         hp: 2,
+        accel: droneAccel,
       });
     }
   }
@@ -78,33 +99,47 @@ export function spawnEnemies(state, now, canvas) {
     for (let i = 0; i < 2; i++) {
       state.enemies.push({
         type: 'turret',
-        x: rand(80, w - 80),
+        x: rand(80, turretMax),
         y: -30,
         vx: 0,
         vy: rand(70, 110),
         r: 16,
         hp: 4,
         cd: 600,
+        bulletSpeed: turretBulletSpeed,
       });
     }
   }
 }
 
-export function updateEnemies(state, dt, now, player, canvas) {
+export function updateEnemies(state, dt, now, player) {
+  const { w, h } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const viewH = Math.max(h, 1);
+  const difficulty = getDifficulty(state.levelIndex);
+  const straferSettings = difficulty?.strafer || {};
+  const droneSettings = difficulty?.drone || {};
+  const turretSettings = difficulty?.turret || {};
+  const straferCdMin = straferSettings.fireCdMsMin ?? 600;
+  const straferCdMax = straferSettings.fireCdMsMax ?? 1100;
+  const droneAccel = droneSettings.steerAccel ?? 60;
+  const turretBulletSpeed = turretSettings.bulletSpeed ?? 220;
   for (let i = state.enemies.length - 1; i >= 0; i--) {
     const e = state.enemies[i];
     if (e.type === 'asteroid') {
       e.x += e.vx * dt;
       e.y += e.vy * dt;
-      if (e.x < -40 || e.x > canvas.width + 40) {
+      if (e.x < -40 || e.x > viewW + 40) {
         e.vx *= -1;
+        const dir = Math.sign(e.vx || 0) || 1;
+        e.x = clamp(e.x + dir * 6, -40, viewW + 40);
       }
     } else if (e.type === 'strafer') {
       e.x += e.vx * dt;
       e.y += Math.sin(now * 0.004 + i) * 40 * dt;
       e.cd -= dt * 1000;
       if (e.cd <= 0) {
-        e.cd = rand(600, 1100);
+        e.cd = rand(straferCdMin, straferCdMax);
         state.enemyBullets.push({
           x: e.x,
           y: e.y + 10,
@@ -113,7 +148,7 @@ export function updateEnemies(state, dt, now, player, canvas) {
           r: 6,
         });
       }
-      if (e.x < -60 || e.x > canvas.width + 60) {
+      if (e.x < -60 || e.x > viewW + 60) {
         state.enemies.splice(i, 1);
         continue;
       }
@@ -121,10 +156,15 @@ export function updateEnemies(state, dt, now, player, canvas) {
       const dx = player.x - e.x;
       const dy = player.y - e.y;
       const d = Math.hypot(dx, dy) + 0.0001;
-      e.vx += (dx / d) * 60 * dt;
-      e.vy += (dy / d) * 60 * dt;
+      const accel = e.accel ?? droneAccel;
+      e.vx += (dx / d) * accel * dt;
+      e.vy += (dy / d) * accel * dt;
       e.x += e.vx * dt;
       e.y += e.vy * dt;
+      if (e.x < -60 || e.x > viewW + 60) {
+        state.enemies.splice(i, 1);
+        continue;
+      }
     } else if (e.type === 'turret') {
       e.y += e.vy * dt;
       e.cd -= dt * 1000;
@@ -134,29 +174,37 @@ export function updateEnemies(state, dt, now, player, canvas) {
         state.enemyBullets.push({
           x: e.x,
           y: e.y,
-          vx: Math.cos(angle) * 220,
-          vy: Math.sin(angle) * 220,
+          vx: Math.cos(angle) * (e.bulletSpeed ?? turretBulletSpeed),
+          vy: Math.sin(angle) * (e.bulletSpeed ?? turretBulletSpeed),
           r: 6,
         });
       }
+      if (e.x < 60 || e.x > viewW - 60) {
+        e.vx *= -1;
+        e.x = clamp(e.x, 60, viewW - 60);
+      }
     }
-    if (e.y > canvas.height + 80) {
+    if (e.y > viewH + 80) {
       state.enemies.splice(i, 1);
     }
   }
 }
 
-export function spawnBoss(state, canvas) {
+export function spawnBoss(state) {
+  const { w } = getViewSize();
+  const viewW = Math.max(w, 1);
   state.enemies.length = 0;
+  const difficulty = getDifficulty(state.levelIndex);
+  const bossHp = difficulty?.bossHp ?? DEFAULT_BOSS_HP;
   const boss = {
     type: 'boss',
-    x: canvas.width / 2,
+    x: viewW / 2,
     y: -160,
     vx: 0,
     vy: 160,
     r: 60,
-    hp: BOSS_HP,
-    maxHp: BOSS_HP,
+    hp: bossHp,
+    maxHp: bossHp,
     phase: 1,
     cooldown: 1400,
     volleyTimer: 1200,
@@ -169,17 +217,20 @@ export function spawnBoss(state, canvas) {
   return boss;
 }
 
-export function updateBoss(state, dt, now, player, canvas, palette) {
+export function updateBoss(state, dt, now, player, palette) {
   const boss = state.boss;
   if (!boss) {
     return;
   }
+  const { w, h } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const viewH = Math.max(h, 1);
   const particles = palette?.particles ?? {};
 
   if (boss.entering) {
     boss.y += boss.vy * dt;
-    if (boss.y >= canvas.height * 0.25) {
-      boss.y = canvas.height * 0.25;
+    if (boss.y >= viewH * 0.25) {
+      boss.y = viewH * 0.25;
       boss.vy = 0;
       boss.entering = false;
       boss.cooldown = 800;
@@ -196,7 +247,7 @@ export function updateBoss(state, dt, now, player, canvas, palette) {
   boss.introTimer = Math.max(0, boss.introTimer - dt * 1000);
 
   const leftBound = 140;
-  const rightBound = canvas.width - 140;
+  const rightBound = viewW - 140;
   const sweepSpeed = boss.phase === 1 ? 130 : 190;
   boss.x += boss.sweepDir * sweepSpeed * dt;
   if (boss.x < leftBound) {
@@ -208,7 +259,11 @@ export function updateBoss(state, dt, now, player, canvas, palette) {
   }
 
   if (boss.phase === 1) {
-    boss.y = clamp(boss.y + Math.sin(now * 0.0015) * 12 * dt * 60, canvas.height * 0.22, canvas.height * 0.28);
+    boss.y = clamp(
+      boss.y + Math.sin(now * 0.0015) * 12 * dt * 60,
+      viewH * 0.22,
+      viewH * 0.28,
+    );
     boss.cooldown -= dt * 1000;
     if (boss.cooldown <= 0) {
       boss.cooldown = 900;
@@ -219,7 +274,7 @@ export function updateBoss(state, dt, now, player, canvas, palette) {
       }
     }
   } else {
-    boss.y = canvas.height * 0.22 + Math.sin(now * 0.0025) * 36;
+    boss.y = viewH * 0.22 + Math.sin(now * 0.0025) * 36;
     boss.cooldown -= dt * 1000;
     boss.volleyTimer -= dt * 1000;
     if (boss.cooldown <= 0) {
@@ -298,13 +353,15 @@ export function drawBoss(ctx, boss, palette) {
   ctx.restore();
 }
 
-export function drawBossHealth(ctx, boss, canvas, palette) {
+export function drawBossHealth(ctx, boss, palette) {
   if (!boss) {
     return;
   }
+  const { w } = getViewSize();
+  const viewW = Math.max(w, 1);
   const bossPalette = palette?.boss ?? {};
-  const width = Math.min(canvas.width * 0.5, 420);
-  const x = (canvas.width - width) / 2;
+  const width = Math.min(viewW * 0.5, 420);
+  const x = (viewW - width) / 2;
   const y = 42;
   const ratio = Math.max(0, boss.hp) / boss.maxHp;
   ctx.save();
@@ -321,7 +378,7 @@ export function drawBossHealth(ctx, boss, canvas, palette) {
   ctx.font = '14px "Segoe UI", sans-serif';
   ctx.textAlign = 'center';
   ctx.fillStyle = bossPalette.healthText || '#e7faff';
-  ctx.fillText(`Boss Integrity ${Math.ceil(ratio * 100)}%`, canvas.width / 2, y - 6);
+  ctx.fillText(`Boss Integrity ${Math.ceil(ratio * 100)}%`, viewW / 2, y - 6);
   ctx.restore();
 }
 
