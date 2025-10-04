@@ -5,11 +5,16 @@ import { coll } from './utils.js';
 import { playPew, playPow } from './audio.js';
 import { updateWeapon, updateScore, getViewSize } from './ui.js';
 
-const ROMAN = ['I', 'II', 'III'];
+export const WEAPON_DISPLAY_NAMES = Object.freeze({
+  pulse: 'Pulse Cannon',
+  twin: 'Twin Blaster',
+  burst: 'Burst Laser',
+  heavy: 'Heavy Plasma',
+});
 
 const weaponDefs = {
   pulse: {
-    label: 'Pulse Cannon',
+    label: WEAPON_DISPLAY_NAMES.pulse,
     levels: [
       {
         delay: 210,
@@ -89,7 +94,7 @@ const weaponDefs = {
     ],
   },
   twin: {
-    label: 'Twin Blaster',
+    label: WEAPON_DISPLAY_NAMES.twin,
     levels: [
       {
         delay: 200,
@@ -219,7 +224,7 @@ const weaponDefs = {
     ],
   },
   burst: {
-    label: 'Burst Laser',
+    label: WEAPON_DISPLAY_NAMES.burst,
     levels: [
       {
         delay: 230,
@@ -389,7 +394,7 @@ const weaponDefs = {
     ],
   },
   heavy: {
-    label: 'Heavy Plasma',
+    label: WEAPON_DISPLAY_NAMES.heavy,
     levels: [
       {
         delay: 300,
@@ -532,23 +537,29 @@ function currentLevel(state) {
 
 function weaponHudLabel(weapon) {
   if (!weapon) {
-    return 'Weapon: —';
+    return 'None';
+  }
+  const name = getWeaponDisplayName(weapon.name);
+  if (!name) {
+    return 'None';
   }
   const def = weaponDefs[weapon.name];
-  if (!def) {
-    return 'Weapon: —';
-  }
-  const numeral = ROMAN[clampLevel(def, weapon.level)] || ROMAN[ROMAN.length - 1];
-  return `Weapon: ${def.label} – ${numeral}`;
+  const levelIndex = def ? clampLevel(def, weapon.level) : 0;
+  const levelLabel = `Level ${levelIndex + 1}`;
+  return `${name} – ${levelLabel}`;
 }
 
 export function getWeaponLabel(weapon) {
   return weaponHudLabel(weapon);
 }
 
+export function getWeaponDisplayName(id) {
+  return WEAPON_DISPLAY_NAMES[id] || null;
+}
+
 export function updateWeaponHud(state) {
-  ensureWeaponState(state);
-  updateWeapon(weaponHudLabel(state.weapon));
+  const weapon = state?.weapon ?? null;
+  updateWeapon(weaponHudLabel(weapon));
 }
 
 export function setupWeapons(state) {

@@ -112,7 +112,7 @@ export function clearExpiredPowers(state, now) {
     state.player.shield = 0;
     state.power.name = null;
     state.power.until = 0;
-    updatePower('—');
+    updatePower('None');
   }
 }
 
@@ -173,7 +173,7 @@ export function drawPowerups(ctx, powerups, palette) {
 export function resetPowerState(state) {
   state.power.name = null;
   state.power.until = 0;
-  updatePower('—');
+  updatePower('None');
   state.player.shield = 0;
   state.player.speed = 260;
 }

@@ -224,7 +224,7 @@ function resetState() {
   updateLives(state.lives);
   updateScore(state.score);
   updateTime(0);
-  updatePower('—');
+  updatePower('None');
   hideOverlay();
   keys.clear();
   lastFrame = performance.now();
