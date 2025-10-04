@@ -15,6 +15,7 @@ const spawnTimers = {
 const SPAWN_WINDOW_MS = 80;
 
 const DEFAULT_BOSS_HP = 540;
+const ASSIST_DENSITY = 0.7;
 
 function pushBossBullet(state, x, y, speed, angle, radius = 8) {
   const bornAt = state.time * 1000;
@@ -45,12 +46,24 @@ function shouldSpawn(now, key, intervalMs, offsetMs = 0) {
   return true;
 }
 
+function resolveSpawnCount(baseCount, assistEnabled) {
+  if (!assistEnabled) {
+    return baseCount;
+  }
+  if (baseCount <= 1) {
+    return Math.random() < ASSIST_DENSITY ? 1 : 0;
+  }
+  const scaled = Math.floor(baseCount * ASSIST_DENSITY);
+  return Math.max(1, scaled);
+}
+
 export function spawnEnemies(state, now) {
   const { w, h } = getViewSize();
   const viewW = Math.max(w, 1);
   const viewH = Math.max(h, 1);
   const difficulty = getDifficulty(state.levelIndex);
   const spawnConfig = difficulty?.spawn || {};
+  const assistEnabled = Boolean(state.assistEnabled);
   const asteroidSettings = spawnConfig.asteroid || difficulty?.asteroid || {};
   const straferSettings = spawnConfig.strafer || difficulty?.strafer || {};
   const droneSettings = spawnConfig.drone || difficulty?.drone || {};
@@ -76,8 +89,9 @@ export function spawnEnemies(state, now) {
   const droneMax = Math.max(viewW - 40, 40);
   const turretMax = Math.max(viewW - 80, 80);
   if (shouldSpawn(now, 'asteroid', asteroidInterval, asteroidOffset)) {
-    const n = 5 + Math.floor(Math.random() * 3);
-    for (let i = 0; i < n; i++) {
+    const base = 5 + Math.floor(Math.random() * 3);
+    const count = resolveSpawnCount(base, assistEnabled);
+    for (let i = 0; i < count; i++) {
       state.enemies.push({
         type: 'asteroid',
         x: rand(40, asteroidMax),
@@ -91,7 +105,8 @@ export function spawnEnemies(state, now) {
   }
   if (shouldSpawn(now, 'strafer', straferInterval, straferOffset)) {
     const dir = Math.random() < 0.5 ? -1 : 1;
-    for (let i = 0; i < straferCount; i++) {
+    const count = resolveSpawnCount(straferCount, assistEnabled);
+    for (let i = 0; i < count; i++) {
       state.enemies.push({
         type: 'strafer',
         x: dir < 0 ? -30 : viewW + 30,
@@ -105,7 +120,8 @@ export function spawnEnemies(state, now) {
     }
   }
   if (shouldSpawn(now, 'drone', droneInterval, droneOffset)) {
-    for (let i = 0; i < 2; i++) {
+    const count = resolveSpawnCount(2, assistEnabled);
+    for (let i = 0; i < count; i++) {
       state.enemies.push({
         type: 'drone',
         x: rand(40, droneMax),
@@ -119,7 +135,8 @@ export function spawnEnemies(state, now) {
     }
   }
   if (shouldSpawn(now, 'turret', turretInterval, turretOffset)) {
-    for (let i = 0; i < 2; i++) {
+    const count = resolveSpawnCount(2, assistEnabled);
+    for (let i = 0; i < count; i++) {
       state.enemies.push({
         type: 'turret',
         x: rand(80, turretMax),
