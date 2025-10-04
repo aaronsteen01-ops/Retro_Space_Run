@@ -46,6 +46,31 @@ function ensureWeaponState(state) {
   if (!state.weaponDrops) {
     state.weaponDrops = [];
   }
+  if (state.weaponDropSecured === undefined) {
+    state.weaponDropSecured = false;
+  }
+}
+
+function pickWeaponKey() {
+  const weaponKeys = Object.keys(weaponDefs);
+  if (!weaponKeys.length) {
+    return 'pulse';
+  }
+  return weaponKeys[Math.floor(Math.random() * weaponKeys.length)];
+}
+
+function pushWeaponDrop(state, weapon, x, y) {
+  ensureWeaponState(state);
+  state.weaponDrops.push({
+    x,
+    y,
+    vy: 90,
+    r: 14,
+    weapon,
+    spin: Math.random() * Math.PI,
+    t: DROP_LIFETIME,
+  });
+  state.weaponDropSecured = true;
 }
 
 function clampLevel(def, level) {
@@ -83,6 +108,7 @@ export function setupWeapons(state) {
   state.weapon.level = 0;
   state.lastShot = 0;
   state.weaponDrops.length = 0;
+  state.weaponDropSecured = false;
   updateWeapon(getWeaponLabel(state.weapon));
 }
 
@@ -202,6 +228,7 @@ function upgradeWeapon(state, weaponName) {
     state.weapon.level += 1;
   }
   state.lastShot = 0;
+  state.weaponDropSecured = true;
   updateWeapon(getWeaponLabel(state.weapon));
   playPow();
 }
@@ -211,17 +238,8 @@ export function maybeDropWeaponToken(state, enemy) {
   if (Math.random() > DROP_CHANCE) {
     return;
   }
-  const weaponKeys = Object.keys(weaponDefs);
-  const weapon = weaponKeys[Math.floor(Math.random() * weaponKeys.length)];
-  state.weaponDrops.push({
-    x: enemy.x,
-    y: enemy.y,
-    vy: 90,
-    r: 14,
-    weapon,
-    spin: Math.random() * Math.PI,
-    t: DROP_LIFETIME,
-  });
+  const weapon = pickWeaponKey();
+  pushWeaponDrop(state, weapon, enemy.x, enemy.y);
 }
 
 export function updateWeaponDrops(state, dt) {
@@ -275,4 +293,28 @@ export function drawWeaponDrops(ctx, drops, palette) {
     ctx.fillText(def ? def.label.charAt(0) : 'W', 0, 0);
     ctx.restore();
   }
+}
+
+export function ensureGuaranteedWeaponDrop(state) {
+  ensureWeaponState(state);
+  if (state.weaponDropSecured) {
+    return;
+  }
+  if ((state.weapon?.level ?? 0) > 0) {
+    state.weaponDropSecured = true;
+    return;
+  }
+  if (!state.levelDur) {
+    return;
+  }
+  const progress = state.time / state.levelDur;
+  if (progress < 0.6) {
+    return;
+  }
+  const { w } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const weapon = pickWeaponKey();
+  const targetX = state.player ? state.player.x : viewW / 2;
+  const x = Math.max(40, Math.min(viewW - 40, targetX));
+  pushWeaponDrop(state, weapon, x, -24);
 }

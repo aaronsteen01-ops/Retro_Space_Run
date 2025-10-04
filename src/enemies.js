@@ -3,6 +3,7 @@
  */
 import { rand, TAU, drawGlowCircle, addParticle, clamp } from './utils.js';
 import { getViewSize } from './ui.js';
+import { getDifficulty } from './difficulty.js';
 
 const spawnTimers = {
   asteroid: 0,
@@ -11,7 +12,7 @@ const spawnTimers = {
   turret: 0,
 };
 
-const BOSS_HP = 540;
+const DEFAULT_BOSS_HP = 540;
 
 function pushBossBullet(state, x, y, speed, angle, radius = 8) {
   state.enemyBullets.push({
@@ -35,10 +36,23 @@ export function spawnEnemies(state, now) {
   const { w, h } = getViewSize();
   const viewW = Math.max(w, 1);
   const viewH = Math.max(h, 1);
+  const difficulty = getDifficulty(state.levelIndex);
+  const asteroidSettings = difficulty?.asteroid || {};
+  const straferSettings = difficulty?.strafer || {};
+  const droneSettings = difficulty?.drone || {};
+  const turretSettings = difficulty?.turret || {};
+  const asteroidInterval = asteroidSettings.intervalMs ?? 900;
+  const asteroidVyMin = asteroidSettings.vyMin ?? 80;
+  const asteroidVyMax = asteroidSettings.vyMax ?? 160;
+  const straferCount = straferSettings.count ?? 3;
+  const straferCdMin = straferSettings.fireCdMsMin ?? 600;
+  const straferCdMax = straferSettings.fireCdMsMax ?? 1100;
+  const droneAccel = droneSettings.steerAccel ?? 60;
+  const turretBulletSpeed = turretSettings.bulletSpeed ?? 220;
   const asteroidMax = Math.max(viewW - 40, 40);
   const droneMax = Math.max(viewW - 40, 40);
   const turretMax = Math.max(viewW - 80, 80);
-  if (shouldSpawn(now, 'asteroid', 900)) {
+  if (shouldSpawn(now, 'asteroid', asteroidInterval)) {
     const n = 5 + Math.floor(Math.random() * 3);
     for (let i = 0; i < n; i++) {
       state.enemies.push({
@@ -46,7 +60,7 @@ export function spawnEnemies(state, now) {
         x: rand(40, asteroidMax),
         y: -20 - rand(0, 200),
         vx: rand(-50, 50),
-        vy: rand(80, 160),
+        vy: rand(asteroidVyMin, asteroidVyMax),
         r: rand(12, 24),
         hp: 2,
       });
@@ -54,7 +68,7 @@ export function spawnEnemies(state, now) {
   }
   if (shouldSpawn(now, 'strafer', 1400)) {
     const dir = Math.random() < 0.5 ? -1 : 1;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < straferCount; i++) {
       state.enemies.push({
         type: 'strafer',
         x: dir < 0 ? -30 : viewW + 30,
@@ -63,7 +77,7 @@ export function spawnEnemies(state, now) {
         vy: 20 * Math.sin(now * 0.001 + i),
         r: 14,
         hp: 3,
-        cd: rand(300, 700),
+        cd: rand(straferCdMin, straferCdMax),
       });
     }
   }
@@ -77,6 +91,7 @@ export function spawnEnemies(state, now) {
         vy: rand(60, 100),
         r: 12,
         hp: 2,
+        accel: droneAccel,
       });
     }
   }
@@ -91,6 +106,7 @@ export function spawnEnemies(state, now) {
         r: 16,
         hp: 4,
         cd: 600,
+        bulletSpeed: turretBulletSpeed,
       });
     }
   }
@@ -100,6 +116,14 @@ export function updateEnemies(state, dt, now, player) {
   const { w, h } = getViewSize();
   const viewW = Math.max(w, 1);
   const viewH = Math.max(h, 1);
+  const difficulty = getDifficulty(state.levelIndex);
+  const straferSettings = difficulty?.strafer || {};
+  const droneSettings = difficulty?.drone || {};
+  const turretSettings = difficulty?.turret || {};
+  const straferCdMin = straferSettings.fireCdMsMin ?? 600;
+  const straferCdMax = straferSettings.fireCdMsMax ?? 1100;
+  const droneAccel = droneSettings.steerAccel ?? 60;
+  const turretBulletSpeed = turretSettings.bulletSpeed ?? 220;
   for (let i = state.enemies.length - 1; i >= 0; i--) {
     const e = state.enemies[i];
     if (e.type === 'asteroid') {
@@ -115,7 +139,7 @@ export function updateEnemies(state, dt, now, player) {
       e.y += Math.sin(now * 0.004 + i) * 40 * dt;
       e.cd -= dt * 1000;
       if (e.cd <= 0) {
-        e.cd = rand(600, 1100);
+        e.cd = rand(straferCdMin, straferCdMax);
         state.enemyBullets.push({
           x: e.x,
           y: e.y + 10,
@@ -132,8 +156,9 @@ export function updateEnemies(state, dt, now, player) {
       const dx = player.x - e.x;
       const dy = player.y - e.y;
       const d = Math.hypot(dx, dy) + 0.0001;
-      e.vx += (dx / d) * 60 * dt;
-      e.vy += (dy / d) * 60 * dt;
+      const accel = e.accel ?? droneAccel;
+      e.vx += (dx / d) * accel * dt;
+      e.vy += (dy / d) * accel * dt;
       e.x += e.vx * dt;
       e.y += e.vy * dt;
       if (e.x < -60 || e.x > viewW + 60) {
@@ -149,8 +174,8 @@ export function updateEnemies(state, dt, now, player) {
         state.enemyBullets.push({
           x: e.x,
           y: e.y,
-          vx: Math.cos(angle) * 220,
-          vy: Math.sin(angle) * 220,
+          vx: Math.cos(angle) * (e.bulletSpeed ?? turretBulletSpeed),
+          vy: Math.sin(angle) * (e.bulletSpeed ?? turretBulletSpeed),
           r: 6,
         });
       }
@@ -169,6 +194,8 @@ export function spawnBoss(state) {
   const { w } = getViewSize();
   const viewW = Math.max(w, 1);
   state.enemies.length = 0;
+  const difficulty = getDifficulty(state.levelIndex);
+  const bossHp = difficulty?.bossHp ?? DEFAULT_BOSS_HP;
   const boss = {
     type: 'boss',
     x: viewW / 2,
@@ -176,8 +203,8 @@ export function spawnBoss(state) {
     vx: 0,
     vy: 160,
     r: 60,
-    hp: BOSS_HP,
-    maxHp: BOSS_HP,
+    hp: bossHp,
+    maxHp: bossHp,
     phase: 1,
     cooldown: 1400,
     volleyTimer: 1200,

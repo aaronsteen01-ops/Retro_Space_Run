@@ -45,6 +45,7 @@ import {
   updateWeaponDrops,
   drawWeaponDrops,
   maybeDropWeaponToken,
+  ensureGuaranteedWeaponDrop,
 } from './weapons.js';
 
 let activePalette = getActiveThemePalette();
@@ -53,6 +54,7 @@ const state = {
   running: false,
   paused: false,
   levelDur: 90,
+  levelIndex: 1,
   time: 0,
   score: 0,
   lives: 3,
@@ -63,6 +65,7 @@ const state = {
   particles: [],
   powerups: [],
   weaponDrops: [],
+  weaponDropSecured: false,
   stars: [],
   finishGate: null,
   boss: null,
@@ -180,6 +183,7 @@ function drawGate(gate, palette) {
 function resetState() {
   state.running = true;
   state.paused = false;
+  state.levelIndex = 1;
   state.time = 0;
   state.score = 0;
   state.lives = 3;
@@ -193,6 +197,7 @@ function resetState() {
   state.bossSpawned = false;
   state.bossDefeatedAt = 0;
   state.lastShot = 0;
+  state.weaponDropSecured = false;
   state.theme = activePalette;
   resetPlayer(state);
   resetPowerState(state);
@@ -267,6 +272,7 @@ function loop(now) {
 
   state.time += dt;
   updateTime(Math.floor(state.time));
+  ensureGuaranteedWeaponDrop(state);
 
   if (state.time >= state.levelDur) {
     if (!state.bossSpawned) {

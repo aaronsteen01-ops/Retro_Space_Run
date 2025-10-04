@@ -4,6 +4,7 @@
 import { rand, TAU, coll } from './utils.js';
 import { playPow } from './audio.js';
 import { updatePower, getViewSize } from './ui.js';
+import { getDifficulty } from './difficulty.js';
 
 const spawnState = {
   last: 0,
@@ -16,7 +17,9 @@ export function resetPowerTimers() {
 }
 
 export function maybeSpawnPowerup(state, now) {
-  if (now - spawnState.last < 12000) {
+  const difficulty = getDifficulty(state.levelIndex);
+  const interval = difficulty?.powerupIntervalMs ?? 12000;
+  if (now - spawnState.last < interval) {
     return;
   }
   spawnState.last = now;
