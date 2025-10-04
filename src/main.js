@@ -31,10 +31,6 @@ import {
   drawPlayerBullets,
   updateEnemyBullets,
   drawEnemyBullets,
-  setupWeapons,
-  updateWeaponDrops,
-  drawWeaponDrops,
-  maybeDropWeaponToken,
 } from './weapons.js';
 
 const state = {
@@ -50,14 +46,12 @@ const state = {
   enemyBullets: [],
   particles: [],
   powerups: [],
-  weaponDrops: [],
   stars: [],
   finishGate: null,
   lastShot: 0,
   shotDelay: 180,
   speed: 260,
   power: { name: null, until: 0 },
-  weapon: null,
 };
 
 const keys = new Set();
@@ -155,7 +149,6 @@ function resetState() {
   resetPlayer(state, canvas);
   resetPowerState(state);
   resetPowerTimers();
-  setupWeapons(state);
   spawnStars();
   updateLives(state.lives);
   updateScore(state.score);
@@ -244,7 +237,7 @@ function loop(now) {
   clampPlayerToBounds(player, canvas);
 
   handlePlayerShooting(state, keys, now);
-  updatePlayerBullets(state, dt, canvas);
+  updatePlayerBullets(state, dt);
 
   spawnEnemies(state, now, canvas);
   updateEnemies(state, dt, now, player, canvas);
@@ -252,7 +245,6 @@ function loop(now) {
 
   maybeSpawnPowerup(state, now, canvas);
   updatePowerups(state, dt, now, canvas);
-  updateWeaponDrops(state, dt, canvas);
   clearExpiredPowers(state, now);
 
   if (state.finishGate) {
@@ -276,14 +268,13 @@ function loop(now) {
       const bullet = state.bullets[j];
       if (coll(enemy, bullet, -4)) {
         state.bullets.splice(j, 1);
-        enemy.hp -= bullet.damage || 1;
+        enemy.hp -= 1;
         addParticle(state, enemy.x, enemy.y, enemy.type === 'strafer' ? '#ff3df7' : '#00e5ff', 12, 2.6, 300);
         if (enemy.hp <= 0) {
           state.enemies.splice(i, 1);
           state.score += 25;
           updateScore(state.score);
           playHit();
-          maybeDropWeaponToken(state, enemy);
         }
         break;
       }
@@ -313,7 +304,6 @@ function loop(now) {
     player.invuln -= dt * 1000;
   }
 
-  drawWeaponDrops(ctx, state.weaponDrops);
   drawPowerups(ctx, state.powerups);
   drawEnemies(ctx, state.enemies);
   drawEnemyBullets(ctx, state.enemyBullets);

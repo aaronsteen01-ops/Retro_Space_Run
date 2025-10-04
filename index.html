@@ -99,7 +99,6 @@ fitCanvas();
 const hudLives = document.getElementById('lives');
 const hudScore = document.getElementById('score');
 const hudTime  = document.getElementById('time');
-const hudWeapon = document.getElementById('weapon');
 const hudPup   = document.getElementById('pup');
 const overlay  = document.getElementById('overlay');
 const startBtn = document.getElementById('btn');
@@ -144,12 +143,11 @@ const state = {
   time:0, score:0, lives:3,
   player:null,
   bullets:[], enemies:[], enemyBullets:[], particles:[],
-  stars:[], powerups:[], weaponDrops:[], finishGate:null,
+  stars:[], powerups:[], finishGate:null,
   lastShot:0, shotDelay:180,
   speed: 260,
   scrollY: 0,
-  power: {name:null, until:0},
-  weapon: {name:'pulse', level:0}
+  power: {name:null, until:0}
 };
 
 // ===== Starfield =====
@@ -187,131 +185,6 @@ function addParticle(x,y, col, count=10, spread=2, life=400){
       life, t:life, col
     });
   }
-}
-
-// ===== Weapons =====
-const ROMAN = ['I','II','III'];
-const weaponDefs = {
-  pulse: {
-    label: 'Pulse Cannon',
-    tokenFill: '#ff3df7',
-    tokenStroke: '#00e5ff',
-    levels: [
-      {
-        delay: 210,
-        projectiles: [
-          { offsetX: 0, offsetY: -18, vx: 0, vy: -620, damage: 1, colour: '#ffb8ff' },
-        ],
-      },
-      {
-        delay: 160,
-        projectiles: [
-          { offsetX: -12, offsetY: -18, vx: -110, vy: -630, damage: 1, colour: '#ffd6ff' },
-          { offsetX: 12, offsetY: -18, vx: 110, vy: -630, damage: 1, colour: '#ffd6ff' },
-        ],
-      },
-      {
-        delay: 140,
-        projectiles: [
-          { offsetX: -16, offsetY: -14, vx: -180, vy: -650, damage: 1.4, colour: '#ffeeff' },
-          { offsetX: 0, offsetY: -22, vx: 0, vy: -720, damage: 1.4, colour: '#ffeeff' },
-          { offsetX: 16, offsetY: -14, vx: 180, vy: -650, damage: 1.4, colour: '#ffeeff' },
-        ],
-      },
-    ],
-  },
-};
-const DROP_CHANCE = 0.18;
-const DROP_LIFETIME = 10000;
-
-function weaponLabel(){
-  const def = weaponDefs[state.weapon.name];
-  if (!def) return '—';
-  const level = Math.min(state.weapon.level, def.levels.length-1);
-  return `${def.label} · ${ROMAN[level] || ROMAN[ROMAN.length-1]}`;
-}
-
-function resetWeapon(){
-  state.weapon.name = 'pulse';
-  state.weapon.level = 0;
-  state.weaponDrops.length = 0;
-  state.lastShot = 0;
-  hudWeapon.textContent = weaponLabel();
-}
-
-function upgradeWeapon(name){
-  const def = weaponDefs[name];
-  if (!def) return;
-  if (state.weapon.name !== name){
-    state.weapon.name = name;
-    state.weapon.level = 0;
-  } else if (state.weapon.level < def.levels.length-1){
-    state.weapon.level++;
-  }
-  state.lastShot = 0;
-  hudWeapon.textContent = weaponLabel();
-  pow();
-}
-
-function spawnWeaponDrop(enemy){
-  if (Math.random() > DROP_CHANCE) return;
-  const keys = Object.keys(weaponDefs);
-  const weapon = keys[Math.floor(Math.random()*keys.length)];
-  state.weaponDrops.push({
-    x: enemy.x,
-    y: enemy.y,
-    vy: 90,
-    r: 14,
-    weapon,
-    spin: Math.random()*Math.PI,
-    t: DROP_LIFETIME,
-  });
-}
-
-function updateWeaponDrops(dt){
-  for (let i=state.weaponDrops.length-1;i>=0;i--){
-    const drop = state.weaponDrops[i];
-    drop.y += drop.vy*dt;
-    drop.spin = (drop.spin||0) + dt*2.4;
-    drop.t -= dt*1000;
-    if (drop.t<=0 || drop.y>canvas.height+40){
-      state.weaponDrops.splice(i,1);
-      continue;
-    }
-    if (state.player && coll(state.player, drop)){
-      upgradeWeapon(drop.weapon);
-      state.weaponDrops.splice(i,1);
-    }
-  }
-}
-
-function drawWeaponDrop(drop){
-  const def = weaponDefs[drop.weapon];
-  const fill = def? def.tokenFill : '#ff3df7';
-  const stroke = def? def.tokenStroke : '#00e5ff';
-  ctx.save();
-  ctx.translate(drop.x, drop.y);
-  ctx.rotate(drop.spin||0);
-  ctx.shadowColor = stroke + 'aa';
-  ctx.shadowBlur = 12;
-  ctx.fillStyle = fill;
-  ctx.beginPath();
-  ctx.moveTo(0,-12);
-  ctx.lineTo(10,0);
-  ctx.lineTo(0,12);
-  ctx.lineTo(-10,0);
-  ctx.closePath();
-  ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = stroke;
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  ctx.fillStyle = stroke;
-  ctx.font = '10px "IBM Plex Mono", monospace';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(def? def.label.charAt(0):'W', 0, 0);
-  ctx.restore();
 }
 
 // ===== Enemies and Power-ups =====
@@ -389,8 +262,8 @@ function start(){
   state.running = true; state.paused=false;
   state.time=0; state.score=0; state.lives=3;
   state.bullets.length=0; state.enemies.length=0; state.enemyBullets.length=0;
-  state.powerups.length=0; state.weaponDrops.length=0; state.particles.length=0; state.finishGate=null;
-  spawnStars(); makePlayer(); resetWeapon();
+  state.powerups.length=0; state.particles.length=0; state.finishGate=null;
+  spawnStars(); makePlayer();
   hudLives.textContent = state.lives;
   hudScore.textContent = state.score;
   hudTime.textContent  = 0;
@@ -445,10 +318,9 @@ function drawShip(p){
 function drawBullet(b){
   ctx.save();
   ctx.translate(b.x,b.y);
-  const col = b.colour || '#ffb8ff';
-  ctx.shadowColor=col+'aa'; ctx.shadowBlur=10;
-  ctx.fillStyle=col;
-  ctx.fillRect(-2,-6,4,12);
+  ctx.shadowColor='#ff3df7aa'; ctx.shadowBlur=10;
+  ctx.fillStyle='#ffb8ff';
+  ctx.fillRect(-2,-6,4,10);
   ctx.restore();
 }
 function drawEnemy(e){
@@ -543,35 +415,22 @@ function loop(now){
   p.x = clamp(p.x, 20, canvas.width-20);
   p.y = clamp(p.y, 40, canvas.height-40);
 
-  const weaponDef = weaponDefs[state.weapon.name] || weaponDefs.pulse;
-  const levelIdx = Math.min(state.weapon.level, weaponDef.levels.length-1);
-  const weaponLevel = weaponDef.levels[levelIdx];
-  const delay = Math.max(70, weaponLevel.delay * (state.power.name==='rapid'?0.6:1));
+  const rapid = state.power.name==='rapid';
+  const delay = rapid ? 90 : state.shotDelay;
   if ((keys.has(' ') || keys.has('space')) && now - state.lastShot > delay){
     state.lastShot = now;
-    for (const proj of weaponLevel.projectiles){
-      state.bullets.push({
-        x: p.x + proj.offsetX,
-        y: p.y + proj.offsetY,
-        vx: proj.vx,
-        vy: proj.vy,
-        r: 6,
-        damage: proj.damage,
-        colour: proj.colour,
-        life: 1200,
-      });
+    const spread = rapid ? 10 : 0;
+    const shots = rapid? 2:1;
+    for(let i=0;i<shots;i++){
+      state.bullets.push({x:p.x + (i?spread:-spread), y:p.y-18, vy:-520, r:6});
     }
     pew();
   }
 
   for (let i=state.bullets.length-1;i>=0;i--){
     const b = state.bullets[i];
-    b.x += (b.vx||0)*dt;
     b.y += b.vy*dt;
-    b.life = (b.life||0) - dt*1000;
-    if (b.y<-40 || b.y>canvas.height+40 || b.x<-40 || b.x>canvas.width+40 || b.life<=0){
-      state.bullets.splice(i,1);
-    }
+    if (b.y<-30) state.bullets.splice(i,1);
   }
 
   spawnWave(now);
@@ -622,7 +481,6 @@ function loop(now){
       state.powerups.splice(i,1);
     }
   }
-  updateWeaponDrops(dt);
   clearExpiredPowers(now);
 
   if (state.finishGate){
@@ -641,14 +499,13 @@ function loop(now){
       const b = state.bullets[j];
       if (coll(e,b, -4)){
         state.bullets.splice(j,1);
-        e.hp -= b.damage || 1;
+        e.hp -= 1;
         addParticle(e.x,e.y, e.type==='strafer'? '#ff3df7':'#00e5ff', 12, 2.6, 300);
         if (e.hp<=0){
           state.enemies.splice(i,1);
           state.score += 25;
           hudScore.textContent = state.score;
           hit();
-          spawnWeaponDrop(e);
         }
         break;
       }
@@ -671,7 +528,6 @@ function loop(now){
   }
   if (p.invuln>0) p.invuln -= dt*1000;
 
-  for (const drop of state.weaponDrops) drawWeaponDrop(drop);
   for (const pu of state.powerups) drawPowerUp(pu);
   for (const e of state.enemies) drawEnemy(e);
   for (const b of state.enemyBullets) drawEnemyBullet(b);
