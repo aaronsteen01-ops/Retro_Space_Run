@@ -79,20 +79,21 @@ export function updatePowerups(state, dt, now, canvas) {
   }
 }
 
-export function drawPowerups(ctx, powerups) {
+export function drawPowerups(ctx, powerups, palette) {
+  const powerPalette = palette?.powerups ?? {};
   for (const p of powerups) {
     ctx.save();
     ctx.translate(p.x, p.y);
-    ctx.shadowColor = '#fff';
+    ctx.shadowColor = powerPalette.glow || '#fff';
     ctx.shadowBlur = 10;
     if (p.type === 'shield') {
-      ctx.strokeStyle = '#00e5ff';
+      ctx.strokeStyle = powerPalette.shield || '#00e5ff';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(0, 0, 10, 0, TAU);
       ctx.stroke();
     } else if (p.type === 'rapid') {
-      ctx.strokeStyle = '#ff3df7';
+      ctx.strokeStyle = powerPalette.rapid || '#ff3df7';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(-8, -6);
@@ -101,7 +102,7 @@ export function drawPowerups(ctx, powerups) {
       ctx.lineTo(8, -6);
       ctx.stroke();
     } else if (p.type === 'boost') {
-      ctx.strokeStyle = '#ffffff';
+      ctx.strokeStyle = powerPalette.boost || '#ffffff';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(0, -10);
