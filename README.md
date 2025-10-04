@@ -21,16 +21,19 @@ Each module imports and exports explicit functions, so you can develop or test c
 
 ---
 
-## ✨ Feature Highlights in v0.2
+## ✨ Feature Highlights in this build
+
+### Level One Difficulty Tuning
+Level one now leans on a shared difficulty configuration so enemy waves, boss integrity, and loot timers can be tuned in one spot. The opening sector ships with calmer spawn intervals, slower projectiles, and a safety weapon drop once you clear 60 % of the run.
+
+### Assist Mode
+Need a hand or want to test comfortably? Toggle Assist Mode from the HUD pill or hit **H** to persist the setting. Assist grants an extra starting life, short bursts of invulnerability after hits, and a 50 % boost to power-up spawn cadence.
 
 ### Persistent Weapon Upgrades
 Destroying priority targets now drops weapon tokens. Collect them to permanently unlock higher-tier blasters that carry across sessions. The `weapons.js` module serialises unlocks to localStorage and reapplies them when a new run starts, letting players build their own loadout ladder.
 
 ### Boss Encounter Flow
 Every sector culminates in a bespoke boss fight. Bosses spawn once the timer crosses the late-stage threshold, lock the finish gate, and shift the soundtrack via `audio.js`. Defeating the boss triggers celebratory particles, reopens the gate, and rolls a guaranteed weapon drop.
-
-### Theme Selector (Coming Soon)
-The new `themes.js` module already defines multiple palettes and event hooks. The UI exposes a placeholder toggle that will become a fully fledged theme selector shortly, allowing players to swap between classic neon, solar flare, and deep space variants without reloading.
 
 ---
 
@@ -53,6 +56,7 @@ For browsers without module support, leave the inline `<script nomodule>…</scr
 | Pause | P |
 | Fullscreen | F |
 | Mute / Unmute | M |
+| Assist toggle | H / HUD pill |
 
 Controllers with standard gamepad mappings inherit from the browser’s default bindings (left stick to steer, face buttons to fire) when available.
 

@@ -15,6 +15,9 @@ import {
   getActiveThemePalette,
   onThemeChange,
   getViewSize,
+  getAssistMode,
+  toggleAssistMode,
+  onAssistChange,
 } from './ui.js';
 import { playZap, playHit, toggleAudio, resumeAudioContext, playPow } from './audio.js';
 import { resetPlayer, updatePlayer, clampPlayerToBounds, drawPlayer } from './player.js';
@@ -77,11 +80,16 @@ const state = {
   power: { name: null, until: 0 },
   weapon: null,
   theme: activePalette,
+  assistEnabled: getAssistMode(),
 };
 
 onThemeChange((_, palette) => {
   activePalette = palette;
   state.theme = palette;
+});
+
+onAssistChange((enabled) => {
+  state.assistEnabled = enabled;
 });
 
 const keys = new Set();
@@ -90,11 +98,14 @@ window.addEventListener('keydown', (e) => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
     e.preventDefault();
   }
-  keys.add(e.key.toLowerCase());
+  const key = e.key.toLowerCase();
+  keys.add(key);
+  if (key === 'h') {
+    toggleAssistMode();
+  }
   if (!state.running) {
     return;
   }
-  const key = e.key.toLowerCase();
   if (key === 'p') {
     state.paused = !state.paused;
     if (state.paused) {
@@ -186,7 +197,8 @@ function resetState() {
   state.levelIndex = 1;
   state.time = 0;
   state.score = 0;
-  state.lives = 3;
+  state.assistEnabled = getAssistMode();
+  state.lives = state.assistEnabled ? 4 : 3;
   state.bullets.length = 0;
   state.enemies.length = 0;
   state.enemyBullets.length = 0;
@@ -246,7 +258,7 @@ function handlePlayerHit() {
   updateLives(state.lives);
   addParticle(state, player.x, player.y, particles.playerHit || '#ff3df7', 30, 3.2, 500);
   playZap();
-  player.invuln = 2000;
+  player.invuln = state.assistEnabled ? 3000 : 2000;
   if (state.lives <= 0) {
     gameOver(false);
     return true;

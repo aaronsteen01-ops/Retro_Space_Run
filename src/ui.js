@@ -24,10 +24,13 @@ const hudPower = document.getElementById('pup');
 const hudWeapon = document.getElementById('weapon');
 const overlay = document.getElementById('overlay');
 const themeSelect = document.getElementById('theme-select');
+const assistToggle = document.getElementById('assist-toggle');
 
 const THEME_STORAGE_KEY = 'retro-space-run.theme';
+const ASSIST_STORAGE_KEY = 'retro-space-run.assist';
 
 const themeListeners = new Set();
+const assistListeners = new Set();
 
 function readStoredTheme() {
   try {
@@ -42,6 +45,23 @@ function readStoredTheme() {
 }
 
 let activeThemeKey = readStoredTheme();
+
+function readStoredAssist() {
+  try {
+    const stored = window.localStorage?.getItem(ASSIST_STORAGE_KEY);
+    if (stored === 'on') {
+      return true;
+    }
+    if (stored === 'off') {
+      return false;
+    }
+  } catch (err) {
+    /* ignore storage errors */
+  }
+  return false;
+}
+
+let assistMode = readStoredAssist();
 
 function populateThemeControl() {
   if (!themeSelect) {
@@ -78,11 +98,26 @@ function applyThemeToDocument(palette) {
   }
 }
 
+function syncAssistToggle() {
+  if (!assistToggle) {
+    return;
+  }
+  assistToggle.textContent = `Assist: ${assistMode ? 'On' : 'Off'}`;
+  assistToggle.setAttribute('aria-pressed', assistMode ? 'true' : 'false');
+  assistToggle.classList.toggle('is-on', assistMode);
+}
+
 function emitThemeChange() {
   const palette = getThemePalette(activeThemeKey);
   applyThemeToDocument(palette);
   for (const cb of themeListeners) {
     cb(activeThemeKey, palette);
+  }
+}
+
+function emitAssistChange() {
+  for (const cb of assistListeners) {
+    cb(assistMode);
   }
 }
 
@@ -105,10 +140,17 @@ function setThemeInternal(key, persist = true) {
 populateThemeControl();
 syncThemeControl();
 emitThemeChange();
+syncAssistToggle();
 
 if (themeSelect) {
   themeSelect.addEventListener('change', (event) => {
     setThemeInternal(event.target.value);
+  });
+}
+
+if (assistToggle) {
+  assistToggle.addEventListener('click', () => {
+    toggleAssistMode();
   });
 }
 
@@ -131,6 +173,48 @@ fitCanvas();
 
 export function getViewSize() {
   return { w: VIEW_W, h: VIEW_H, dpr: DPR };
+}
+
+export function getAssistMode() {
+  return assistMode;
+}
+
+function setAssistModeInternal(enabled, { persist = true } = {}) {
+  const value = Boolean(enabled);
+  if (assistMode === value) {
+    return;
+  }
+  assistMode = value;
+  syncAssistToggle();
+  if (persist) {
+    try {
+      window.localStorage?.setItem(ASSIST_STORAGE_KEY, assistMode ? 'on' : 'off');
+    } catch (err) {
+      /* ignore storage errors */
+    }
+  }
+  emitAssistChange();
+}
+
+export function setAssistMode(enabled) {
+  setAssistModeInternal(enabled);
+}
+
+export function toggleAssistMode() {
+  setAssistModeInternal(!assistMode);
+}
+
+export function onAssistChange(handler, { immediate = true } = {}) {
+  if (typeof handler !== 'function') {
+    return () => {};
+  }
+  assistListeners.add(handler);
+  if (immediate) {
+    handler(assistMode);
+  }
+  return () => {
+    assistListeners.delete(handler);
+  };
 }
 
 let startHandler = null;

@@ -19,7 +19,9 @@ export function resetPowerTimers() {
 export function maybeSpawnPowerup(state, now) {
   const difficulty = getDifficulty(state.levelIndex);
   const interval = difficulty?.powerupIntervalMs ?? 12000;
-  if (now - spawnState.last < interval) {
+  const assistFactor = state.assistEnabled ? 2 / 3 : 1;
+  const targetInterval = interval * assistFactor;
+  if (now - spawnState.last < targetInterval) {
     return;
   }
   spawnState.last = now;
