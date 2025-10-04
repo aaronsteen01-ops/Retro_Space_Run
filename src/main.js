@@ -381,12 +381,16 @@ function loop(now) {
         addParticle(state, state.boss.x, state.boss.y, particles.bossHit || '#ff3df7', 18, 3.4, 320);
         playHit();
         if (state.boss.hp <= 0) {
-          addParticle(state, state.boss.x, state.boss.y, particles.bossHit || '#ff3df7', 60, 5, 1000);
-          addParticle(state, state.boss.x, state.boss.y, particles.bossCore || '#00e5ff', 40, 4, 1000);
+          const defeatedBoss = state.boss;
+          addParticle(state, defeatedBoss.x, defeatedBoss.y, particles.bossHit || '#ff3df7', 60, 5, 1000);
+          addParticle(state, defeatedBoss.x, defeatedBoss.y, particles.bossCore || '#00e5ff', 40, 4, 1000);
           playPow();
           state.score += 600;
           updateScore(state.score);
-          maybeDropWeaponToken(state, { x: state.boss.x, y: state.boss.y });
+          if (!defeatedBoss.rewardDropped) {
+            maybeDropWeaponToken(state, { x: defeatedBoss.x, y: defeatedBoss.y });
+            defeatedBoss.rewardDropped = true;
+          }
           state.boss = null;
           state.bossDefeatedAt = now;
         }

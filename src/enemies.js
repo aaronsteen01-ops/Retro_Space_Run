@@ -16,6 +16,8 @@ const SPAWN_WINDOW_MS = 80;
 
 const DEFAULT_BOSS_HP = 540;
 const ASSIST_DENSITY = 0.7;
+const BOSS_PHASE_THRESHOLDS = [0.7, 0.4];
+const MAX_BOSS_PHASE = 3;
 
 function pushBossBullet(state, x, y, speed, angle, radius = 8) {
   const bornAt = state.time * 1000;
@@ -27,6 +29,46 @@ function pushBossBullet(state, x, y, speed, angle, radius = 8) {
     r: radius,
     bornAt,
   });
+}
+
+function spawnBossMinions(state, boss, count = 2) {
+  const { w } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const minions = state.enemies.filter((e) => e.type === 'drone' && e.bossMinion).length;
+  if (minions >= 4) {
+    return;
+  }
+  const spacing = 90;
+  for (let i = 0; i < count; i++) {
+    const dir = i % 2 === 0 ? -1 : 1;
+    const offset = (Math.floor(i / 2) + 1) * spacing * 0.6;
+    state.enemies.push({
+      type: 'drone',
+      x: clamp(boss.x + dir * offset, 60, viewW - 60),
+      y: boss.y + 48 + i * 12,
+      vx: 0,
+      vy: 0,
+      r: 13,
+      hp: 3,
+      accel: 90,
+      bossMinion: true,
+    });
+  }
+}
+
+function emitBossRing(state, boss, player, count = 24) {
+  const safeAngle = Math.atan2(player.y - boss.y, player.x - boss.x);
+  const gapWidth = 0.42;
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * TAU;
+    let diff = angle - safeAngle;
+    while (diff > Math.PI) diff -= TAU;
+    while (diff < -Math.PI) diff += TAU;
+    if (Math.abs(diff) < gapWidth) {
+      continue;
+    }
+    pushBossBullet(state, boss.x, boss.y + 8, 220, angle, 10);
+  }
 }
 
 function shouldSpawn(now, key, intervalMs, offsetMs = 0) {
@@ -251,11 +293,24 @@ export function spawnBoss(state) {
     hp: bossHp,
     maxHp: bossHp,
     phase: 1,
+    maxPhase: MAX_BOSS_PHASE,
+    phaseThresholds: [...BOSS_PHASE_THRESHOLDS],
+    nextPhaseIndex: 0,
     cooldown: 1400,
     volleyTimer: 1200,
     sweepDir: 1,
+    sideVolleyFlip: 1,
     entering: true,
     introTimer: 2200,
+    phaseFlashTimer: 0,
+    specialCueTimer: 0,
+    warningTimer: 0,
+    ringCooldown: 2600,
+    ringChargeTimer: 0,
+    summonTimer: 3800,
+    glowPulse: 0,
+    warningPulse: 0,
+    rewardDropped: false,
   };
   state.enemyBullets.length = 0;
   state.boss = boss;
@@ -282,18 +337,48 @@ export function updateBoss(state, dt, now, player, palette) {
     }
   }
 
-  if (boss.hp <= boss.maxHp * 0.55 && boss.phase === 1) {
-    boss.phase = 2;
-    boss.cooldown = 500;
-    boss.volleyTimer = 400;
-    addParticle(state, boss.x, boss.y, particles.bossHit || '#ff3df7', 40, 4, 800);
-  }
-
+  boss.glowPulse = (boss.glowPulse + dt * 6.5) % TAU;
+  boss.warningPulse = (boss.warningPulse + dt * 8.2) % TAU;
+  boss.phaseFlashTimer = Math.max(0, boss.phaseFlashTimer - dt * 1000);
+  boss.specialCueTimer = Math.max(0, boss.specialCueTimer - dt * 1000);
+  boss.warningTimer = Math.max(0, boss.warningTimer - dt * 1000);
   boss.introTimer = Math.max(0, boss.introTimer - dt * 1000);
+
+  const enterPhase = (targetPhase) => {
+    if (boss.phase === targetPhase) {
+      return;
+    }
+    boss.phase = targetPhase;
+    boss.phaseFlashTimer = 720;
+    addParticle(state, boss.x, boss.y, particles.bossHit || '#ff3df7', 48, 4.4, 900);
+    if (boss.phase === 2) {
+      boss.cooldown = 520;
+      boss.volleyTimer = 460;
+      boss.summonTimer = 0;
+      boss.sideVolleyFlip = 1;
+    } else if (boss.phase >= 3) {
+      boss.cooldown = 440;
+      boss.volleyTimer = 940;
+      boss.ringCooldown = 1400;
+      boss.ringChargeTimer = 520;
+      boss.specialCueTimer = 720;
+      boss.warningTimer = 2000;
+      boss.summonTimer = 2600;
+      boss.sideVolleyFlip = 1;
+    }
+  };
+
+  const thresholds = boss.phaseThresholds || [];
+  const nextThreshold = thresholds[boss.nextPhaseIndex];
+  if (nextThreshold !== undefined && boss.hp <= boss.maxHp * nextThreshold) {
+    boss.nextPhaseIndex += 1;
+    const targetPhase = Math.min(1 + boss.nextPhaseIndex, boss.maxPhase || MAX_BOSS_PHASE);
+    enterPhase(targetPhase);
+  }
 
   const leftBound = 140;
   const rightBound = viewW - 140;
-  const sweepSpeed = boss.phase === 1 ? 130 : 190;
+  const sweepSpeed = boss.phase === 1 ? 120 : boss.phase === 2 ? 190 : 230;
   boss.x += boss.sweepDir * sweepSpeed * dt;
   if (boss.x < leftBound) {
     boss.x = leftBound;
@@ -311,31 +396,83 @@ export function updateBoss(state, dt, now, player, palette) {
     );
     boss.cooldown -= dt * 1000;
     if (boss.cooldown <= 0) {
-      boss.cooldown = 900;
+      boss.cooldown = 960;
       const base = Math.atan2(player.y - boss.y, player.x - boss.x);
       for (let i = -1; i <= 1; i++) {
         const angle = base + i * 0.18;
-        pushBossBullet(state, boss.x + i * 26, boss.y + 34, 260 + Math.abs(i) * 20, angle);
+        pushBossBullet(state, boss.x + i * 24, boss.y + 34, 220 + Math.abs(i) * 18, angle, 9);
       }
     }
-  } else {
+    if (boss.summonTimer > 0) {
+      boss.summonTimer -= dt * 1000;
+      if (boss.summonTimer <= 0) {
+        spawnBossMinions(state, boss, 1);
+        boss.summonTimer = 5200;
+      }
+    }
+  } else if (boss.phase === 2) {
     boss.y = viewH * 0.22 + Math.sin(now * 0.0025) * 36;
     boss.cooldown -= dt * 1000;
     boss.volleyTimer -= dt * 1000;
     if (boss.cooldown <= 0) {
-      boss.cooldown = 620;
+      boss.cooldown = 520;
       const aim = Math.atan2(player.y - boss.y, player.x - boss.x);
       for (let i = -2; i <= 2; i++) {
-        const angle = aim + i * 0.12;
-        pushBossBullet(state, boss.x + i * 22, boss.y + 28, 300 + Math.abs(i) * 18, angle, 9);
+        const angle = aim + i * 0.11;
+        pushBossBullet(state, boss.x + i * 22, boss.y + 30, 300 + Math.abs(i) * 20, angle, 9);
       }
     }
     if (boss.volleyTimer <= 0) {
-      boss.volleyTimer = 2100;
-      for (let i = 0; i < 12; i++) {
-        const angle = (-Math.PI / 2) + (i - 5.5) * 0.18;
-        pushBossBullet(state, boss.x, boss.y + 12, 260 + i * 6, angle, 7);
+      boss.volleyTimer = 1800;
+      const offset = 52 * boss.sideVolleyFlip;
+      boss.sideVolleyFlip *= -1;
+      for (let i = -2; i <= 2; i++) {
+        const angle = (-Math.PI / 2) + i * 0.09;
+        pushBossBullet(state, boss.x - offset, boss.y + 26, 320, angle, 8);
+        pushBossBullet(state, boss.x + offset, boss.y + 26, 320, angle + 0.04 * i, 7);
       }
+    }
+  } else {
+    boss.y = viewH * 0.2 + Math.sin(now * 0.0031) * 44 + Math.sin(boss.glowPulse) * 6;
+    boss.cooldown -= dt * 1000;
+    boss.volleyTimer -= dt * 1000;
+    if (boss.cooldown <= 0) {
+      boss.cooldown = 440;
+      const aim = Math.atan2(player.y - boss.y, player.x - boss.x);
+      for (let i = -2; i <= 2; i++) {
+        const angle = aim + i * 0.1;
+        pushBossBullet(state, boss.x + i * 20, boss.y + 26, 340 + Math.abs(i) * 26, angle, 10);
+      }
+    }
+    if (boss.volleyTimer <= 0) {
+      boss.volleyTimer = 1400;
+      const spread = 0.22;
+      for (let i = 0; i < 6; i++) {
+        const leftAngle = (-Math.PI / 2) - spread + i * 0.07;
+        const rightAngle = (-Math.PI / 2) + spread - i * 0.07;
+        pushBossBullet(state, boss.x - 46, boss.y + 16, 330, leftAngle, 7);
+        pushBossBullet(state, boss.x + 46, boss.y + 16, 330, rightAngle, 7);
+      }
+    }
+    if (boss.ringChargeTimer > 0) {
+      boss.ringChargeTimer -= dt * 1000;
+      if (boss.ringChargeTimer <= 0) {
+        emitBossRing(state, boss, player, 26);
+        boss.ringCooldown = rand(2600, 3600);
+        boss.specialCueTimer = 0;
+      }
+    } else {
+      boss.ringCooldown -= dt * 1000;
+      if (boss.ringCooldown <= 0) {
+        boss.ringChargeTimer = 600;
+        boss.specialCueTimer = Math.max(boss.specialCueTimer, 600);
+        boss.ringCooldown = 0;
+      }
+    }
+    boss.summonTimer -= dt * 1000;
+    if (boss.summonTimer <= 0) {
+      spawnBossMinions(state, boss, 2);
+      boss.summonTimer = rand(3600, 5200);
     }
   }
 }
@@ -345,16 +482,58 @@ export function drawBoss(ctx, boss, palette) {
     return;
   }
   const bossPalette = palette?.boss ?? {};
+  if (boss.warningTimer > 0) {
+    const { w, h } = getViewSize();
+    const intensity = clamp(boss.warningTimer / 2000, 0, 1);
+    const pulse = 0.65 + 0.35 * Math.sin(boss.warningPulse || 0);
+    ctx.save();
+    ctx.fillStyle = bossPalette.warningBackdrop || 'rgba(255, 61, 247, 0.12)';
+    ctx.globalAlpha = intensity * 0.9;
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalAlpha = 1;
+    ctx.font = 'bold 64px "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.shadowColor = bossPalette.warningGlow || '#ff3df7';
+    ctx.shadowBlur = 28;
+    ctx.strokeStyle = bossPalette.warningStroke || 'rgba(255, 61, 247, 0.8)';
+    ctx.lineWidth = 3;
+    const y = h * 0.2;
+    const fill = bossPalette.warningFill || 'rgba(255, 245, 160, 0.88)';
+    ctx.strokeText('WARNING', w / 2, y);
+    ctx.fillStyle = fill;
+    ctx.globalAlpha = pulse;
+    ctx.fillText('WARNING', w / 2, y);
+    ctx.restore();
+  }
   ctx.save();
   ctx.translate(boss.x, boss.y);
-  ctx.shadowColor = boss.phase === 2
-    ? bossPalette.shadowPhase2 || '#ff9dfd'
-    : bossPalette.shadowPhase1 || '#ff3df7aa';
-  ctx.shadowBlur = boss.phase === 2 ? 40 : 28;
+  const isPhase2 = boss.phase === 2;
+  const isPhase3 = boss.phase >= 3;
+  const telegraphStrength = Math.max(
+    boss.phaseFlashTimer / 720,
+    boss.specialCueTimer / 720,
+  );
+  const telegraphPulse = 0.65 + 0.35 * Math.sin((boss.glowPulse || 0) * 2);
+  let shadowColor = isPhase3
+    ? bossPalette.shadowPhase3 || '#ffe55c'
+    : isPhase2
+      ? bossPalette.shadowPhase2 || '#ff9dfd'
+      : bossPalette.shadowPhase1 || '#ff3df7aa';
+  let shadowBlur = isPhase3 ? 46 : isPhase2 ? 40 : 28;
+  let strokeStyle = isPhase3
+    ? bossPalette.strokePhase3 || '#ffe066'
+    : isPhase2
+      ? bossPalette.strokePhase2 || '#ffb5ff'
+      : bossPalette.strokePhase1 || '#ff3df7';
+  if (telegraphStrength > 0.01) {
+    shadowColor = bossPalette.phaseShiftGlow || '#fff6a6';
+    shadowBlur = 52 + telegraphPulse * 12 * clamp(telegraphStrength, 0, 1);
+    strokeStyle = bossPalette.strokePhaseShift || '#fff6a6';
+  }
+  ctx.shadowColor = shadowColor;
+  ctx.shadowBlur = shadowBlur;
   ctx.fillStyle = bossPalette.bodyFill || '#1a0524';
-  ctx.strokeStyle = boss.phase === 2
-    ? bossPalette.strokePhase2 || '#ffb5ff'
-    : bossPalette.strokePhase1 || '#ff3df7';
+  ctx.strokeStyle = strokeStyle;
   ctx.lineWidth = 3;
   ctx.beginPath();
   ctx.moveTo(-60, 20);
@@ -366,23 +545,43 @@ export function drawBoss(ctx, boss, palette) {
   ctx.fill();
   ctx.stroke();
   ctx.shadowBlur = 0;
-  ctx.fillStyle = bossPalette.canopy || (boss.phase === 2 ? '#ffdbff' : '#ffd0ff');
+  const canopyPhase2 = bossPalette.canopyPhase2 || '#ffdbff';
+  const canopyPhase3 = bossPalette.canopyPhase3 || '#fff0b0';
+  ctx.fillStyle = isPhase3
+    ? canopyPhase3
+    : isPhase2
+      ? canopyPhase2
+      : bossPalette.canopy || '#ffd0ff';
   ctx.fillRect(-14, -16, 28, 32);
+  const coreInner = telegraphStrength > 0.01
+    ? bossPalette.phaseShiftGlow || '#fff6a6'
+    : bossPalette.coreGlow || '#ff3df7aa';
+  const coreOuter = telegraphStrength > 0.01
+    ? 'rgba(255, 246, 166, 0)'
+    : bossPalette.coreOuter || '#ff3df700';
   drawGlowCircle(
     ctx,
     0,
     0,
     16,
-    bossPalette.coreGlow || '#ff3df7aa',
-    bossPalette.coreOuter || '#ff3df700',
+    coreInner,
+    coreOuter,
   );
   ctx.fillStyle = bossPalette.beam || '#0ae6ff';
   ctx.fillRect(-4, -10, 8, 20);
-  ctx.fillStyle = bossPalette.trim || '#00e5ff';
+  let trimColor = bossPalette.trim || '#00e5ff';
+  if (telegraphStrength > 0.01) {
+    trimColor = bossPalette.phaseShiftTrim || '#ffe066';
+  }
+  ctx.fillStyle = trimColor;
   ctx.fillRect(-22, 12, 44, 6);
-  if (boss.phase === 2) {
+  if (isPhase2) {
     ctx.fillStyle = bossPalette.phase2Trim || '#ff3df7';
     ctx.fillRect(-40, 24, 80, 6);
+  }
+  if (isPhase3) {
+    ctx.fillStyle = bossPalette.phase3Trim || '#ffe066';
+    ctx.fillRect(-46, 30, 92, 6);
   }
   if (boss.introTimer > 0) {
     ctx.save();
