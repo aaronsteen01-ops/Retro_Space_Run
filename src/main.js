@@ -3,7 +3,6 @@
  */
 import { rand, coll, addParticle } from './utils.js';
 import {
-  canvas,
   ctx,
   setStartHandler,
   showOverlay,
@@ -15,6 +14,7 @@ import {
   updatePower,
   getActiveThemePalette,
   onThemeChange,
+  getViewSize,
 } from './ui.js';
 import { playZap, playHit, toggleAudio, resumeAudioContext, playPow } from './audio.js';
 import { resetPlayer, updatePlayer, clampPlayerToBounds, drawPlayer } from './player.js';
@@ -121,18 +121,34 @@ window.addEventListener('click', () => {
 
 function spawnStars() {
   state.stars.length = 0;
-  const count = Math.ceil((canvas.width * canvas.height) / 9000);
+  const { w, h } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const viewH = Math.max(h, 1);
+  const count = Math.ceil((viewW * viewH) / 9000);
   for (let i = 0; i < count; i++) {
-    state.stars.push({ x: rand(0, canvas.width), y: rand(0, canvas.height), z: rand(0.4, 1.6) });
+    state.stars.push({ x: rand(0, viewW), y: rand(0, viewH), z: rand(0.4, 1.6) });
   }
 }
+
+window.addEventListener('resize', () => {
+  spawnStars();
+  if (state.player) {
+    clampPlayerToBounds(state.player);
+  }
+  if (state.finishGate) {
+    const { w } = getViewSize();
+    state.finishGate.x = Math.max(w, 1) / 2;
+  }
+});
 
 function ensureFinishGate() {
   if (state.finishGate) {
     return;
   }
+  const { w } = getViewSize();
+  const viewW = Math.max(w, 1);
   state.finishGate = {
-    x: canvas.width / 2,
+    x: viewW / 2,
     y: -200,
     vy: 80,
     w: 240,
@@ -178,7 +194,7 @@ function resetState() {
   state.bossDefeatedAt = 0;
   state.lastShot = 0;
   state.theme = activePalette;
-  resetPlayer(state, canvas);
+  resetPlayer(state);
   resetPowerState(state);
   resetPowerTimers();
   setupWeapons(state);
@@ -241,6 +257,7 @@ function loop(now) {
   }
   const dt = (now - lastFrame) / 1000;
   lastFrame = now;
+  const { w: viewW, h: viewH } = getViewSize();
   const palette = activePalette;
   const starPalette = palette?.stars ?? {};
   if (state.paused) {
@@ -253,19 +270,19 @@ function loop(now) {
 
   if (state.time >= state.levelDur) {
     if (!state.bossSpawned) {
-      spawnBoss(state, canvas);
+      spawnBoss(state);
       state.bossSpawned = true;
     } else if (!state.boss && !state.finishGate && now - state.bossDefeatedAt > 600) {
       ensureFinishGate();
     }
   }
 
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.clearRect(0, 0, viewW, viewH);
   for (const star of state.stars) {
     star.y += (60 * star.z + state.speed * 0.05 * star.z) * dt;
-    if (star.y > canvas.height) {
+    if (star.y > viewH) {
       star.y = -2;
-      star.x = rand(0, canvas.width);
+      star.x = rand(0, viewW);
     }
     ctx.globalAlpha = 0.4 * star.z;
     ctx.fillStyle = star.z > 1.1 ? starPalette.bright || '#00e5ff' : starPalette.dim || '#ff3df7';
@@ -275,27 +292,27 @@ function loop(now) {
 
   const player = state.player;
   updatePlayer(player, keys, dt, state.power.name === 'boost');
-  clampPlayerToBounds(player, canvas);
+  clampPlayerToBounds(player);
 
   handlePlayerShooting(state, keys, now);
-  updatePlayerBullets(state, dt, canvas);
+  updatePlayerBullets(state, dt);
 
   if (!state.boss) {
-    spawnEnemies(state, now, canvas);
+    spawnEnemies(state, now);
   }
-  updateEnemies(state, dt, now, player, canvas);
-  updateBoss(state, dt, now, player, canvas, palette);
-  updateEnemyBullets(state, dt, canvas);
+  updateEnemies(state, dt, now, player);
+  updateBoss(state, dt, now, player, palette);
+  updateEnemyBullets(state, dt);
 
-  maybeSpawnPowerup(state, now, canvas);
-  updatePowerups(state, dt, now, canvas);
-  updateWeaponDrops(state, dt, canvas);
+  maybeSpawnPowerup(state, now);
+  updatePowerups(state, dt, now);
+  updateWeaponDrops(state, dt);
   clearExpiredPowers(state, now);
 
   if (state.finishGate) {
     const gate = state.finishGate;
     gate.y += gate.vy * dt;
-    if (gate.y > canvas.height * 0.25) {
+    if (gate.y > viewH * 0.25) {
       gate.vy = 0;
     }
     if (Math.abs(player.y - gate.y) < 28 && Math.abs(player.x - gate.x) < gate.w / 2) {
@@ -394,7 +411,7 @@ function loop(now) {
   drawPlayer(ctx, player, keys, palette);
 
   if (state.boss) {
-    drawBossHealth(ctx, state.boss, canvas, palette);
+    drawBossHealth(ctx, state.boss, palette);
   }
 
   for (let i = state.particles.length - 1; i >= 0; i--) {

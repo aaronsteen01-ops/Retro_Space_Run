@@ -3,7 +3,7 @@
  */
 import { rand, TAU, coll } from './utils.js';
 import { playPow } from './audio.js';
-import { updatePower } from './ui.js';
+import { updatePower, getViewSize } from './ui.js';
 
 const spawnState = {
   last: 0,
@@ -15,15 +15,18 @@ export function resetPowerTimers() {
   spawnState.last = performance.now();
 }
 
-export function maybeSpawnPowerup(state, now, canvas) {
+export function maybeSpawnPowerup(state, now) {
   if (now - spawnState.last < 12000) {
     return;
   }
   spawnState.last = now;
   const type = kinds[Math.floor(Math.random() * kinds.length)];
+  const { w } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const maxX = Math.max(viewW - 40, 40);
   state.powerups.push({
     type,
-    x: rand(40, canvas.width - 40),
+    x: rand(40, maxX),
     y: -30,
     vy: 110,
     r: 12,
@@ -63,12 +66,14 @@ export function clearExpiredPowers(state, now) {
   }
 }
 
-export function updatePowerups(state, dt, now, canvas) {
+export function updatePowerups(state, dt, now) {
+  const { h } = getViewSize();
+  const viewH = Math.max(h, 1);
   for (let i = state.powerups.length - 1; i >= 0; i--) {
     const pu = state.powerups[i];
     pu.y += pu.vy * dt;
     pu.t -= dt * 1000;
-    if (pu.t <= 0 || pu.y > canvas.height + 30) {
+    if (pu.t <= 0 || pu.y > viewH + 30) {
       state.powerups.splice(i, 1);
       continue;
     }

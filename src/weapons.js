@@ -3,7 +3,7 @@
  */
 import { coll } from './utils.js';
 import { playPew, playPow } from './audio.js';
-import { updateWeapon } from './ui.js';
+import { updateWeapon, getViewSize } from './ui.js';
 
 const ROMAN = ['I', 'II', 'III'];
 
@@ -124,7 +124,10 @@ export function handlePlayerShooting(state, keys, now) {
   }
 }
 
-export function updatePlayerBullets(state, dt, canvas) {
+export function updatePlayerBullets(state, dt) {
+  const { w, h } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const viewH = Math.max(h, 1);
   for (let i = state.bullets.length - 1; i >= 0; i--) {
     const b = state.bullets[i];
     b.x += (b.vx || 0) * dt;
@@ -132,9 +135,9 @@ export function updatePlayerBullets(state, dt, canvas) {
     b.life = (b.life || 0) - dt * 1000;
     if (
       b.y < -40 ||
-      b.y > canvas.height + 40 ||
+      b.y > viewH + 40 ||
       b.x < -40 ||
-      b.x > canvas.width + 40 ||
+      b.x > viewW + 40 ||
       b.life <= 0
     ) {
       state.bullets.splice(i, 1);
@@ -154,16 +157,19 @@ export function drawPlayerBullets(ctx, bullets) {
   }
 }
 
-export function updateEnemyBullets(state, dt, canvas) {
+export function updateEnemyBullets(state, dt) {
+  const { w, h } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const viewH = Math.max(h, 1);
   for (let i = state.enemyBullets.length - 1; i >= 0; i--) {
     const b = state.enemyBullets[i];
     b.x += (b.vx || 0) * dt;
     b.y += b.vy * dt;
     if (
       b.y < -40 ||
-      b.y > canvas.height + 40 ||
+      b.y > viewH + 40 ||
       b.x < -40 ||
-      b.x > canvas.width + 40
+      b.x > viewW + 40
     ) {
       state.enemyBullets.splice(i, 1);
     }
@@ -218,14 +224,16 @@ export function maybeDropWeaponToken(state, enemy) {
   });
 }
 
-export function updateWeaponDrops(state, dt, canvas) {
+export function updateWeaponDrops(state, dt) {
+  const { h } = getViewSize();
+  const viewH = Math.max(h, 1);
   ensureWeaponState(state);
   for (let i = state.weaponDrops.length - 1; i >= 0; i--) {
     const drop = state.weaponDrops[i];
     drop.y += drop.vy * dt;
     drop.spin = (drop.spin || 0) + dt * 2.4;
     drop.t -= dt * 1000;
-    if (drop.t <= 0 || drop.y > canvas.height + 40) {
+    if (drop.t <= 0 || drop.y > viewH + 40) {
       state.weaponDrops.splice(i, 1);
       continue;
     }
