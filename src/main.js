@@ -33,6 +33,7 @@ import {
 import {
   resetPowerTimers,
   maybeSpawnPowerup,
+  ensureGuaranteedPowerups,
   updatePowerups,
   drawPowerups,
   clearExpiredPowers,
@@ -78,6 +79,8 @@ const state = {
   shotDelay: 180,
   speed: 260,
   power: { name: null, until: 0 },
+  powerupsGrantedL1: 0,
+  lastGuaranteedPowerup: null,
   weapon: null,
   theme: activePalette,
   assistEnabled: getAssistMode(),
@@ -210,6 +213,8 @@ function resetState() {
   state.bossDefeatedAt = 0;
   state.lastShot = 0;
   state.weaponDropSecured = false;
+  state.powerupsGrantedL1 = 0;
+  state.lastGuaranteedPowerup = null;
   state.theme = activePalette;
   resetPlayer(state);
   resetPowerState(state);
@@ -322,6 +327,7 @@ function loop(now) {
   updateBoss(state, dt, now, player, palette);
   updateEnemyBullets(state, dt);
 
+  ensureGuaranteedPowerups(state, now);
   maybeSpawnPowerup(state, now);
   updatePowerups(state, dt, now);
   updateWeaponDrops(state, dt);
