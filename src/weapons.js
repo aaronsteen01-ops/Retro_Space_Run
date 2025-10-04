@@ -5,6 +5,7 @@ import { coll } from './utils.js';
 import { playPew, playPow } from './audio.js';
 import { updateWeapon, updateScore, getViewSize } from './ui.js';
 import { resolvePaletteSection, DEFAULT_THEME_PALETTE } from './themes.js';
+import { getBullet } from './bullets.js';
 
 const DEFAULT_BULLET_LEVELS = DEFAULT_THEME_PALETTE.bullets.playerLevels;
 
@@ -662,19 +663,22 @@ function spawnProjectile(state, projectile, levelIndex) {
   const height = baseHeight + levelIndex * 3;
   const radius = projectile.radius ?? Math.max(width, height) / 2;
   const colour = projectileColour(state, projectile.colourIndex ?? 0);
-  state.bullets.push({
-    x: state.player.x + projectile.offsetX,
-    y: state.player.y + projectile.offsetY,
-    vx: projectile.vx,
-    vy: projectile.vy,
-    r: radius,
-    damage: projectile.damage,
-    colour,
-    bornAt,
-    w: width,
-    h: height,
-    level: levelIndex,
-  });
+  const bullet = getBullet();
+  bullet.x = state.player.x + projectile.offsetX;
+  bullet.y = state.player.y + projectile.offsetY;
+  bullet.vx = projectile.vx;
+  bullet.vy = projectile.vy;
+  bullet.r = radius;
+  bullet.damage = projectile.damage;
+  bullet.colour = colour;
+  bullet.bornAt = bornAt;
+  bullet.updatedAt = bornAt;
+  bullet.w = width;
+  bullet.h = height;
+  bullet.level = levelIndex;
+  bullet.owner = 'player';
+  bullet.maxAge = undefined;
+  state.bullets.push(bullet);
   pushMuzzleFlash(state, projectile, levelIndex, width, height, colour);
 }
 
@@ -694,30 +698,6 @@ export function handlePlayerShooting(state, keys, now) {
       spawnProjectile(state, projectile, levelIndex);
     }
     playPew();
-  }
-}
-
-const PLAYER_BULLET_MAX_AGE_MS = 3000;
-
-export function updatePlayerBullets(state, dt) {
-  const { w, h } = getViewSize();
-  const viewW = Math.max(w, 1);
-  const viewH = Math.max(h, 1);
-  const nowMs = state.time * 1000;
-  for (let i = state.bullets.length - 1; i >= 0; i--) {
-    const b = state.bullets[i];
-    b.x += (b.vx || 0) * dt;
-    b.y += b.vy * dt;
-    const age = nowMs - (b.bornAt ?? nowMs);
-    if (
-      b.y < -40 ||
-      b.y > viewH + 40 ||
-      b.x < -40 ||
-      b.x > viewW + 40 ||
-      age > PLAYER_BULLET_MAX_AGE_MS
-    ) {
-      state.bullets.splice(i, 1);
-    }
   }
 }
 
@@ -784,30 +764,6 @@ export function drawMuzzleFlashes(ctx, flashes) {
     ctx.fill();
     ctx.globalAlpha = 1;
     ctx.restore();
-  }
-}
-
-const ENEMY_BULLET_MAX_AGE_MS = 3000;
-
-export function updateEnemyBullets(state, dt) {
-  const { w, h } = getViewSize();
-  const viewW = Math.max(w, 1);
-  const viewH = Math.max(h, 1);
-  const nowMs = state.time * 1000;
-  for (let i = state.enemyBullets.length - 1; i >= 0; i--) {
-    const b = state.enemyBullets[i];
-    b.x += (b.vx || 0) * dt;
-    b.y += b.vy * dt;
-    const age = nowMs - (b.bornAt ?? nowMs);
-    if (
-      b.y < -40 ||
-      b.y > viewH + 40 ||
-      b.x < -40 ||
-      b.x > viewW + 40 ||
-      age > ENEMY_BULLET_MAX_AGE_MS
-    ) {
-      state.enemyBullets.splice(i, 1);
-    }
   }
 }
 
