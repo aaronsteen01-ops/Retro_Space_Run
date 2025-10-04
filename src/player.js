@@ -43,7 +43,7 @@ export function clampPlayerToBounds(player) {
   player.y = clamp(player.y, 40, Math.max(h - 40, 40));
 }
 
-export function drawPlayer(ctx, player, keys, palette) {
+export function drawPlayer(ctx, player, keys, palette, weaponFlash = null) {
   const ship = resolvePaletteSection(palette, 'ship');
   ctx.save();
   ctx.translate(player.x, player.y);
@@ -97,6 +97,21 @@ export function drawPlayer(ctx, player, keys, palette) {
       ship.shieldInner,
       ship.shieldOuter,
     );
+  }
+  if (weaponFlash && weaponFlash.t > 0 && weaponFlash.colour) {
+    const alpha = Math.max(0, Math.min(1, weaponFlash.t / weaponFlash.life));
+    if (alpha > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.85 * alpha;
+      ctx.shadowColor = weaponFlash.colour;
+      ctx.shadowBlur = 18;
+      ctx.fillStyle = weaponFlash.colour;
+      ctx.beginPath();
+      ctx.ellipse(0, -18, 6.5, 9.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
   }
   ctx.restore();
 }
