@@ -3,7 +3,7 @@
  */
 import { coll } from './utils.js';
 import { playPew, playPow } from './audio.js';
-import { updateWeapon, getViewSize } from './ui.js';
+import { updateWeapon, updateScore, getViewSize } from './ui.js';
 
 const ROMAN = ['I', 'II', 'III'];
 
@@ -14,22 +14,462 @@ const weaponDefs = {
       {
         delay: 210,
         projectiles: [
-          { offsetX: 0, offsetY: -18, vx: 0, vy: -620, damage: 1, colourIndex: 0 },
+          {
+            offsetX: 0,
+            offsetY: -18,
+            vx: 0,
+            vy: -620,
+            damage: 1,
+            colourIndex: 0,
+            width: 4,
+            height: 12,
+          },
         ],
       },
       {
         delay: 160,
         projectiles: [
-          { offsetX: -12, offsetY: -18, vx: -110, vy: -630, damage: 1, colourIndex: 1 },
-          { offsetX: 12, offsetY: -18, vx: 110, vy: -630, damage: 1, colourIndex: 1 },
+          {
+            offsetX: -12,
+            offsetY: -18,
+            vx: -110,
+            vy: -630,
+            damage: 1,
+            colourIndex: 1,
+            width: 4,
+            height: 12,
+          },
+          {
+            offsetX: 12,
+            offsetY: -18,
+            vx: 110,
+            vy: -630,
+            damage: 1,
+            colourIndex: 1,
+            width: 4,
+            height: 12,
+          },
         ],
       },
       {
         delay: 140,
         projectiles: [
-          { offsetX: -16, offsetY: -14, vx: -180, vy: -650, damage: 1.4, colourIndex: 2 },
-          { offsetX: 0, offsetY: -22, vx: 0, vy: -720, damage: 1.4, colourIndex: 2 },
-          { offsetX: 16, offsetY: -14, vx: 180, vy: -650, damage: 1.4, colourIndex: 2 },
+          {
+            offsetX: -16,
+            offsetY: -14,
+            vx: -180,
+            vy: -650,
+            damage: 1.4,
+            colourIndex: 2,
+            width: 5,
+            height: 14,
+          },
+          {
+            offsetX: 0,
+            offsetY: -22,
+            vx: 0,
+            vy: -720,
+            damage: 1.4,
+            colourIndex: 2,
+            width: 6,
+            height: 16,
+          },
+          {
+            offsetX: 16,
+            offsetY: -14,
+            vx: 180,
+            vy: -650,
+            damage: 1.4,
+            colourIndex: 2,
+            width: 5,
+            height: 14,
+          },
+        ],
+      },
+    ],
+  },
+  twin: {
+    label: 'Twin Blaster',
+    levels: [
+      {
+        delay: 200,
+        projectiles: [
+          {
+            offsetX: -14,
+            offsetY: -20,
+            vx: -40,
+            vy: -610,
+            damage: 0.9,
+            colourIndex: 0,
+            width: 4,
+            height: 11,
+          },
+          {
+            offsetX: 14,
+            offsetY: -20,
+            vx: 40,
+            vy: -610,
+            damage: 0.9,
+            colourIndex: 0,
+            width: 4,
+            height: 11,
+          },
+        ],
+      },
+      {
+        delay: 150,
+        projectiles: [
+          {
+            offsetX: -18,
+            offsetY: -18,
+            vx: -140,
+            vy: -640,
+            damage: 1.1,
+            colourIndex: 1,
+            width: 4,
+            height: 12,
+          },
+          {
+            offsetX: -6,
+            offsetY: -22,
+            vx: -10,
+            vy: -680,
+            damage: 1.1,
+            colourIndex: 1,
+            width: 4,
+            height: 13,
+          },
+          {
+            offsetX: 6,
+            offsetY: -22,
+            vx: 10,
+            vy: -680,
+            damage: 1.1,
+            colourIndex: 1,
+            width: 4,
+            height: 13,
+          },
+          {
+            offsetX: 18,
+            offsetY: -18,
+            vx: 140,
+            vy: -640,
+            damage: 1.1,
+            colourIndex: 1,
+            width: 4,
+            height: 12,
+          },
+        ],
+      },
+      {
+        delay: 120,
+        projectiles: [
+          {
+            offsetX: -22,
+            offsetY: -16,
+            vx: -210,
+            vy: -640,
+            damage: 1.4,
+            colourIndex: 2,
+            width: 5,
+            height: 12,
+          },
+          {
+            offsetX: -10,
+            offsetY: -22,
+            vx: -60,
+            vy: -700,
+            damage: 1.4,
+            colourIndex: 2,
+            width: 5,
+            height: 14,
+          },
+          {
+            offsetX: 0,
+            offsetY: -26,
+            vx: 0,
+            vy: -750,
+            damage: 1.5,
+            colourIndex: 2,
+            width: 6,
+            height: 16,
+          },
+          {
+            offsetX: 10,
+            offsetY: -22,
+            vx: 60,
+            vy: -700,
+            damage: 1.4,
+            colourIndex: 2,
+            width: 5,
+            height: 14,
+          },
+          {
+            offsetX: 22,
+            offsetY: -16,
+            vx: 210,
+            vy: -640,
+            damage: 1.4,
+            colourIndex: 2,
+            width: 5,
+            height: 12,
+          },
+        ],
+      },
+    ],
+  },
+  burst: {
+    label: 'Burst Laser',
+    levels: [
+      {
+        delay: 230,
+        projectiles: [
+          {
+            offsetX: -16,
+            offsetY: -14,
+            vx: -180,
+            vy: -660,
+            damage: 1.1,
+            colourIndex: 0,
+            width: 4,
+            height: 13,
+          },
+          {
+            offsetX: 0,
+            offsetY: -20,
+            vx: 0,
+            vy: -700,
+            damage: 1.2,
+            colourIndex: 0,
+            width: 4,
+            height: 14,
+          },
+          {
+            offsetX: 16,
+            offsetY: -14,
+            vx: 180,
+            vy: -660,
+            damage: 1.1,
+            colourIndex: 0,
+            width: 4,
+            height: 13,
+          },
+        ],
+      },
+      {
+        delay: 170,
+        projectiles: [
+          {
+            offsetX: -22,
+            offsetY: -12,
+            vx: -260,
+            vy: -640,
+            damage: 1.2,
+            colourIndex: 1,
+            width: 4,
+            height: 13,
+          },
+          {
+            offsetX: -10,
+            offsetY: -20,
+            vx: -90,
+            vy: -700,
+            damage: 1.3,
+            colourIndex: 1,
+            width: 4,
+            height: 14,
+          },
+          {
+            offsetX: 0,
+            offsetY: -24,
+            vx: 0,
+            vy: -740,
+            damage: 1.3,
+            colourIndex: 1,
+            width: 5,
+            height: 15,
+          },
+          {
+            offsetX: 10,
+            offsetY: -20,
+            vx: 90,
+            vy: -700,
+            damage: 1.3,
+            colourIndex: 1,
+            width: 4,
+            height: 14,
+          },
+          {
+            offsetX: 22,
+            offsetY: -12,
+            vx: 260,
+            vy: -640,
+            damage: 1.2,
+            colourIndex: 1,
+            width: 4,
+            height: 13,
+          },
+        ],
+      },
+      {
+        delay: 140,
+        projectiles: [
+          {
+            offsetX: -26,
+            offsetY: -10,
+            vx: -300,
+            vy: -620,
+            damage: 1.3,
+            colourIndex: 2,
+            width: 4,
+            height: 12,
+          },
+          {
+            offsetX: -16,
+            offsetY: -18,
+            vx: -200,
+            vy: -660,
+            damage: 1.4,
+            colourIndex: 2,
+            width: 5,
+            height: 14,
+          },
+          {
+            offsetX: -6,
+            offsetY: -24,
+            vx: -90,
+            vy: -720,
+            damage: 1.5,
+            colourIndex: 2,
+            width: 5,
+            height: 15,
+          },
+          {
+            offsetX: 0,
+            offsetY: -28,
+            vx: 0,
+            vy: -760,
+            damage: 1.6,
+            colourIndex: 2,
+            width: 6,
+            height: 16,
+          },
+          {
+            offsetX: 6,
+            offsetY: -24,
+            vx: 90,
+            vy: -720,
+            damage: 1.5,
+            colourIndex: 2,
+            width: 5,
+            height: 15,
+          },
+          {
+            offsetX: 16,
+            offsetY: -18,
+            vx: 200,
+            vy: -660,
+            damage: 1.4,
+            colourIndex: 2,
+            width: 5,
+            height: 14,
+          },
+          {
+            offsetX: 26,
+            offsetY: -10,
+            vx: 300,
+            vy: -620,
+            damage: 1.3,
+            colourIndex: 2,
+            width: 4,
+            height: 12,
+          },
+        ],
+      },
+    ],
+  },
+  heavy: {
+    label: 'Heavy Plasma',
+    levels: [
+      {
+        delay: 300,
+        projectiles: [
+          {
+            offsetX: 0,
+            offsetY: -26,
+            vx: 0,
+            vy: -540,
+            damage: 2.4,
+            colourIndex: 0,
+            width: 7,
+            height: 18,
+            radius: 8,
+          },
+        ],
+      },
+      {
+        delay: 230,
+        projectiles: [
+          {
+            offsetX: -8,
+            offsetY: -24,
+            vx: -40,
+            vy: -560,
+            damage: 2.6,
+            colourIndex: 1,
+            width: 7,
+            height: 18,
+            radius: 8,
+          },
+          {
+            offsetX: 8,
+            offsetY: -24,
+            vx: 40,
+            vy: -560,
+            damage: 2.6,
+            colourIndex: 1,
+            width: 7,
+            height: 18,
+            radius: 8,
+          },
+        ],
+      },
+      {
+        delay: 200,
+        projectiles: [
+          {
+            offsetX: -14,
+            offsetY: -22,
+            vx: -120,
+            vy: -560,
+            damage: 2.8,
+            colourIndex: 2,
+            width: 7,
+            height: 18,
+            radius: 9,
+          },
+          {
+            offsetX: 0,
+            offsetY: -28,
+            vx: 0,
+            vy: -620,
+            damage: 3.2,
+            colourIndex: 2,
+            width: 9,
+            height: 22,
+            radius: 10,
+          },
+          {
+            offsetX: 14,
+            offsetY: -22,
+            vx: 120,
+            vy: -560,
+            damage: 2.8,
+            colourIndex: 2,
+            width: 7,
+            height: 18,
+            radius: 9,
+          },
         ],
       },
     ],
@@ -90,16 +530,25 @@ function currentLevel(state) {
   return def.levels[levelIndex];
 }
 
-export function getWeaponLabel(weapon) {
+function weaponHudLabel(weapon) {
   if (!weapon) {
-    return '—';
+    return 'Weapon: —';
   }
   const def = weaponDefs[weapon.name];
   if (!def) {
-    return '—';
+    return 'Weapon: —';
   }
   const numeral = ROMAN[clampLevel(def, weapon.level)] || ROMAN[ROMAN.length - 1];
-  return `${def.label} · ${numeral}`;
+  return `Weapon: ${def.label} – ${numeral}`;
+}
+
+export function getWeaponLabel(weapon) {
+  return weaponHudLabel(weapon);
+}
+
+export function updateWeaponHud(state) {
+  ensureWeaponState(state);
+  updateWeapon(weaponHudLabel(state.weapon));
 }
 
 export function setupWeapons(state) {
@@ -109,7 +558,7 @@ export function setupWeapons(state) {
   state.lastShot = 0;
   state.weaponDrops.length = 0;
   state.weaponDropSecured = false;
-  updateWeapon(getWeaponLabel(state.weapon));
+  updateWeaponHud(state);
 }
 
 function projectileColour(state, index = 0) {
@@ -122,15 +571,20 @@ function projectileColour(state, index = 0) {
 
 function spawnProjectile(state, projectile) {
   const bornAt = state.time * 1000;
+  const width = projectile.width ?? 4;
+  const height = projectile.height ?? 12;
+  const radius = projectile.radius ?? Math.max(width, height) / 2;
   state.bullets.push({
     x: state.player.x + projectile.offsetX,
     y: state.player.y + projectile.offsetY,
     vx: projectile.vx,
     vy: projectile.vy,
-    r: 6,
+    r: radius,
     damage: projectile.damage,
     colour: projectileColour(state, projectile.colourIndex ?? 0),
     bornAt,
+    w: width,
+    h: height,
   });
 }
 
@@ -182,7 +636,9 @@ export function drawPlayerBullets(ctx, bullets) {
     ctx.shadowColor = (b.colour || '#ffb8ff') + 'aa';
     ctx.shadowBlur = 10;
     ctx.fillStyle = b.colour || '#ffb8ff';
-    ctx.fillRect(-2, -6, 4, 12);
+    const w = b.w ?? 4;
+    const h = b.h ?? 12;
+    ctx.fillRect(-w / 2, -h / 2, w, h);
     ctx.restore();
   }
 }
@@ -230,15 +686,23 @@ function upgradeWeapon(state, weaponName) {
   if (!def) {
     return;
   }
+  const maxLevel = def.levels.length - 1;
   if (state.weapon.name !== weaponName) {
     state.weapon.name = weaponName;
     state.weapon.level = 0;
-  } else if (state.weapon.level < def.levels.length - 1) {
+  } else if (state.weapon.level < maxLevel) {
     state.weapon.level += 1;
+  } else {
+    state.score = (state.score ?? 0) + 250;
+    updateScore(state.score);
+    updateWeaponHud(state);
+    state.weaponDropSecured = true;
+    playPow();
+    return;
   }
   state.lastShot = 0;
   state.weaponDropSecured = true;
-  updateWeapon(getWeaponLabel(state.weapon));
+  updateWeaponHud(state);
   playPow();
 }
 
