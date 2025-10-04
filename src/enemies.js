@@ -17,12 +17,14 @@ const SPAWN_WINDOW_MS = 80;
 const DEFAULT_BOSS_HP = 540;
 
 function pushBossBullet(state, x, y, speed, angle, radius = 8) {
+  const bornAt = state.time * 1000;
   state.enemyBullets.push({
     x,
     y,
     vx: Math.cos(angle) * speed,
     vy: Math.sin(angle) * speed,
     r: radius,
+    bornAt,
   });
 }
 
@@ -170,6 +172,7 @@ export function updateEnemies(state, dt, now, player) {
           vx: (player.x - e.x) * 0.0025,
           vy: 180,
           r: 6,
+          bornAt: state.time * 1000,
         });
       }
       if (e.x < -60 || e.x > viewW + 60) {
@@ -201,6 +204,7 @@ export function updateEnemies(state, dt, now, player) {
           vx: Math.cos(angle) * (e.bulletSpeed ?? turretBulletSpeed),
           vy: Math.sin(angle) * (e.bulletSpeed ?? turretBulletSpeed),
           r: 6,
+          bornAt: state.time * 1000,
         });
       }
       if (e.x < 60 || e.x > viewW - 60) {

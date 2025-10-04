@@ -121,6 +121,7 @@ function projectileColour(state, index = 0) {
 }
 
 function spawnProjectile(state, projectile) {
+  const bornAt = state.time * 1000;
   state.bullets.push({
     x: state.player.x + projectile.offsetX,
     y: state.player.y + projectile.offsetY,
@@ -129,7 +130,7 @@ function spawnProjectile(state, projectile) {
     r: 6,
     damage: projectile.damage,
     colour: projectileColour(state, projectile.colourIndex ?? 0),
-    life: 1200,
+    bornAt,
   });
 }
 
@@ -150,21 +151,24 @@ export function handlePlayerShooting(state, keys, now) {
   }
 }
 
+const PLAYER_BULLET_MAX_AGE_MS = 3000;
+
 export function updatePlayerBullets(state, dt) {
   const { w, h } = getViewSize();
   const viewW = Math.max(w, 1);
   const viewH = Math.max(h, 1);
+  const nowMs = state.time * 1000;
   for (let i = state.bullets.length - 1; i >= 0; i--) {
     const b = state.bullets[i];
     b.x += (b.vx || 0) * dt;
     b.y += b.vy * dt;
-    b.life = (b.life || 0) - dt * 1000;
+    const age = nowMs - (b.bornAt ?? nowMs);
     if (
       b.y < -40 ||
       b.y > viewH + 40 ||
       b.x < -40 ||
       b.x > viewW + 40 ||
-      b.life <= 0
+      age > PLAYER_BULLET_MAX_AGE_MS
     ) {
       state.bullets.splice(i, 1);
     }
@@ -183,19 +187,24 @@ export function drawPlayerBullets(ctx, bullets) {
   }
 }
 
+const ENEMY_BULLET_MAX_AGE_MS = 3000;
+
 export function updateEnemyBullets(state, dt) {
   const { w, h } = getViewSize();
   const viewW = Math.max(w, 1);
   const viewH = Math.max(h, 1);
+  const nowMs = state.time * 1000;
   for (let i = state.enemyBullets.length - 1; i >= 0; i--) {
     const b = state.enemyBullets[i];
     b.x += (b.vx || 0) * dt;
     b.y += b.vy * dt;
+    const age = nowMs - (b.bornAt ?? nowMs);
     if (
       b.y < -40 ||
       b.y > viewH + 40 ||
       b.x < -40 ||
-      b.x > viewW + 40
+      b.x > viewW + 40 ||
+      age > ENEMY_BULLET_MAX_AGE_MS
     ) {
       state.enemyBullets.splice(i, 1);
     }
