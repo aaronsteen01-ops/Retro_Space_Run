@@ -50,6 +50,8 @@ import {
   drawWeaponDrops,
   maybeDropWeaponToken,
   ensureGuaranteedWeaponDrop,
+  updateMuzzleFlashes,
+  drawMuzzleFlashes,
 } from './weapons.js';
 import { DEFAULT_THEME_PALETTE, resolvePaletteSection } from './themes.js';
 import { LEVELS } from './levels.js';
@@ -77,6 +79,8 @@ const state = {
   powerups: [],
   weaponDrops: [],
   weaponDropSecured: false,
+  muzzleFlashes: [],
+  screenShake: { time: 0, duration: 0, magnitude: 0, offsetX: 0, offsetY: 0 },
   stars: [],
   finishGate: null,
   boss: null,
@@ -142,6 +146,47 @@ window.addEventListener('keyup', (e) => {
 window.addEventListener('click', () => {
   resumeAudioContext();
 });
+
+function triggerScreenShake(intensity = 3, duration = 160) {
+  const shake = state.screenShake;
+  if (!shake) {
+    state.screenShake = {
+      time: duration,
+      duration,
+      magnitude: intensity,
+      offsetX: 0,
+      offsetY: 0,
+    };
+    return;
+  }
+  shake.time = Math.max(shake.time, duration);
+  shake.duration = Math.max(shake.duration, duration);
+  shake.magnitude = Math.max(shake.magnitude, intensity);
+}
+
+function updateScreenShake(dt) {
+  const shake = state.screenShake;
+  if (!shake) {
+    return;
+  }
+  if (shake.time > 0) {
+    shake.time = Math.max(0, shake.time - dt * 1000);
+    const progress = shake.duration > 0 ? shake.time / shake.duration : 0;
+    const strength = shake.magnitude * progress;
+    if (strength > 0) {
+      shake.offsetX = rand(-strength, strength);
+      shake.offsetY = rand(-strength, strength);
+    } else {
+      shake.offsetX = 0;
+      shake.offsetY = 0;
+    }
+  } else {
+    shake.offsetX = 0;
+    shake.offsetY = 0;
+    shake.magnitude = 0;
+    shake.duration = 0;
+  }
+}
 
 function spawnStars() {
   state.stars.length = 0;
@@ -278,6 +323,12 @@ function resetState() {
   state.weaponDropSecured = false;
   state.powerupsGrantedL1 = 0;
   state.lastGuaranteedPowerup = null;
+  state.muzzleFlashes.length = 0;
+  state.screenShake.time = 0;
+  state.screenShake.duration = 0;
+  state.screenShake.magnitude = 0;
+  state.screenShake.offsetX = 0;
+  state.screenShake.offsetY = 0;
   state.theme = activePalette;
   resetPlayer(state);
   resetPowerState(state);
@@ -354,6 +405,7 @@ function loop(now) {
   updateTime(Math.floor(state.time));
   ensureGuaranteedWeaponDrop(state);
   scheduleLevelWaves();
+  updateScreenShake(dt);
 
   if (state.time >= state.levelDur) {
     if (!state.bossSpawned) {
@@ -365,6 +417,10 @@ function loop(now) {
   }
 
   ctx.clearRect(0, 0, viewW, viewH);
+  ctx.save();
+  if (state.screenShake.offsetX || state.screenShake.offsetY) {
+    ctx.translate(state.screenShake.offsetX, state.screenShake.offsetY);
+  }
   for (const star of state.stars) {
     star.y += (60 * star.z + state.speed * 0.05 * star.z) * dt;
     if (star.y > viewH) {
@@ -383,6 +439,7 @@ function loop(now) {
 
   handlePlayerShooting(state, keys, now);
   updatePlayerBullets(state, dt);
+  updateMuzzleFlashes(state, dt);
 
   updateEnemies(state, dt, now, player);
   updateBoss(state, dt, now, player, palette);
@@ -405,6 +462,7 @@ function loop(now) {
       playZap();
       playPow();
       gameOver(true);
+      ctx.restore();
       return;
     }
   }
@@ -415,8 +473,12 @@ function loop(now) {
     for (let j = state.bullets.length - 1; j >= 0; j--) {
       const bullet = state.bullets[j];
       if (coll(enemy, bullet, -4)) {
+        const bulletLevel = bullet.level ?? 0;
         state.bullets.splice(j, 1);
         enemy.hp -= bullet.damage || 1;
+        if (bulletLevel >= 2) {
+          triggerScreenShake(rand(2, 4), 160);
+        }
         const enemyCol = enemy.type === 'strafer'
           ? particles.enemyHitStrafer
           : particles.enemyHitDefault;
@@ -437,8 +499,12 @@ function loop(now) {
     for (let j = state.bullets.length - 1; j >= 0; j--) {
       const bullet = state.bullets[j];
       if (coll(state.boss, bullet, -12)) {
+        const bulletLevel = bullet.level ?? 0;
         state.bullets.splice(j, 1);
         state.boss.hp -= bullet.damage || 1;
+        if (bulletLevel >= 2) {
+          triggerScreenShake(rand(2, 4), 160);
+        }
         addParticle(state, state.boss.x, state.boss.y, particles.bossHit, 18, 3.4, 320);
         playHit();
         if (state.boss.hp <= 0) {
@@ -470,14 +536,17 @@ function loop(now) {
 
   for (const enemy of state.enemies) {
     if (coll(player, enemy, -4) && playerDefeated()) {
+      ctx.restore();
       return;
     }
   }
   if (state.boss && coll(player, state.boss, -26) && playerDefeated()) {
+    ctx.restore();
     return;
   }
   for (const bullet of state.enemyBullets) {
     if (coll(player, bullet, -2) && playerDefeated()) {
+      ctx.restore();
       return;
     }
   }
@@ -494,6 +563,7 @@ function loop(now) {
   }
   drawEnemyBullets(ctx, state.enemyBullets, palette);
   drawPlayerBullets(ctx, state.bullets);
+  drawMuzzleFlashes(ctx, state.muzzleFlashes);
   if (state.finishGate) {
     drawGate(state.finishGate, palette);
   }
@@ -517,6 +587,8 @@ function loop(now) {
     ctx.fillRect(p.x, p.y, 2, 2);
     ctx.globalAlpha = 1;
   }
+
+  ctx.restore();
 
   state.score += Math.floor(30 * dt);
   updateScore(state.score);
