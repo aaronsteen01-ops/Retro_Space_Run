@@ -16,7 +16,15 @@ import {
 } from './ui.js';
 import { playZap, playHit, toggleAudio, resumeAudioContext, playPow } from './audio.js';
 import { resetPlayer, updatePlayer, clampPlayerToBounds, drawPlayer } from './player.js';
-import { spawnEnemies, updateEnemies, drawEnemies } from './enemies.js';
+import {
+  spawnEnemies,
+  updateEnemies,
+  drawEnemies,
+  spawnBoss,
+  updateBoss,
+  drawBoss,
+  drawBossHealth,
+} from './enemies.js';
 import {
   resetPowerTimers,
   maybeSpawnPowerup,
@@ -31,6 +39,10 @@ import {
   drawPlayerBullets,
   updateEnemyBullets,
   drawEnemyBullets,
+  setupWeapons,
+  updateWeaponDrops,
+  drawWeaponDrops,
+  maybeDropWeaponToken,
 } from './weapons.js';
 
 const state = {
@@ -46,12 +58,17 @@ const state = {
   enemyBullets: [],
   particles: [],
   powerups: [],
+  weaponDrops: [],
   stars: [],
   finishGate: null,
+  boss: null,
+  bossSpawned: false,
+  bossDefeatedAt: 0,
   lastShot: 0,
   shotDelay: 180,
   speed: 260,
   power: { name: null, until: 0 },
+  weapon: null,
 };
 
 const keys = new Set();
@@ -145,10 +162,14 @@ function resetState() {
   state.powerups.length = 0;
   state.particles.length = 0;
   state.finishGate = null;
+  state.boss = null;
+  state.bossSpawned = false;
+  state.bossDefeatedAt = 0;
   state.lastShot = 0;
   resetPlayer(state, canvas);
   resetPowerState(state);
   resetPowerTimers();
+  setupWeapons(state);
   spawnStars();
   updateLives(state.lives);
   updateScore(state.score);
@@ -215,8 +236,13 @@ function loop(now) {
   state.time += dt;
   updateTime(Math.floor(state.time));
 
-  if (state.time >= state.levelDur && !state.finishGate) {
-    ensureFinishGate();
+  if (state.time >= state.levelDur) {
+    if (!state.bossSpawned) {
+      spawnBoss(state, canvas);
+      state.bossSpawned = true;
+    } else if (!state.boss && !state.finishGate && now - state.bossDefeatedAt > 600) {
+      ensureFinishGate();
+    }
   }
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -237,14 +263,18 @@ function loop(now) {
   clampPlayerToBounds(player, canvas);
 
   handlePlayerShooting(state, keys, now);
-  updatePlayerBullets(state, dt);
+  updatePlayerBullets(state, dt, canvas);
 
-  spawnEnemies(state, now, canvas);
+  if (!state.boss) {
+    spawnEnemies(state, now, canvas);
+  }
   updateEnemies(state, dt, now, player, canvas);
+  updateBoss(state, dt, now, player, canvas);
   updateEnemyBullets(state, dt, canvas);
 
   maybeSpawnPowerup(state, now, canvas);
   updatePowerups(state, dt, now, canvas);
+  updateWeaponDrops(state, dt, canvas);
   clearExpiredPowers(state, now);
 
   if (state.finishGate) {
@@ -268,13 +298,37 @@ function loop(now) {
       const bullet = state.bullets[j];
       if (coll(enemy, bullet, -4)) {
         state.bullets.splice(j, 1);
-        enemy.hp -= 1;
+        enemy.hp -= bullet.damage || 1;
         addParticle(state, enemy.x, enemy.y, enemy.type === 'strafer' ? '#ff3df7' : '#00e5ff', 12, 2.6, 300);
         if (enemy.hp <= 0) {
           state.enemies.splice(i, 1);
           state.score += 25;
           updateScore(state.score);
           playHit();
+          maybeDropWeaponToken(state, enemy);
+        }
+        break;
+      }
+    }
+  }
+
+  if (state.boss) {
+    for (let j = state.bullets.length - 1; j >= 0; j--) {
+      const bullet = state.bullets[j];
+      if (coll(state.boss, bullet, -12)) {
+        state.bullets.splice(j, 1);
+        state.boss.hp -= bullet.damage || 1;
+        addParticle(state, state.boss.x, state.boss.y, '#ff3df7', 18, 3.4, 320);
+        playHit();
+        if (state.boss.hp <= 0) {
+          addParticle(state, state.boss.x, state.boss.y, '#ff3df7', 60, 5, 1000);
+          addParticle(state, state.boss.x, state.boss.y, '#00e5ff', 40, 4, 1000);
+          playPow();
+          state.score += 600;
+          updateScore(state.score);
+          maybeDropWeaponToken(state, { x: state.boss.x, y: state.boss.y });
+          state.boss = null;
+          state.bossDefeatedAt = now;
         }
         break;
       }
@@ -294,6 +348,9 @@ function loop(now) {
       return;
     }
   }
+  if (state.boss && coll(player, state.boss, -26) && playerDefeated()) {
+    return;
+  }
   for (const bullet of state.enemyBullets) {
     if (coll(player, bullet, -2) && playerDefeated()) {
       return;
@@ -304,14 +361,22 @@ function loop(now) {
     player.invuln -= dt * 1000;
   }
 
+  drawWeaponDrops(ctx, state.weaponDrops);
   drawPowerups(ctx, state.powerups);
   drawEnemies(ctx, state.enemies);
+  if (state.boss) {
+    drawBoss(ctx, state.boss);
+  }
   drawEnemyBullets(ctx, state.enemyBullets);
   drawPlayerBullets(ctx, state.bullets);
   if (state.finishGate) {
     drawGate(state.finishGate);
   }
   drawPlayer(ctx, player, keys);
+
+  if (state.boss) {
+    drawBossHealth(ctx, state.boss, canvas);
+  }
 
   for (let i = state.particles.length - 1; i >= 0; i--) {
     const p = state.particles[i];

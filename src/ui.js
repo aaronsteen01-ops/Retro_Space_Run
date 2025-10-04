@@ -8,6 +8,7 @@ const hudLives = document.getElementById('lives');
 const hudScore = document.getElementById('score');
 const hudTime = document.getElementById('time');
 const hudPower = document.getElementById('pup');
+const hudWeapon = document.getElementById('weapon');
 const overlay = document.getElementById('overlay');
 
 function fitCanvas() {
@@ -71,6 +72,10 @@ export function updateTime(value) {
 
 export function updatePower(label) {
   hudPower.textContent = label || '—';
+}
+
+export function updateWeapon(label) {
+  hudWeapon.textContent = label;
 }
 
 export function currentOverlay() {
