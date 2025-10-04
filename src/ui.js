@@ -259,15 +259,16 @@ export function updateScore(value) {
 }
 
 export function updateTime(value) {
-  hudTime.textContent = value;
+  const seconds = value ?? 0;
+  hudTime.textContent = `${seconds}s`;
 }
 
 export function updatePower(label) {
-  hudPower.textContent = label || '—';
+  hudPower.textContent = label || 'None';
 }
 
 export function updateWeapon(label) {
-  hudWeapon.textContent = label;
+  hudWeapon.textContent = label || 'None';
 }
 
 export function currentOverlay() {
