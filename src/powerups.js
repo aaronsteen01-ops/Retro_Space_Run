@@ -1,7 +1,7 @@
 /**
  * powerups.js — spawning, application, and rendering of power-ups for Retro Space Run.
  */
-import { rand, TAU, coll } from './utils.js';
+import { rand, TAU, coll, clamp } from './utils.js';
 import { playPow } from './audio.js';
 import { updatePower, getViewSize } from './ui.js';
 import { getDifficulty } from './difficulty.js';
@@ -11,6 +11,31 @@ const spawnState = {
 };
 
 const kinds = ['shield', 'rapid', 'boost'];
+const GUARANTEE_CHECKPOINTS_MS = [20000, 40000];
+
+function pickPowerupType(lastType = null) {
+  const options = lastType
+    ? kinds.filter((k) => k !== lastType)
+    : kinds.slice();
+  const pool = options.length > 0 ? options : kinds;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function spawnPowerupEntity(state, type, x, opts = {}) {
+  const { w } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const minX = 40;
+  const maxX = Math.max(viewW - 40, 40);
+  state.powerups.push({
+    type,
+    x: clamp(x ?? rand(minX, maxX), minX, maxX),
+    y: -30,
+    vy: opts.vy ?? 110,
+    r: 12,
+    t: 9000,
+    guaranteed: opts.guaranteed ?? false,
+  });
+}
 
 export function resetPowerTimers() {
   spawnState.last = performance.now();
@@ -25,18 +50,38 @@ export function maybeSpawnPowerup(state, now) {
     return;
   }
   spawnState.last = now;
-  const type = kinds[Math.floor(Math.random() * kinds.length)];
+  const type = pickPowerupType();
+  spawnPowerupEntity(state, type);
+}
+
+export function ensureGuaranteedPowerups(state, now) {
+  if (state.levelIndex !== 1) {
+    return;
+  }
+  if (!state.power) {
+    return;
+  }
+  if (state.powerupsGrantedL1 >= GUARANTEE_CHECKPOINTS_MS.length) {
+    return;
+  }
+  const elapsedMs = state.time * 1000;
+  const nextCheckpoint = GUARANTEE_CHECKPOINTS_MS[state.powerupsGrantedL1];
+  if (elapsedMs < nextCheckpoint) {
+    return;
+  }
+  const hasActivePower = state.power.name && now < state.power.until;
+  if (hasActivePower) {
+    return;
+  }
   const { w } = getViewSize();
   const viewW = Math.max(w, 1);
-  const maxX = Math.max(viewW - 40, 40);
-  state.powerups.push({
-    type,
-    x: rand(40, maxX),
-    y: -30,
-    vy: 110,
-    r: 12,
-    t: 9000,
-  });
+  const baseX = state.player ? state.player.x : viewW / 2;
+  const spawnX = baseX + rand(-120, 120);
+  const type = pickPowerupType(state.lastGuaranteedPowerup);
+  spawnPowerupEntity(state, type, spawnX, { guaranteed: true });
+  state.lastGuaranteedPowerup = type;
+  state.powerupsGrantedL1 += 1;
+  spawnState.last = now;
 }
 
 export function applyPower(state, kind, now) {
