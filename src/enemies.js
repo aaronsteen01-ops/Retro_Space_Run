@@ -5,11 +5,17 @@ import { rand, TAU, drawGlowCircle, addParticle, clamp } from './utils.js';
 import { getViewSize } from './ui.js';
 import { getDifficulty } from './difficulty.js';
 import { resolvePaletteSection } from './themes.js';
+import { playPow } from './audio.js';
 
 const DEFAULT_BOSS_HP = 540;
 const ASSIST_DENSITY = 0.7;
 const BOSS_PHASE_THRESHOLDS = [0.7, 0.4];
 const MAX_BOSS_PHASE = 3;
+const PHASE_TELEGRAPH_MS = 400;
+const BEAM_LENGTH_RATIO = 0.85;
+const BEAM_WIDTH = 220;
+const BEAM_SAFE_WIDTH = 80;
+const BEAM_SAFE_LANES = [-0.45, 0.45];
 
 const randInt = (min, max) => Math.floor(rand(min, max + 1));
 
@@ -229,6 +235,242 @@ function emitBossRing(state, boss, player, count = 24) {
   }
 }
 
+function createBossBeam(boss, config) {
+  if (!boss) {
+    return;
+  }
+  const {
+    startAngle,
+    endAngle,
+    duration,
+    turnRate,
+    length,
+  } = config;
+  const dir = endAngle > startAngle ? 1 : endAngle < startAngle ? -1 : 0;
+  boss.beam = {
+    angle: startAngle,
+    targetAngle: endAngle,
+    duration: duration ?? 2400,
+    elapsed: 0,
+    turnRate: turnRate ?? 0.55,
+    turnDir: dir,
+    originX: boss.x,
+    originY: boss.y + 28,
+    width: BEAM_WIDTH,
+    length,
+    safeWidth: BEAM_SAFE_WIDTH,
+    safeLanes: [...BEAM_SAFE_LANES],
+  };
+}
+
+function updateBossBeam(boss, dt, viewH) {
+  const beam = boss?.beam;
+  if (!beam) {
+    return;
+  }
+  beam.elapsed += dt * 1000;
+  beam.originX = boss.x;
+  beam.originY = boss.y + 28;
+  beam.length = viewH * BEAM_LENGTH_RATIO;
+  if (beam.turnDir !== 0) {
+    const delta = beam.turnRate * dt * beam.turnDir;
+    beam.angle += delta;
+    if (
+      (beam.turnDir > 0 && beam.angle >= beam.targetAngle) ||
+      (beam.turnDir < 0 && beam.angle <= beam.targetAngle)
+    ) {
+      beam.angle = beam.targetAngle;
+      beam.turnDir = 0;
+    }
+  }
+  if (beam.elapsed >= beam.duration) {
+    boss.beam = null;
+  }
+}
+
+export function isPointInBossBeam(boss, x, y) {
+  const beam = boss?.beam;
+  if (!beam) {
+    return false;
+  }
+  const dx = x - beam.originX;
+  const dy = y - beam.originY;
+  const cos = Math.cos(beam.angle);
+  const sin = Math.sin(beam.angle);
+  const along = dx * cos + dy * sin;
+  if (along < 0 || along > beam.length) {
+    return false;
+  }
+  const across = -dx * sin + dy * cos;
+  const halfWidth = beam.width / 2;
+  if (Math.abs(across) > halfWidth) {
+    return false;
+  }
+  const halfSafe = (beam.safeWidth ?? BEAM_SAFE_WIDTH) / 2;
+  for (const lane of beam.safeLanes || []) {
+    const laneCenter = lane * halfWidth * 2;
+    if (Math.abs(across - laneCenter) <= halfSafe) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function drawBossBeam(ctx, boss, bossPalette) {
+  const beam = boss?.beam;
+  if (!beam) {
+    return;
+  }
+  ctx.save();
+  ctx.translate(beam.originX, beam.originY);
+  ctx.rotate(beam.angle - Math.PI / 2);
+  ctx.shadowColor = bossPalette.beam;
+  ctx.shadowBlur = 40;
+  ctx.fillStyle = bossPalette.beam;
+  ctx.globalAlpha = 0.75;
+  ctx.fillRect(-beam.width / 2, 0, beam.width, beam.length);
+  ctx.globalAlpha = 1;
+  ctx.shadowBlur = 0;
+  ctx.globalCompositeOperation = 'destination-out';
+  const safeWidth = beam.safeWidth ?? BEAM_SAFE_WIDTH;
+  for (const lane of beam.safeLanes || []) {
+    const laneCenter = lane * beam.width;
+    ctx.fillRect(laneCenter - safeWidth / 2, 0, safeWidth, beam.length);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = bossPalette.beam;
+  ctx.globalAlpha = 0.9;
+  ctx.strokeRect(-beam.width / 2, 0, beam.width, beam.length);
+  ctx.globalAlpha = 1;
+  if ((beam.safeLanes || []).length) {
+    ctx.setLineDash([10, 12]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = bossPalette.phaseShiftTrim || '#ffffff';
+    for (const lane of beam.safeLanes) {
+      const laneCenter = lane * beam.width;
+      ctx.strokeRect(laneCenter - safeWidth / 2, 0, safeWidth, beam.length);
+    }
+    ctx.setLineDash([]);
+  }
+  ctx.restore();
+}
+
+function updatePhase1Pattern(state, boss, dt, player) {
+  const ps = boss.patternState;
+  if (!ps.initialised) {
+    ps.initialised = true;
+    ps.fireCooldown = 900;
+    ps.volleyIndex = 0;
+  }
+  ps.fireCooldown -= dt * 1000;
+  if (ps.fireCooldown <= 0) {
+    ps.fireCooldown = 940 + rand(-80, 140);
+    ps.volleyIndex = (ps.volleyIndex + 1) % 6;
+    const aim = Math.atan2(player.y - boss.y, player.x - boss.x);
+    const useCenter = ps.volleyIndex % 3 === 0;
+    const spread = useCenter ? 0.24 : 0.18;
+    if (useCenter) {
+      pushBossBullet(state, boss.x, boss.y + 34, 220, aim, 9);
+    }
+    pushBossBullet(state, boss.x - 18, boss.y + 34, 200, aim - spread, 9);
+    pushBossBullet(state, boss.x + 18, boss.y + 34, 200, aim + spread, 9);
+  }
+}
+
+function updatePhase2Pattern(state, boss, dt, player) {
+  const ps = boss.patternState;
+  if (!ps.initialised) {
+    ps.initialised = true;
+    ps.fanCooldown = 560;
+    ps.ringCooldown = 2400;
+    ps.ringCharge = 0;
+    ps.droneTimer = 4200;
+  }
+  ps.fanCooldown -= dt * 1000;
+  if (ps.fanCooldown <= 0) {
+    ps.fanCooldown = 580 + rand(-60, 120);
+    const aim = Math.atan2(player.y - boss.y, player.x - boss.x);
+    for (let i = -2; i <= 2; i++) {
+      const angle = aim + i * 0.11;
+      const speed = 260 + Math.abs(i) * 18;
+      pushBossBullet(state, boss.x + i * 18, boss.y + 30, speed, angle, 8);
+    }
+  }
+  if (ps.ringCharge > 0) {
+    ps.ringCharge -= dt * 1000;
+    if (ps.ringCharge <= 0) {
+      emitBossRing(state, boss, player, 28);
+      ps.ringCooldown = rand(3600, 4600);
+    }
+  } else {
+    ps.ringCooldown -= dt * 1000;
+    if (ps.ringCooldown <= 0) {
+      ps.ringCharge = 720;
+      boss.specialCueTimer = Math.max(boss.specialCueTimer, 720);
+      ps.ringCooldown = 0;
+    }
+  }
+  ps.droneTimer -= dt * 1000;
+  if (ps.droneTimer <= 0) {
+    spawnBossMinions(state, boss, 2);
+    ps.droneTimer = rand(4800, 6200);
+  }
+}
+
+function updatePhase3Pattern(state, boss, dt, player, viewH) {
+  const ps = boss.patternState;
+  if (!ps.initialised) {
+    ps.initialised = true;
+    ps.volleyTimer = 640;
+    ps.beamCooldown = 2000;
+    ps.beamCharge = 0;
+  }
+  if (!boss.beam) {
+    ps.volleyTimer -= dt * 1000;
+    if (ps.volleyTimer <= 0) {
+      ps.volleyTimer = 640 + rand(-80, 140);
+      const aim = Math.atan2(player.y - boss.y, player.x - boss.x);
+      const skipCenter = ps.lastSkip ?? false;
+      ps.lastSkip = !skipCenter;
+      for (let i = -2; i <= 2; i++) {
+        if (skipCenter && i === 0) {
+          continue;
+        }
+        const angle = aim + i * 0.12;
+        const speed = 300 + Math.abs(i) * 22;
+        pushBossBullet(state, boss.x + i * 18, boss.y + 28, speed, angle, 9);
+      }
+    }
+  }
+  if (ps.beamCharge > 0) {
+    ps.beamCharge -= dt * 1000;
+    if (ps.beamCharge <= 0 && ps.pendingBeam) {
+      const { startAngle, endAngle } = ps.pendingBeam;
+      createBossBeam(boss, {
+        startAngle,
+        endAngle,
+        duration: 2400,
+        turnRate: 0.55,
+        length: viewH * BEAM_LENGTH_RATIO,
+      });
+      ps.pendingBeam = null;
+    }
+  } else if (!boss.beam) {
+    ps.beamCooldown -= dt * 1000;
+    if (ps.beamCooldown <= 0) {
+      const startAngle = (Math.PI / 2) + rand(-0.55, 0.55);
+      const sweepDir = Math.random() < 0.5 ? -1 : 1;
+      const endAngle = startAngle + sweepDir * rand(0.42, 0.68);
+      ps.pendingBeam = { startAngle, endAngle };
+      ps.beamCharge = 820;
+      ps.beamCooldown = rand(4600, 5400);
+      boss.specialCueTimer = Math.max(boss.specialCueTimer, 820);
+      boss.warningTimer = Math.max(boss.warningTimer, 1000);
+    }
+  }
+}
+
 export function updateEnemies(state, dt, now, player) {
   const { w, h } = getViewSize();
   const viewW = Math.max(w, 1);
@@ -318,10 +560,13 @@ export function spawnBoss(state, bossConfig = {}) {
   state.enemies.length = 0;
   const difficulty = getDifficulty(state.levelIndex);
   const baseHp = bossConfig.hp ?? difficulty?.bossHp ?? DEFAULT_BOSS_HP;
-  const phases = Array.isArray(bossConfig.phases)
+  const rawThresholds = Array.isArray(bossConfig.phases)
     ? bossConfig.phases
     : bossConfig.phaseThresholds ?? BOSS_PHASE_THRESHOLDS;
-  const maxPhase = bossConfig.maxPhase ?? Math.max(1, (phases?.length ?? 0) + 1);
+  const thresholds = (rawThresholds ?? BOSS_PHASE_THRESHOLDS)
+    .map((v) => Number(v))
+    .filter((v) => Number.isFinite(v));
+  const resolvedMax = bossConfig.maxPhase ?? Math.max(1, thresholds.length + 1);
   const boss = {
     type: 'boss',
     kind: bossConfig.kind ?? 'standard',
@@ -332,29 +577,23 @@ export function spawnBoss(state, bossConfig = {}) {
     r: 60,
     hp: baseHp,
     maxHp: baseHp,
+    currentPhase: 1,
     phase: 1,
-    maxPhase: maxPhase ?? MAX_BOSS_PHASE,
-    phaseThresholds: [...(phases ?? BOSS_PHASE_THRESHOLDS)],
-    nextPhaseIndex: 0,
-    cooldown: 1400,
-    volleyTimer: 1200,
+    maxPhase: Math.max(1, resolvedMax ?? MAX_BOSS_PHASE),
+    phaseThresholds: thresholds,
+    telegraphUntil: 0,
+    patternState: {},
     sweepDir: 1,
-    sideVolleyFlip: 1,
     entering: true,
     introTimer: 2200,
     phaseFlashTimer: 0,
     specialCueTimer: 0,
     warningTimer: 0,
-    ringCooldown: 2600,
-    ringChargeTimer: 0,
-    summonTimer: 3800,
     glowPulse: 0,
     warningPulse: 0,
     rewardDropped: false,
+    beam: null,
   };
-  if (boss.maxPhase < 1) {
-    boss.maxPhase = MAX_BOSS_PHASE;
-  }
   state.enemyBullets.length = 0;
   state.boss = boss;
   return boss;
@@ -369,6 +608,7 @@ export function updateBoss(state, dt, now, player, palette) {
   const viewW = Math.max(w, 1);
   const viewH = Math.max(h, 1);
   const particles = resolvePaletteSection(palette, 'particles');
+  const nowMs = now;
 
   if (boss.entering) {
     boss.y += boss.vy * dt;
@@ -376,7 +616,6 @@ export function updateBoss(state, dt, now, player, palette) {
       boss.y = viewH * 0.25;
       boss.vy = 0;
       boss.entering = false;
-      boss.cooldown = 800;
     }
   }
 
@@ -386,42 +625,50 @@ export function updateBoss(state, dt, now, player, palette) {
   boss.specialCueTimer = Math.max(0, boss.specialCueTimer - dt * 1000);
   boss.warningTimer = Math.max(0, boss.warningTimer - dt * 1000);
   boss.introTimer = Math.max(0, boss.introTimer - dt * 1000);
+  if (boss.telegraphUntil && nowMs > boss.telegraphUntil) {
+    boss.telegraphUntil = 0;
+  }
 
   const enterPhase = (targetPhase) => {
-    if (boss.phase === targetPhase) {
+    const clamped = Math.min(targetPhase, boss.maxPhase || MAX_BOSS_PHASE);
+    if (boss.currentPhase === clamped) {
       return;
     }
-    boss.phase = targetPhase;
-    boss.phaseFlashTimer = 720;
+    boss.currentPhase = clamped;
+    boss.phase = boss.currentPhase;
+    boss.phaseFlashTimer = PHASE_TELEGRAPH_MS;
+    boss.specialCueTimer = PHASE_TELEGRAPH_MS;
+    boss.telegraphUntil = nowMs + PHASE_TELEGRAPH_MS;
+    boss.patternState = {};
+    boss.beam = null;
     addParticle(state, boss.x, boss.y, particles.bossHit, 48, 4.4, 900);
-    if (boss.phase === 2) {
-      boss.cooldown = 520;
-      boss.volleyTimer = 460;
-      boss.summonTimer = 0;
-      boss.sideVolleyFlip = 1;
-    } else if (boss.phase >= 3) {
-      boss.cooldown = 440;
-      boss.volleyTimer = 940;
-      boss.ringCooldown = 1400;
-      boss.ringChargeTimer = 520;
-      boss.specialCueTimer = 720;
-      boss.warningTimer = 2000;
-      boss.summonTimer = 2600;
-      boss.sideVolleyFlip = 1;
+    playPow();
+    if (boss.currentPhase >= 3) {
+      boss.warningTimer = Math.max(boss.warningTimer, 1200);
     }
   };
 
+  const ratio = boss.maxHp > 0 ? Math.max(0, boss.hp) / boss.maxHp : 1;
+  let targetPhase = boss.currentPhase;
   const thresholds = boss.phaseThresholds || [];
-  const nextThreshold = thresholds[boss.nextPhaseIndex];
-  if (nextThreshold !== undefined && boss.hp <= boss.maxHp * nextThreshold) {
-    boss.nextPhaseIndex += 1;
-    const targetPhase = Math.min(1 + boss.nextPhaseIndex, boss.maxPhase || MAX_BOSS_PHASE);
+  while (targetPhase < (boss.maxPhase || MAX_BOSS_PHASE)) {
+    const threshold = thresholds[targetPhase - 1];
+    if (threshold === undefined) {
+      break;
+    }
+    if (ratio < threshold) {
+      targetPhase += 1;
+    } else {
+      break;
+    }
+  }
+  if (targetPhase !== boss.currentPhase) {
     enterPhase(targetPhase);
   }
 
   const leftBound = 140;
   const rightBound = viewW - 140;
-  const sweepSpeed = boss.phase === 1 ? 120 : boss.phase === 2 ? 190 : 230;
+  const sweepSpeed = boss.currentPhase === 1 ? 120 : boss.currentPhase === 2 ? 180 : 220;
   boss.x += boss.sweepDir * sweepSpeed * dt;
   if (boss.x < leftBound) {
     boss.x = leftBound;
@@ -431,91 +678,28 @@ export function updateBoss(state, dt, now, player, palette) {
     boss.sweepDir = -1;
   }
 
-  if (boss.phase === 1) {
+  if (boss.currentPhase === 1) {
     boss.y = clamp(
-      boss.y + Math.sin(now * 0.0015) * 12 * dt * 60,
+      boss.y + Math.sin(nowMs * 0.0015) * 12 * dt * 60,
       viewH * 0.22,
       viewH * 0.28,
     );
-    boss.cooldown -= dt * 1000;
-    if (boss.cooldown <= 0) {
-      boss.cooldown = 960;
-      const base = Math.atan2(player.y - boss.y, player.x - boss.x);
-      for (let i = -1; i <= 1; i++) {
-        const angle = base + i * 0.18;
-        pushBossBullet(state, boss.x + i * 24, boss.y + 34, 220 + Math.abs(i) * 18, angle, 9);
-      }
-    }
-    if (boss.summonTimer > 0) {
-      boss.summonTimer -= dt * 1000;
-      if (boss.summonTimer <= 0) {
-        spawnBossMinions(state, boss, 1);
-        boss.summonTimer = 5200;
-      }
-    }
-  } else if (boss.phase === 2) {
-    boss.y = viewH * 0.22 + Math.sin(now * 0.0025) * 36;
-    boss.cooldown -= dt * 1000;
-    boss.volleyTimer -= dt * 1000;
-    if (boss.cooldown <= 0) {
-      boss.cooldown = 520;
-      const aim = Math.atan2(player.y - boss.y, player.x - boss.x);
-      for (let i = -2; i <= 2; i++) {
-        const angle = aim + i * 0.11;
-        pushBossBullet(state, boss.x + i * 22, boss.y + 30, 300 + Math.abs(i) * 20, angle, 9);
-      }
-    }
-    if (boss.volleyTimer <= 0) {
-      boss.volleyTimer = 1800;
-      const offset = 52 * boss.sideVolleyFlip;
-      boss.sideVolleyFlip *= -1;
-      for (let i = -2; i <= 2; i++) {
-        const angle = (-Math.PI / 2) + i * 0.09;
-        pushBossBullet(state, boss.x - offset, boss.y + 26, 320, angle, 8);
-        pushBossBullet(state, boss.x + offset, boss.y + 26, 320, angle + 0.04 * i, 7);
-      }
-    }
+  } else if (boss.currentPhase === 2) {
+    boss.y = viewH * 0.22 + Math.sin(nowMs * 0.0025) * 36;
   } else {
-    boss.y = viewH * 0.2 + Math.sin(now * 0.0031) * 44 + Math.sin(boss.glowPulse) * 6;
-    boss.cooldown -= dt * 1000;
-    boss.volleyTimer -= dt * 1000;
-    if (boss.cooldown <= 0) {
-      boss.cooldown = 440;
-      const aim = Math.atan2(player.y - boss.y, player.x - boss.x);
-      for (let i = -2; i <= 2; i++) {
-        const angle = aim + i * 0.1;
-        pushBossBullet(state, boss.x + i * 20, boss.y + 26, 340 + Math.abs(i) * 26, angle, 10);
-      }
-    }
-    if (boss.volleyTimer <= 0) {
-      boss.volleyTimer = 1400;
-      const spread = 0.22;
-      for (let i = 0; i < 6; i++) {
-        const leftAngle = (-Math.PI / 2) - spread + i * 0.07;
-        const rightAngle = (-Math.PI / 2) + spread - i * 0.07;
-        pushBossBullet(state, boss.x - 46, boss.y + 16, 330, leftAngle, 7);
-        pushBossBullet(state, boss.x + 46, boss.y + 16, 330, rightAngle, 7);
-      }
-    }
-    if (boss.ringChargeTimer > 0) {
-      boss.ringChargeTimer -= dt * 1000;
-      if (boss.ringChargeTimer <= 0) {
-        emitBossRing(state, boss, player, 26);
-        boss.ringCooldown = rand(2600, 3600);
-        boss.specialCueTimer = 0;
-      }
+    boss.y = viewH * 0.2 + Math.sin(nowMs * 0.0031) * 44 + Math.sin(boss.glowPulse) * 6;
+  }
+
+  updateBossBeam(boss, dt, viewH);
+
+  const telegraphing = boss.telegraphUntil && nowMs < boss.telegraphUntil;
+  if (!telegraphing && !boss.entering) {
+    if (boss.currentPhase === 1) {
+      updatePhase1Pattern(state, boss, dt, player);
+    } else if (boss.currentPhase === 2) {
+      updatePhase2Pattern(state, boss, dt, player);
     } else {
-      boss.ringCooldown -= dt * 1000;
-      if (boss.ringCooldown <= 0) {
-        boss.ringChargeTimer = 600;
-        boss.specialCueTimer = Math.max(boss.specialCueTimer, 600);
-        boss.ringCooldown = 0;
-      }
-    }
-    boss.summonTimer -= dt * 1000;
-    if (boss.summonTimer <= 0) {
-      spawnBossMinions(state, boss, 2);
-      boss.summonTimer = rand(3600, 5200);
+      updatePhase3Pattern(state, boss, dt, player, viewH);
     }
   }
 }
@@ -548,13 +732,19 @@ export function drawBoss(ctx, boss, palette) {
     ctx.fillText('WARNING', w / 2, y);
     ctx.restore();
   }
+  if (boss.beam) {
+    drawBossBeam(ctx, boss, bossPalette);
+  }
   ctx.save();
   ctx.translate(boss.x, boss.y);
-  const isPhase2 = boss.phase === 2;
-  const isPhase3 = boss.phase >= 3;
+  const phase = boss.currentPhase ?? boss.phase ?? 1;
+  const isPhase2 = phase === 2;
+  const isPhase3 = phase >= 3;
+  const telegraphActive = Boolean(boss.telegraphUntil);
   const telegraphStrength = Math.max(
     boss.phaseFlashTimer / 720,
     boss.specialCueTimer / 720,
+    telegraphActive ? 0.85 : 0,
   );
   const telegraphPulse = 0.65 + 0.35 * Math.sin((boss.glowPulse || 0) * 2);
   let shadowColor = isPhase3

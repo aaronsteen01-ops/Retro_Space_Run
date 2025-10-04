@@ -29,6 +29,7 @@ import {
   updateBoss,
   drawBoss,
   drawBossHealth,
+  isPointInBossBeam,
 } from './enemies.js';
 import {
   resetPowerTimers,
@@ -515,8 +516,8 @@ function loop(now) {
           state.score += 600;
           updateScore(state.score);
           if (!defeatedBoss.rewardDropped) {
-            maybeDropWeaponToken(state, { x: defeatedBoss.x, y: defeatedBoss.y });
             defeatedBoss.rewardDropped = true;
+            maybeDropWeaponToken(state, { x: defeatedBoss.x, y: defeatedBoss.y });
           }
           state.boss = null;
           state.bossDefeatedAt = now;
@@ -549,6 +550,10 @@ function loop(now) {
       ctx.restore();
       return;
     }
+  }
+  if (state.boss && isPointInBossBeam(state.boss, player.x, player.y) && playerDefeated()) {
+    ctx.restore();
+    return;
   }
 
   if (player.invuln > 0) {
