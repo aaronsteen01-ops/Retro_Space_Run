@@ -3,7 +3,7 @@
  */
 import { coll } from './utils.js';
 import { playPew, playPow } from './audio.js';
-import { updateWeapon } from './ui.js';
+import { updateWeapon, getViewSize } from './ui.js';
 
 const ROMAN = ['I', 'II', 'III'];
 
@@ -46,6 +46,31 @@ function ensureWeaponState(state) {
   if (!state.weaponDrops) {
     state.weaponDrops = [];
   }
+  if (state.weaponDropSecured === undefined) {
+    state.weaponDropSecured = false;
+  }
+}
+
+function pickWeaponKey() {
+  const weaponKeys = Object.keys(weaponDefs);
+  if (!weaponKeys.length) {
+    return 'pulse';
+  }
+  return weaponKeys[Math.floor(Math.random() * weaponKeys.length)];
+}
+
+function pushWeaponDrop(state, weapon, x, y) {
+  ensureWeaponState(state);
+  state.weaponDrops.push({
+    x,
+    y,
+    vy: 90,
+    r: 14,
+    weapon,
+    spin: Math.random() * Math.PI,
+    t: DROP_LIFETIME,
+  });
+  state.weaponDropSecured = true;
 }
 
 function clampLevel(def, level) {
@@ -83,6 +108,7 @@ export function setupWeapons(state) {
   state.weapon.level = 0;
   state.lastShot = 0;
   state.weaponDrops.length = 0;
+  state.weaponDropSecured = false;
   updateWeapon(getWeaponLabel(state.weapon));
 }
 
@@ -124,7 +150,10 @@ export function handlePlayerShooting(state, keys, now) {
   }
 }
 
-export function updatePlayerBullets(state, dt, canvas) {
+export function updatePlayerBullets(state, dt) {
+  const { w, h } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const viewH = Math.max(h, 1);
   for (let i = state.bullets.length - 1; i >= 0; i--) {
     const b = state.bullets[i];
     b.x += (b.vx || 0) * dt;
@@ -132,9 +161,9 @@ export function updatePlayerBullets(state, dt, canvas) {
     b.life = (b.life || 0) - dt * 1000;
     if (
       b.y < -40 ||
-      b.y > canvas.height + 40 ||
+      b.y > viewH + 40 ||
       b.x < -40 ||
-      b.x > canvas.width + 40 ||
+      b.x > viewW + 40 ||
       b.life <= 0
     ) {
       state.bullets.splice(i, 1);
@@ -154,16 +183,19 @@ export function drawPlayerBullets(ctx, bullets) {
   }
 }
 
-export function updateEnemyBullets(state, dt, canvas) {
+export function updateEnemyBullets(state, dt) {
+  const { w, h } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const viewH = Math.max(h, 1);
   for (let i = state.enemyBullets.length - 1; i >= 0; i--) {
     const b = state.enemyBullets[i];
     b.x += (b.vx || 0) * dt;
     b.y += b.vy * dt;
     if (
       b.y < -40 ||
-      b.y > canvas.height + 40 ||
+      b.y > viewH + 40 ||
       b.x < -40 ||
-      b.x > canvas.width + 40
+      b.x > viewW + 40
     ) {
       state.enemyBullets.splice(i, 1);
     }
@@ -196,6 +228,7 @@ function upgradeWeapon(state, weaponName) {
     state.weapon.level += 1;
   }
   state.lastShot = 0;
+  state.weaponDropSecured = true;
   updateWeapon(getWeaponLabel(state.weapon));
   playPow();
 }
@@ -205,27 +238,20 @@ export function maybeDropWeaponToken(state, enemy) {
   if (Math.random() > DROP_CHANCE) {
     return;
   }
-  const weaponKeys = Object.keys(weaponDefs);
-  const weapon = weaponKeys[Math.floor(Math.random() * weaponKeys.length)];
-  state.weaponDrops.push({
-    x: enemy.x,
-    y: enemy.y,
-    vy: 90,
-    r: 14,
-    weapon,
-    spin: Math.random() * Math.PI,
-    t: DROP_LIFETIME,
-  });
+  const weapon = pickWeaponKey();
+  pushWeaponDrop(state, weapon, enemy.x, enemy.y);
 }
 
-export function updateWeaponDrops(state, dt, canvas) {
+export function updateWeaponDrops(state, dt) {
+  const { h } = getViewSize();
+  const viewH = Math.max(h, 1);
   ensureWeaponState(state);
   for (let i = state.weaponDrops.length - 1; i >= 0; i--) {
     const drop = state.weaponDrops[i];
     drop.y += drop.vy * dt;
     drop.spin = (drop.spin || 0) + dt * 2.4;
     drop.t -= dt * 1000;
-    if (drop.t <= 0 || drop.y > canvas.height + 40) {
+    if (drop.t <= 0 || drop.y > viewH + 40) {
       state.weaponDrops.splice(i, 1);
       continue;
     }
@@ -267,4 +293,28 @@ export function drawWeaponDrops(ctx, drops, palette) {
     ctx.fillText(def ? def.label.charAt(0) : 'W', 0, 0);
     ctx.restore();
   }
+}
+
+export function ensureGuaranteedWeaponDrop(state) {
+  ensureWeaponState(state);
+  if (state.weaponDropSecured) {
+    return;
+  }
+  if ((state.weapon?.level ?? 0) > 0) {
+    state.weaponDropSecured = true;
+    return;
+  }
+  if (!state.levelDur) {
+    return;
+  }
+  const progress = state.time / state.levelDur;
+  if (progress < 0.6) {
+    return;
+  }
+  const { w } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const weapon = pickWeaponKey();
+  const targetX = state.player ? state.player.x : viewW / 2;
+  const x = Math.max(40, Math.min(viewW - 40, targetX));
+  pushWeaponDrop(state, weapon, x, -24);
 }

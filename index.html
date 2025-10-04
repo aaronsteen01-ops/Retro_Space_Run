@@ -23,6 +23,9 @@
     padding:.3rem .6rem; border-radius:10px; backdrop-filter:blur(3px);
   }
   #hud .pill{display:inline-block; margin-right:.6rem; padding:.15rem .5rem; border:1px solid #00e5ff66; border-radius:999px; font-size:.9rem}
+  #hud button.pill{background:transparent; color:var(--white); cursor:pointer; font:inherit; text-transform:none; transition:background .2s ease, box-shadow .2s ease;}
+  #hud button.pill:focus-visible{outline:2px solid var(--cyn); outline-offset:2px;}
+  #hud button.pill.is-on{box-shadow:0 0 8px #00e5ff55 inset, 0 0 8px #ff3df755; background:#ffffff10;}
   #msg{
     position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
     pointer-events:none; text-align:center;
@@ -58,6 +61,7 @@
   <span class="pill">Time: <span id="time">0</span>s</span>
   <span class="pill">Weapon: <span id="weapon">Pulse Cannon · I</span></span>
   <span class="pill">Power-up: <span id="pup">—</span></span>
+  <button id="assist-toggle" class="pill" type="button" aria-pressed="false">Assist: Off</button>
   <span class="pill pill--theme">Theme:
     <select id="theme-select" class="hud-theme">
       <option value="synth-horizon">Synth Horizon</option>
@@ -69,9 +73,9 @@
 
 <div id="msg">
   <div class="box" id="overlay">
-    <h1>RETRO <span class="cyan">BRICK</span> <span class="heart">BASH</span> — SPACE RUN</h1>
-    <p>Arrow keys / WASD to move · Space to shoot · P pause · F fullscreen · M mute</p>
-    <p>Reach the <span class="cyan">finish gate</span> while avoiding hazards. Collect power-ups.</p>
+    <h1>RETRO <span class="cyan">SPACE</span> <span class="heart">RUN</span></h1>
+    <p>WASD / Arrow keys to steer · Space to fire · P pause · F fullscreen · M mute · H Assist Mode</p>
+    <p>Reach the <span class="cyan">finish gate</span> with calmer Level&nbsp;1 waves. Assist Mode adds a spare life, gentler drops, and longer invulnerability.</p>
     <a id="btn">Start</a>
   </div>
 </div>
