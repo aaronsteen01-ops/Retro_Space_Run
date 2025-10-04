@@ -1,58 +1,72 @@
-# Retro_Space_Run
+# 🚀 Retro Space Run v0.2
 
-# 🚀 Retro Space Run
-
-**Retro Space Run** is a modern–retro space-sim arcade game built in pure HTML5 Canvas + JS.  
-You pilot a glowing magenta-and-cyan ship through waves of asteroids, drones, and turrets, upgrading weapons and dodging your way to the finish gate at the end of each sector.
-
-The visual style is inspired by 1980s vector-scan arcade cabinets — reimagined with glowing modern tones and fast-paced bullet-hell gameplay.
+Retro Space Run is a neon-soaked arcade runner built on HTML5 Canvas. You pilot a nimble ship through asteroid fields and synthetic bosses while tuning a persistent arsenal for the long haul. The project now ships as a set of ES modules, making it easier to extend, optimise, and theme.
 
 ---
 
-## 🕹️ Gameplay Overview
+## 📦 Module Directory
+The codebase lives under `src/` and is split into focused modules:
 
-**Goal:**  
-Survive through enemy waves and hazards to reach the **finish gate** at the end of each level.
+- `main.js` — boots the game, owns the master state object, and advances the render/update loop at 60 FPS.
+- `player.js` — handles player initialisation, movement physics, hit detection, invulnerability frames, and rendering of the ship and its thrust trails.
+- `weapons.js` — tracks the player arsenal, calculates fire rates, spawns projectiles, resolves collisions, and governs persistent weapon upgrades between runs.
+- `enemies.js` — spawns wave templates, manages drones, turrets, asteroids, and orchestrates the boss lifecycle including attack patterns and health UI.
+- `powerups.js` — manages timed buffs, drop logic, and visual effects for temporary boosts.
+- `audio.js` — wires up the Web Audio API context, re-usable synth nodes, and SFX triggers for shots, hits, and loot.
+- `ui.js` — provides canvas references, overlay toggles, HUD updates, and theme change hooks.
+- `themes.js` — defines theme palettes and, in v0.2, exposes the soon-to-launch selector configuration so new palettes can be dropped in without touching gameplay code.
+- `utils.js` — houses helper maths, collision helpers, and particle utilities shared across systems.
 
-**Controls**
+Each module imports and exports explicit functions, so you can develop or test components in isolation without dragging in the entire game loop.
 
+---
+
+## ✨ Feature Highlights in v0.2
+
+### Persistent Weapon Upgrades
+Destroying priority targets now drops weapon tokens. Collect them to permanently unlock higher-tier blasters that carry across sessions. The `weapons.js` module serialises unlocks to localStorage and reapplies them when a new run starts, letting players build their own loadout ladder.
+
+### Boss Encounter Flow
+Every sector culminates in a bespoke boss fight. Bosses spawn once the timer crosses the late-stage threshold, lock the finish gate, and shift the soundtrack via `audio.js`. Defeating the boss triggers celebratory particles, reopens the gate, and rolls a guaranteed weapon drop.
+
+### Theme Selector (Coming Soon)
+The new `themes.js` module already defines multiple palettes and event hooks. The UI exposes a placeholder toggle that will become a fully fledged theme selector shortly, allowing players to swap between classic neon, solar flare, and deep space variants without reloading.
+
+---
+
+## 🛠️ Running the Game
+
+### Modern Build (Recommended)
+1. Serve the project root via any static server (for example `npx serve .` or `python -m http.server`).
+2. Visit the served URL in a modern browser (Chrome, Edge, Firefox, Safari) so the ES module graph loads automatically via `<script type="module" src="./src/main.js"></script>`.
+
+### Legacy Fallback
+For browsers without module support, leave the inline `<script nomodule>…</script>` block in `index.html`. That snippet ships the transpiled single-bundle fallback and gracefully gets skipped by modern browsers. Keep both tags to cover mixed device fleets.
+
+---
+
+## 🎯 Controls
 | Action | Key |
 |--------|-----|
-| Move | WASD / Arrow Keys |
+| Move | WASD / Arrow keys |
 | Shoot | Spacebar |
 | Pause | P |
 | Fullscreen | F |
 | Mute / Unmute | M |
 
-**Rules**
-- Each level lasts roughly 1–2 minutes.
-- You start with **3 lives**.
-- Collect **power-ups** to gain temporary abilities.
-- Destroy enemies to increase your score.
-- Reach the finish gate to complete the level.
+Controllers with standard gamepad mappings inherit from the browser’s default bindings (left stick to steer, face buttons to fire) when available.
 
 ---
 
-## ✨ Current Features
+## ⚡ Performance & Developer Tips
 
-✅ Single-file playable HTML prototype  
-✅ Responsive full-screen Canvas  
-✅ Player ship with thrust & shooting  
-✅ Enemies: Asteroids, Strafers, Drones, Turrets  
-✅ Power-ups: Shield, Rapid-fire, Boost  
-✅ Simple particle and audio effects  
-✅ Win condition with finish gate  
-✅ Retro neon theme (glowing magenta & cyan)  
-✅ CRT-style scanline overlay  
+- The render loop targets greater than **60 frames per second** on mid-range laptops and recent tablets. Use the browser’s performance tools to verify frame pacing when introducing new effects.
+- `main.js` centralises the shared `state` object; instrument logging around its update cycle when debugging new features.
+- Keep sprite counts lean: both enemy and bullet pools are recyclable arrays—prefer reusing entries instead of allocating new objects inside the loop.
+- Particle showers live in `utils.js::addParticle`. Reduce spawn counts or glow intensities when optimising for low-powered hardware.
+- Themes are pure data objects; drop new palettes into `themes.js` and they become available to the selector without touching canvas code.
 
 ---
 
-## 🧭 Planned Roadmap
-
-This section combines public visibility with Codex development instructions.  
-Use it as both a **to-do list** and **feature definition**.
-
-### 🔩 1. Code Refactor
-
-Split the monolithic `index.html` into modular JS files for maintainability.
-
+## 🤝 Contributing
+Bug reports and pull requests are welcome. Please follow the module structure above, favour Australian English in documentation, and profile changes with the performance tips noted earlier.
