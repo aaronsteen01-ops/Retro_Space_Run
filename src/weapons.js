@@ -497,6 +497,9 @@ function ensureWeaponState(state) {
   if (state.weaponDropSecured === undefined) {
     state.weaponDropSecured = false;
   }
+  if (!state.muzzleFlashes) {
+    state.muzzleFlashes = [];
+  }
 }
 
 function pickWeaponKey() {
@@ -538,6 +541,12 @@ function currentLevel(state) {
   return def.levels[levelIndex];
 }
 
+function romanNumeral(index) {
+  const numerals = ['I', 'II', 'III', 'IV', 'V'];
+  const idx = Math.max(0, Math.min(index, numerals.length - 1));
+  return numerals[idx] || numerals[numerals.length - 1];
+}
+
 function weaponHudLabel(weapon) {
   if (!weapon) {
     return 'None';
@@ -548,7 +557,7 @@ function weaponHudLabel(weapon) {
   }
   const def = weaponDefs[weapon.name];
   const levelIndex = def ? clampLevel(def, weapon.level) : 0;
-  const levelLabel = `Level ${levelIndex + 1}`;
+  const levelLabel = romanNumeral(levelIndex);
   return `${name} – ${levelLabel}`;
 }
 
@@ -560,9 +569,17 @@ export function getWeaponDisplayName(id) {
   return WEAPON_DISPLAY_NAMES[id] || null;
 }
 
-export function updateWeaponHud(state) {
+export function updateWeaponHud(state, { flash = false } = {}) {
   const weapon = state?.weapon ?? null;
-  updateWeapon(weaponHudLabel(weapon));
+  const def = weapon ? weaponDefs[weapon.name] : null;
+  const levelIndex = def ? clampLevel(def, weapon.level) : null;
+  const name = weapon ? getWeaponDisplayName(weapon.name) : null;
+  const roman = typeof levelIndex === 'number' ? romanNumeral(levelIndex) : null;
+  updateWeapon(weaponHudLabel(weapon), {
+    flash: flash && Boolean(name) && Boolean(roman),
+    upgradeName: name || undefined,
+    upgradeLevel: roman || undefined,
+  });
 }
 
 export function setupWeapons(state) {
@@ -572,7 +589,8 @@ export function setupWeapons(state) {
   state.lastShot = 0;
   state.weaponDrops.length = 0;
   state.weaponDropSecured = false;
-  updateWeaponHud(state);
+  state.muzzleFlashes.length = 0;
+  updateWeaponHud(state, { flash: false });
 }
 
 function projectileColour(state, index = 0) {
@@ -584,11 +602,66 @@ function projectileColour(state, index = 0) {
   return colours[idx];
 }
 
-function spawnProjectile(state, projectile) {
+function colourWithAlpha(colour, alpha) {
+  if (typeof colour !== 'string') {
+    return `rgba(255, 255, 255, ${alpha})`;
+  }
+  if (colour.startsWith('#')) {
+    let hex = colour.slice(1);
+    if (hex.length === 3) {
+      hex = hex
+        .split('')
+        .map((c) => c + c)
+        .join('');
+    }
+    if (hex.length === 6) {
+      const r = parseInt(hex.slice(0, 2), 16);
+      const g = parseInt(hex.slice(2, 4), 16);
+      const b = parseInt(hex.slice(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+  }
+  if (colour.startsWith('rgb(')) {
+    return colour.replace('rgb(', 'rgba(').replace(')', `, ${alpha})`);
+  }
+  if (colour.startsWith('rgba(')) {
+    return colour.replace(/rgba\(([^)]+)\)/, (_, body) => {
+      const parts = body.split(',').map((part) => part.trim());
+      return `rgba(${parts.slice(0, 3).join(', ')}, ${alpha})`;
+    });
+  }
+  return `rgba(255, 255, 255, ${alpha})`;
+}
+
+function pushMuzzleFlash(state, projectile, levelIndex, width, height, colour) {
+  if (!state.player) {
+    return;
+  }
+  const length = Math.max(height * 0.9, 14 + levelIndex * 4);
+  const spread = Math.max(width * 0.8, 6 + levelIndex * 1.5);
+  const vx = projectile.vx ?? 0;
+  const vy = projectile.vy ?? -1;
+  const rotation = Math.atan2(vy, vx) + Math.PI / 2;
+  state.muzzleFlashes.push({
+    x: state.player.x + projectile.offsetX,
+    y: state.player.y + projectile.offsetY,
+    rotation,
+    life: 140,
+    t: 140,
+    length,
+    spread,
+    colour,
+  });
+}
+
+function spawnProjectile(state, projectile, levelIndex) {
   const bornAt = state.time * 1000;
-  const width = projectile.width ?? 4;
-  const height = projectile.height ?? 12;
+  const baseWidth = projectile.width ?? 4;
+  const baseHeight = projectile.height ?? 12;
+  const width = baseWidth + levelIndex * 1.5;
+  const height = baseHeight + levelIndex * 3;
   const radius = projectile.radius ?? Math.max(width, height) / 2;
+  const colour = projectileColour(state, projectile.colourIndex ?? 0);
   state.bullets.push({
     x: state.player.x + projectile.offsetX,
     y: state.player.y + projectile.offsetY,
@@ -596,11 +669,13 @@ function spawnProjectile(state, projectile) {
     vy: projectile.vy,
     r: radius,
     damage: projectile.damage,
-    colour: projectileColour(state, projectile.colourIndex ?? 0),
+    colour,
     bornAt,
     w: width,
     h: height,
+    level: levelIndex,
   });
+  pushMuzzleFlash(state, projectile, levelIndex, width, height, colour);
 }
 
 export function handlePlayerShooting(state, keys, now) {
@@ -609,12 +684,14 @@ export function handlePlayerShooting(state, keys, now) {
   if (!level) {
     return;
   }
+  const def = state.weapon ? weaponDefs[state.weapon.name] : null;
+  const levelIndex = def ? clampLevel(def, state.weapon.level) : 0;
   const rapid = state.power.name === 'rapid';
   const delay = Math.max(70, level.delay * (rapid ? 0.6 : 1));
   if ((keys.has(' ') || keys.has('space')) && now - state.lastShot > delay) {
     state.lastShot = now;
     for (const projectile of level.projectiles) {
-      spawnProjectile(state, projectile);
+      spawnProjectile(state, projectile, levelIndex);
     }
     playPew();
   }
@@ -650,12 +727,62 @@ export function drawPlayerBullets(ctx, bullets) {
     ctx.save();
     ctx.translate(b.x, b.y);
     const colour = b.colour ?? fallbackColour;
-    ctx.shadowColor = `${colour}aa`;
-    ctx.shadowBlur = 10;
-    ctx.fillStyle = colour;
+    const level = b.level ?? 0;
     const w = b.w ?? 4;
     const h = b.h ?? 12;
-    ctx.fillRect(-w / 2, -h / 2, w, h);
+    ctx.shadowColor = colourWithAlpha(colour, 0.8);
+    ctx.shadowBlur = 8 + level * 4;
+    const gradient = ctx.createLinearGradient(0, h / 2, 0, -h / 2);
+    gradient.addColorStop(0, colourWithAlpha(colour, 0));
+    gradient.addColorStop(0.25, colourWithAlpha(colour, 0.35 + level * 0.15));
+    gradient.addColorStop(0.55, 'rgba(255, 255, 255, 0.9)');
+    gradient.addColorStop(1, colourWithAlpha(colour, 1));
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, w / 2, h / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 0.6 + level * 0.4;
+    ctx.strokeStyle = colourWithAlpha(colour, 0.8);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+export function updateMuzzleFlashes(state, dt) {
+  ensureWeaponState(state);
+  for (let i = state.muzzleFlashes.length - 1; i >= 0; i--) {
+    const flash = state.muzzleFlashes[i];
+    flash.t -= dt * 1000;
+    if (flash.t <= 0) {
+      state.muzzleFlashes.splice(i, 1);
+    }
+  }
+}
+
+export function drawMuzzleFlashes(ctx, flashes) {
+  const fallbackColour = DEFAULT_BULLET_LEVELS[2] ?? '#ffffff';
+  for (const flash of flashes) {
+    const alpha = Math.max(0, Math.min(1, flash.t / flash.life));
+    if (alpha <= 0) {
+      continue;
+    }
+    ctx.save();
+    ctx.translate(flash.x, flash.y);
+    ctx.rotate(flash.rotation || 0);
+    ctx.globalAlpha = alpha;
+    const colour = flash.colour || fallbackColour;
+    const gradient = ctx.createLinearGradient(0, 0, 0, -flash.length);
+    gradient.addColorStop(0, colourWithAlpha(colour, 0));
+    gradient.addColorStop(0.2, colourWithAlpha(colour, 0.6));
+    gradient.addColorStop(1, colourWithAlpha('#ffffff', 0.95));
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.moveTo(0, -flash.length);
+    ctx.lineTo(flash.spread, 0);
+    ctx.lineTo(-flash.spread, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
     ctx.restore();
   }
 }
@@ -704,22 +831,25 @@ function upgradeWeapon(state, weaponName) {
     return;
   }
   const maxLevel = def.levels.length - 1;
+  let upgraded = false;
   if (state.weapon.name !== weaponName) {
     state.weapon.name = weaponName;
     state.weapon.level = 0;
+    upgraded = true;
   } else if (state.weapon.level < maxLevel) {
     state.weapon.level += 1;
+    upgraded = true;
   } else {
-    state.score = (state.score ?? 0) + 250;
+    state.score = (state.score ?? 0) + 500;
     updateScore(state.score);
-    updateWeaponHud(state);
+    updateWeaponHud(state, { flash: false });
     state.weaponDropSecured = true;
     playPow();
     return;
   }
   state.lastShot = 0;
   state.weaponDropSecured = true;
-  updateWeaponHud(state);
+  updateWeaponHud(state, { flash: upgraded });
   playPow();
 }
 

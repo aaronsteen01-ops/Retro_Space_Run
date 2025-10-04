@@ -25,12 +25,14 @@ const hudWeapon = document.getElementById('weapon');
 const overlay = document.getElementById('overlay');
 const themeSelect = document.getElementById('theme-select');
 const assistToggle = document.getElementById('assist-toggle');
+const upgradeBanner = document.getElementById('upgrade-banner');
 
 const THEME_STORAGE_KEY = 'retro-space-run.theme';
 const ASSIST_STORAGE_KEY = 'retro-space-run.assist';
 
 const themeListeners = new Set();
 const assistListeners = new Set();
+let upgradeBannerTimeout = null;
 
 function readStoredTheme() {
   try {
@@ -270,8 +272,36 @@ export function updatePower(label) {
   hudPower.textContent = label || 'None';
 }
 
-export function updateWeapon(label) {
+function showUpgradeBanner(name, level) {
+  if (!upgradeBanner) {
+    return;
+  }
+  const cleanName = name?.trim();
+  const cleanLevel = level?.trim();
+  if (!cleanName || !cleanLevel) {
+    return;
+  }
+  const message = `UPGRADE: ${cleanName} ${cleanLevel}`;
+  upgradeBanner.textContent = message;
+  upgradeBanner.classList.remove('is-visible');
+  void upgradeBanner.offsetWidth;
+  upgradeBanner.classList.add('is-visible');
+  if (upgradeBannerTimeout) {
+    window.clearTimeout(upgradeBannerTimeout);
+  }
+  upgradeBannerTimeout = window.setTimeout(() => {
+    upgradeBanner.classList.remove('is-visible');
+  }, 1200);
+}
+
+export function updateWeapon(label, { flash = false, upgradeName, upgradeLevel } = {}) {
   hudWeapon.textContent = label || 'None';
+  if (!flash) {
+    return;
+  }
+  const hudName = upgradeName || (label ? label.split(' – ')[0] : null);
+  const hudLevel = upgradeLevel || (label ? label.split(' – ')[1] : null);
+  showUpgradeBanner(hudName, hudLevel);
 }
 
 export function currentOverlay() {
