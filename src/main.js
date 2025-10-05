@@ -12,6 +12,7 @@ import {
   updateComboMultiplier,
   updateTime,
   updatePower,
+  updateShield,
   updateLevelChip,
   getActiveThemePalette,
   onThemeChange,
@@ -173,6 +174,35 @@ function writeHighestUnlockedLevel(value) {
   }
 }
 
+const LIFE_CAP_BASE = 5;
+const ASSIST_LIFE_CAP = 6;
+const SHIELD_BASE_DURATION = 8000;
+const MIN_FIRE_RATE_MULTIPLIER = 0.4;
+const FIRE_RATE_STEP = 0.9;
+const MOVE_SPEED_STEP = 1.08;
+const MAX_MOVE_SPEED_MULTIPLIER = 1.8;
+const SHIELD_DURATION_STEP = 1.2;
+const MAX_SHIELD_DURATION_MULTIPLIER = 3;
+const DUPLICATE_SHIELD_RATIO = 0.5;
+
+function createRunUpgradeState() {
+  return {
+    fireRateMultiplier: 1,
+    moveSpeedMultiplier: 1,
+    shieldDurationMultiplier: 1,
+    duplicateConversion: 'score',
+  };
+}
+
+function getLifeCap(stateLike) {
+  return stateLike.assistEnabled ? ASSIST_LIFE_CAP : LIFE_CAP_BASE;
+}
+
+function getShieldCapacity(stateLike) {
+  const multiplier = stateLike.runUpgrades?.shieldDurationMultiplier ?? 1;
+  return SHIELD_BASE_DURATION * multiplier;
+}
+
 let highestUnlockedLevel = Math.max(1, Math.min(LEVELS.length, readHighestUnlockedLevel()));
 
 function unlockLevel(levelIndex) {
@@ -225,6 +255,7 @@ const state = {
   shotDelay: 180,
   speed: 260,
   power: { name: null, until: 0 },
+  shieldCapacity: 0,
   powerupsGrantedL1: 0,
   lastGuaranteedPowerup: null,
   weapon: null,
@@ -236,6 +267,7 @@ const state = {
   levelContext: { enemyWeights: {}, mutators: {}, themeKey: null },
   weather: { windX: 0, windDrift: 0, squall: null },
   levelIntroTimeout: null,
+  runUpgrades: createRunUpgradeState(),
 };
 
 function getComboState() {
@@ -655,6 +687,11 @@ function clearLevelEntities() {
   resetEffects();
   spawnStars();
   resetPlayer(state);
+  if (state.player) {
+    state.player.shield = 0;
+  }
+  state.shieldCapacity = 0;
+  updateShield(0, 1);
   updatePower('None');
   updateTime(0);
 }
@@ -671,6 +708,12 @@ function resetGame(levelIndex = state.levelIndex) {
   resetCombo();
   updateScore(state.score);
   updateLives(state.lives);
+  state.power = { name: null, until: 0 };
+  state.shieldCapacity = 0;
+  if (state.player) {
+    state.player.shield = 0;
+  }
+  updateShield(0, 1);
   if (startWeapon) {
     state.weapon = { ...startWeapon };
   } else {
@@ -988,17 +1031,204 @@ function startRun(levelIndex = 1) {
   state.difficultyMode = getDifficultyMode();
   state.difficulty = getDifficultyMultipliers(state.difficultyMode);
   state.assistEnabled = getAssistMode();
+  state.runUpgrades = createRunUpgradeState();
   state.lives = state.assistEnabled ? 4 : 3;
   state.score = 0;
   state.levelStartScore = 0;
   state.levelStartTime = performance.now();
   state.passiveScoreCarry = 0;
+  state.power = { name: null, until: 0 };
+  state.shieldCapacity = 0;
+  updateShield(0, 1);
   resetCombo();
   updateLives(state.lives);
   updateScore(state.score);
   setupWeapons(state);
   const nextLevel = Math.max(1, Math.min(LEVELS.length, Math.floor(levelIndex)));
   startLevel(nextLevel);
+}
+
+function buildUpgradePoolForState() {
+  const pool = [
+    {
+      id: 'fire-rate',
+      title: 'Overclock Cannons',
+      description: 'Increase fire rate by 10%.',
+    },
+    {
+      id: 'shield-duration',
+      title: 'Barrier Harmoniser',
+      description: 'Shield power-ups last 20% longer.',
+    },
+    {
+      id: 'move-speed',
+      title: 'Engine Calibration',
+      description: 'Ship acceleration +8%.',
+    },
+    {
+      id: 'duplicate',
+      title: 'Duplicate Converter',
+      description: 'Choose the reward for duplicate weapon tokens.',
+    },
+  ];
+  const lifeCap = getLifeCap(state);
+  if (state.lives < lifeCap) {
+    pool.splice(1, 0, {
+      id: 'life',
+      title: 'Hull Plating',
+      description: `Gain +1 life (cap ${lifeCap}).`,
+    });
+  }
+  return pool;
+}
+
+function sampleUpgradesFromPool(pool, count) {
+  const sample = pool.slice();
+  for (let i = sample.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [sample[i], sample[j]] = [sample[j], sample[i]];
+  }
+  const limit = Math.min(count, sample.length);
+  return sample.slice(0, limit);
+}
+
+function applyRunUpgrade(upgradeId, { choice } = {}) {
+  switch (upgradeId) {
+    case 'fire-rate': {
+      const current = state.runUpgrades?.fireRateMultiplier ?? 1;
+      const next = Math.max(MIN_FIRE_RATE_MULTIPLIER, current * FIRE_RATE_STEP);
+      state.runUpgrades.fireRateMultiplier = next;
+      state.lastShot = 0;
+      return 'FIRE RATE +10%';
+    }
+    case 'life': {
+      const cap = getLifeCap(state);
+      state.lives = Math.min(cap, (state.lives ?? 0) + 1);
+      updateLives(state.lives);
+      return 'LIFE +1';
+    }
+    case 'shield-duration': {
+      const currentMultiplier = state.runUpgrades?.shieldDurationMultiplier ?? 1;
+      const nextMultiplier = Math.min(
+        MAX_SHIELD_DURATION_MULTIPLIER,
+        currentMultiplier * SHIELD_DURATION_STEP,
+      );
+      const oldCapacity = SHIELD_BASE_DURATION * currentMultiplier;
+      const newCapacity = SHIELD_BASE_DURATION * nextMultiplier;
+      state.runUpgrades.shieldDurationMultiplier = nextMultiplier;
+      if (state.power.name === 'shield' && state.player) {
+        const bonus = Math.max(0, newCapacity - oldCapacity);
+        const now = performance.now();
+        const remainingTime = Math.max(0, state.power.until - now);
+        const newRemaining = Math.min(newCapacity, remainingTime + bonus);
+        const existingCharge = Math.max(state.player.shield ?? remainingTime, 0);
+        const newCharge = Math.min(newCapacity, existingCharge + bonus);
+        state.power.until = now + newRemaining;
+        state.player.shield = newCharge;
+        state.shieldCapacity = newCapacity;
+        updateShield(newCharge, newCapacity);
+      }
+      return 'SHIELD DURATION +20%';
+    }
+    case 'move-speed': {
+      const current = state.runUpgrades?.moveSpeedMultiplier ?? 1;
+      const next = Math.min(MAX_MOVE_SPEED_MULTIPLIER, current * MOVE_SPEED_STEP);
+      state.runUpgrades.moveSpeedMultiplier = next;
+      return 'MOVE SPEED +8%';
+    }
+    case 'duplicate': {
+      const selected = choice === 'shield' ? 'shield' : 'score';
+      state.runUpgrades.duplicateConversion = selected;
+      return selected === 'shield' ? 'DUPES → +50% SHIELD' : 'DUPES → +500 SCORE';
+    }
+    default:
+      return null;
+  }
+}
+
+function renderUpgradeSelection({ nextLevelIndex, nextLevel, levelTime, scoreDelta }) {
+  const options = sampleUpgradesFromPool(buildUpgradePoolForState(), 3);
+  if (!options.length) {
+    startLevel(nextLevelIndex);
+    return;
+  }
+  const nextLabel = nextLevel
+    ? `Level ${nextLevelIndex}: ${nextLevel.name}`
+    : `Level ${nextLevelIndex}`;
+  const currentDuplicate = state.runUpgrades?.duplicateConversion === 'shield'
+    ? '+50% Shield'
+    : '+500 Score';
+  let autoFocusAssigned = false;
+  const cards = options.map((upgrade) => {
+    if (upgrade.id === 'duplicate') {
+      const scoreFocus = autoFocusAssigned ? '' : ' autofocus';
+      autoFocusAssigned = true;
+      return `
+        <div class="upgrade-card upgrade-card--choice" data-upgrade-card="duplicate">
+          <p class="upgrade-card__title">${upgrade.title}</p>
+          <p class="upgrade-card__desc">${upgrade.description}</p>
+          <p class="upgrade-card__meta">Current: ${currentDuplicate}</p>
+          <div class="upgrade-card__actions">
+            <button type="button" class="btn" data-upgrade="duplicate" data-choice="score"${scoreFocus}>+500 Score</button>
+            <button type="button" class="btn" data-upgrade="duplicate" data-choice="shield">+50% Shield</button>
+          </div>
+        </div>
+      `;
+    }
+    const focusAttr = autoFocusAssigned ? '' : ' autofocus';
+    autoFocusAssigned = true;
+    return `
+      <button type="button" class="upgrade-card" data-upgrade="${upgrade.id}"${focusAttr}>
+        <span class="upgrade-card__title">${upgrade.title}</span>
+        <span class="upgrade-card__desc">${upgrade.description}</span>
+      </button>
+    `;
+  }).join('');
+  const levelName = state.level?.name ?? 'Sector';
+  showOverlay(`
+    <h1><span class="cyan">LEVEL ${state.levelIndex} COMPLETE</span></h1>
+    <p>${levelName} cleared in <strong>${levelTime}s</strong>. Score gained: <strong>${Math.max(0, scoreDelta)}</strong> · Total Score: <strong>${state.score}</strong></p>
+    <p>Select one upgrade for <strong>${nextLabel}</strong>.</p>
+    <div class="upgrade-grid">${cards}</div>
+    <div class="overlay-actions">
+      <button id="restart-level" class="btn">Restart Level ${state.levelIndex}</button>
+      <button id="summary-menu" class="btn btn-secondary">Menu</button>
+    </div>
+  `);
+  const restart = document.getElementById('restart-level');
+  restart?.addEventListener('click', () => {
+    resetGame(state.levelIndex);
+  });
+  const menuBtn = document.getElementById('summary-menu');
+  menuBtn?.addEventListener('click', () => {
+    renderStartOverlay();
+  });
+  let handled = false;
+  const buttons = Array.from(document.querySelectorAll('button[data-upgrade]'));
+  const handleSelection = (id, choice) => {
+    if (handled) {
+      return;
+    }
+    if (id === 'duplicate' && !choice) {
+      return;
+    }
+    handled = true;
+    buttons.forEach((btn) => btn.setAttribute('disabled', 'disabled'));
+    const message = applyRunUpgrade(id, { choice });
+    hideOverlay();
+    if (message) {
+      showToast(message, 1100);
+    }
+    startLevel(nextLevelIndex);
+  };
+  buttons.forEach((btn) => {
+    const id = btn.getAttribute('data-upgrade');
+    const choice = btn.getAttribute('data-choice');
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      handleSelection(id, choice);
+    });
+  });
 }
 
 function completeLevel() {
@@ -1016,11 +1246,17 @@ function completeLevel() {
     unlockLevel(nextLevelIndex);
   }
   const nextLevel = LEVELS[nextLevelIndex - 1] ?? null;
+  if (nextLevel) {
+    renderUpgradeSelection({
+      nextLevelIndex,
+      nextLevel,
+      levelTime,
+      scoreDelta,
+    });
+    return;
+  }
   const header = `LEVEL ${state.levelIndex} COMPLETE`;
   const restartLabel = `Restart Level ${state.levelIndex}`;
-  const continueButton = nextLevel
-    ? `<button id="next-level-btn" class="btn">Continue to L${nextLevelIndex}: ${nextLevel.name}</button>`
-    : '';
   showOverlay(`
     <h1><span class="cyan">${header}</span></h1>
     <p>${currentLevel?.name ?? 'Sector'} cleared in <strong>${levelTime}s</strong>.</p>
@@ -1028,23 +1264,14 @@ function completeLevel() {
     <div class="overlay-actions">
       <button id="restart-level" class="btn" autofocus>${restartLabel}</button>
       <button id="summary-menu" class="btn btn-secondary">Menu</button>
-      ${continueButton}
     </div>
   `);
-  const restart = document.getElementById('restart-level');
-  restart?.addEventListener('click', () => {
+  document.getElementById('restart-level')?.addEventListener('click', () => {
     resetGame(state.levelIndex);
   });
-  const select = document.getElementById('summary-menu');
-  select?.addEventListener('click', () => {
+  document.getElementById('summary-menu')?.addEventListener('click', () => {
     renderStartOverlay();
   });
-  if (nextLevel) {
-    const nextBtn = document.getElementById('next-level-btn');
-    nextBtn?.addEventListener('click', () => {
-      startLevel(nextLevelIndex);
-    });
-  }
 }
 
 function gameOver() {
@@ -1161,6 +1388,19 @@ function handlePlayerHit() {
   const particles = resolvePaletteSection(state.theme, 'particles');
   if (player.shield > 0) {
     player.shield -= 400;
+    const capacity = state.shieldCapacity || getShieldCapacity(state);
+    if (player.shield <= 0) {
+      player.shield = 0;
+      state.shieldCapacity = 0;
+      if (state.power.name === 'shield') {
+        state.power.name = null;
+        state.power.until = 0;
+        updatePower('None');
+      }
+      updateShield(0, capacity || 1);
+    } else {
+      updateShield(player.shield, capacity || SHIELD_BASE_DURATION);
+    }
     resetCombo();
     addParticle(state, player.x, player.y, particles.shieldHit, 20, 3, 400);
     playHit();
@@ -1347,7 +1587,8 @@ function loop(now) {
   drawSquallOverlay(viewW, viewH, palette);
 
   const player = state.player;
-  updatePlayer(player, inputState, dt, state.power.name === 'boost', wind);
+  const speedMultiplier = state.runUpgrades?.moveSpeedMultiplier ?? 1;
+  updatePlayer(player, inputState, dt, state.power.name === 'boost', wind, speedMultiplier);
   clampPlayerToBounds(player);
 
   const bulletTime = state.time * 1000;

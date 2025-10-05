@@ -3,7 +3,7 @@
  */
 import { rand, TAU, coll, clamp } from './utils.js';
 import { playPow } from './audio.js';
-import { updatePower, getViewSize } from './ui.js';
+import { updatePower, updateShield, getViewSize } from './ui.js';
 import { resolvePaletteSection } from './themes.js';
 
 const spawnState = {
@@ -84,13 +84,23 @@ export function ensureGuaranteedPowerups(state, now) {
 }
 
 export function applyPower(state, kind, now) {
+  const baseDuration = 8000;
+  let duration = baseDuration;
+  if (kind === 'shield') {
+    const multiplier = state.runUpgrades?.shieldDurationMultiplier ?? 1;
+    duration = Math.round(baseDuration * multiplier);
+  }
   state.power.name = kind;
-  state.power.until = now + 8000;
+  state.power.until = now + duration;
   updatePower(kind.toUpperCase());
   playPow();
   switch (kind) {
     case 'shield':
-      state.player.shield = 8000;
+      if (state.player) {
+        state.player.shield = duration;
+      }
+      state.shieldCapacity = duration;
+      updateShield(duration, duration);
       break;
     case 'rapid':
       state.lastShot = 0;
@@ -108,7 +118,13 @@ export function clearExpiredPowers(state, now) {
     if (state.power.name === 'boost') {
       state.player.speed = 260;
     }
-    state.player.shield = 0;
+    if (state.power.name === 'shield' || (state.player?.shield ?? 0) > 0) {
+      if (state.player) {
+        state.player.shield = 0;
+      }
+      state.shieldCapacity = 0;
+      updateShield(0, 1);
+    }
     state.power.name = null;
     state.power.until = 0;
     updatePower('None');
