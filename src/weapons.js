@@ -3,12 +3,14 @@
  */
 import { coll, lerp, rand } from './utils.js';
 import { playPew, playPow, playUpgrade } from './audio.js';
-import { updateWeapon, updateScore, getViewSize } from './ui.js';
+import { updateWeapon, updateScore, updateShield, updatePower, getViewSize } from './ui.js';
 import { resolvePaletteSection, DEFAULT_THEME_PALETTE } from './themes.js';
 import { getBullet } from './bullets.js';
 import { showToast } from './effects.js';
 
 const DEFAULT_BULLET_LEVELS = DEFAULT_THEME_PALETTE.bullets.playerLevels;
+const SHIELD_BASE_DURATION = 8000;
+const DUPLICATE_SHIELD_RATIO = 0.5;
 
 export const WEAPON_DISPLAY_NAMES = Object.freeze({
   pulse: 'Pulse Cannon',
@@ -742,7 +744,8 @@ export function handlePlayerShooting(state, input, now) {
   const def = state.weapon ? weaponDefs[state.weapon.name] : null;
   const levelIndex = def ? clampLevel(def, state.weapon.level) : 0;
   const rapid = state.power.name === 'rapid';
-  const delay = Math.max(70, level.delay * (rapid ? 0.6 : 1));
+  const fireRateMultiplier = state.runUpgrades?.fireRateMultiplier ?? 1;
+  const delay = Math.max(70, level.delay * (rapid ? 0.6 : 1) * fireRateMultiplier);
   if (input?.fire && now - state.lastShot > delay) {
     state.lastShot = now;
     for (const projectile of level.projectiles) {
@@ -865,11 +868,37 @@ function upgradeWeapon(state, weaponName) {
     state.weapon.level += 1;
     upgraded = true;
   } else {
-    if (typeof state.addScore === 'function') {
-      state.addScore(500);
+    const conversion = state.runUpgrades?.duplicateConversion ?? 'score';
+    if (conversion === 'shield') {
+      const multiplier = state.runUpgrades?.shieldDurationMultiplier ?? 1;
+      const fullCapacity = Math.max(0, Math.round(SHIELD_BASE_DURATION * multiplier));
+      const bonus = Math.max(0, Math.round(fullCapacity * DUPLICATE_SHIELD_RATIO));
+      const now = performance.now();
+      const existingTime = state.power?.name === 'shield'
+        ? Math.max(0, state.power.until - now)
+        : 0;
+      const existingCharge = state.power?.name === 'shield'
+        ? Math.max(state.player?.shield ?? existingTime, existingTime)
+        : Math.max(state.player?.shield ?? 0, 0);
+      const newCharge = Math.min(fullCapacity, existingCharge + bonus);
+      const newTime = Math.min(fullCapacity, existingTime + bonus);
+      state.power.name = 'shield';
+      state.power.until = now + newTime;
+      if (state.player) {
+        state.player.shield = newCharge;
+      }
+      state.shieldCapacity = fullCapacity;
+      updateShield(newCharge, fullCapacity);
+      updatePower('SHIELD');
+      showToast('+50% SHIELD', 1000);
     } else {
-      state.score = (state.score ?? 0) + 500;
-      updateScore(state.score);
+      if (typeof state.addScore === 'function') {
+        state.addScore(500);
+      } else {
+        state.score = (state.score ?? 0) + 500;
+        updateScore(state.score);
+      }
+      showToast('+500 SCORE', 900);
     }
     updateWeaponHud(state);
     state.weaponDropSecured = true;

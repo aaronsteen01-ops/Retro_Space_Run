@@ -23,8 +23,10 @@ export function resetPlayer(state) {
   state.player = createPlayer();
 }
 
-export function updatePlayer(player, input, dt, hasBoost, windX = 0) {
-  const accel = hasBoost ? 560 : 380;
+export function updatePlayer(player, input, dt, hasBoost, windX = 0, speedMultiplier = 1) {
+  const safeMultiplier = Number.isFinite(speedMultiplier) ? Math.max(0.5, speedMultiplier) : 1;
+  const accelBase = hasBoost ? 560 : 380;
+  const accel = accelBase * safeMultiplier;
   const moveX = clamp(Number.isFinite(input?.moveX) ? input.moveX : 0, -1, 1);
   const moveY = clamp(Number.isFinite(input?.moveY) ? input.moveY : 0, -1, 1);
   const ax = moveX * accel;
