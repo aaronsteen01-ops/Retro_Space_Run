@@ -183,6 +183,8 @@ const state = {
   time: 0,
   levelStartScore: 0,
   levelStartTime: 0,
+  levelStartLives: 3,
+  levelStartWeapon: null,
   score: 0,
   lives: 3,
   difficultyMode: getDifficultyMode(),
@@ -198,6 +200,7 @@ const state = {
   muzzleFlashes: [],
   weaponPickupFlash: null,
   levelOverlay: null,
+  restartPromptVisible: false,
   starfield: mergeStarfieldConfig(),
   stars: [],
   finishGate: null,
@@ -251,12 +254,31 @@ onInputAction(INPUT_ACTIONS.PAUSE, () => {
   if (!state.running) {
     return;
   }
+  if (state.restartPromptVisible) {
+    state.restartPromptVisible = false;
+    hideOverlay();
+    state.paused = false;
+    clearInput();
+    return;
+  }
   state.paused = !state.paused;
   if (state.paused) {
     showPauseOverlay();
   } else {
     hideOverlay();
   }
+});
+
+onInputAction(INPUT_ACTIONS.RESTART, () => {
+  if (!state.running || state.restartPromptVisible) {
+    return;
+  }
+  if (!state.level) {
+    return;
+  }
+  state.paused = true;
+  clearInput();
+  promptLevelRestart();
 });
 
 onInputAction(INPUT_ACTIONS.MUTE, () => {
@@ -448,6 +470,7 @@ function clearLevelEntities() {
   state.weaponPickupFlash = null;
   state.lastShot = 0;
   state.power = { name: null, until: 0 };
+  state.restartPromptVisible = false;
   resetPowerState(state);
   resetPowerTimers();
   resetEffects();
@@ -455,6 +478,58 @@ function clearLevelEntities() {
   resetPlayer(state);
   updatePower('None');
   updateTime(0);
+}
+
+function resetGame(levelIndex = state.levelIndex) {
+  const fallbackIndex = Number.isFinite(levelIndex) ? levelIndex : state.levelIndex;
+  const targetLevelIndex = Math.max(1, Math.min(LEVELS.length, Math.floor(fallbackIndex || 1)));
+  const startScore = Number.isFinite(state.levelStartScore) ? state.levelStartScore : state.score;
+  const startLives = Number.isFinite(state.levelStartLives) ? state.levelStartLives : state.lives;
+  const startWeapon = state.levelStartWeapon ? { ...state.levelStartWeapon } : null;
+  state.score = startScore;
+  state.lives = startLives;
+  updateScore(state.score);
+  updateLives(state.lives);
+  if (startWeapon) {
+    state.weapon = { ...startWeapon };
+  } else {
+    setupWeapons(state);
+  }
+  state.restartPromptVisible = false;
+  state.running = false;
+  state.paused = false;
+  hideOverlay();
+  clearInput();
+  startLevel(targetLevelIndex);
+}
+
+function promptLevelRestart() {
+  if (!state.level) {
+    return;
+  }
+  const levelName = state.level?.name;
+  const levelLabel = levelName ? `Level ${state.levelIndex}: ${levelName}` : `Level ${state.levelIndex}`;
+  state.restartPromptVisible = true;
+  showOverlay(`
+    <h1>Restart Level?</h1>
+    <p>Restart <strong>${levelLabel}</strong> from the beginning?</p>
+    <div class="overlay-actions">
+      <button id="confirm-restart" class="btn" autofocus>Restart</button>
+      <button id="cancel-restart" class="btn btn-secondary">Resume</button>
+    </div>
+  `);
+  const confirm = document.getElementById('confirm-restart');
+  confirm?.addEventListener('click', () => {
+    state.restartPromptVisible = false;
+    resetGame(state.levelIndex);
+  });
+  const cancel = document.getElementById('cancel-restart');
+  cancel?.addEventListener('click', () => {
+    state.restartPromptVisible = false;
+    hideOverlay();
+    state.paused = false;
+    clearInput();
+  });
 }
 
 function configureLevelContext(level) {
@@ -596,6 +671,8 @@ function startLevel(levelIndex) {
   state.time = 0;
   state.levelStartScore = state.score;
   state.levelStartTime = performance.now();
+  state.levelStartLives = state.lives;
+  state.levelStartWeapon = state.weapon ? { ...state.weapon } : null;
   configureLevelContext(targetLevel);
   levelIntro(targetLevel);
   clearLevelEntities();
@@ -641,19 +718,25 @@ function completeLevel() {
   }
   const nextLevel = LEVELS[nextLevelIndex - 1] ?? null;
   const header = `LEVEL ${state.levelIndex} COMPLETE`;
-  const nextButton = nextLevel
+  const restartLabel = `Restart Level ${state.levelIndex}`;
+  const continueButton = nextLevel
     ? `<button id="next-level-btn" class="btn">Continue to L${nextLevelIndex}: ${nextLevel.name}</button>`
-    : `<button id="return-hangar" class="btn">Return to Hangar</button>`;
+    : '';
   showOverlay(`
     <h1><span class="cyan">${header}</span></h1>
     <p>${currentLevel?.name ?? 'Sector'} cleared in <strong>${levelTime}s</strong>.</p>
     <p>Score gained: <strong>${Math.max(0, scoreDelta)}</strong> · Total Score: <strong>${state.score}</strong></p>
     <div class="overlay-actions">
-      ${nextButton}
-      <button id="summary-select-level" class="btn btn-secondary">Select Level</button>
+      <button id="restart-level" class="btn" autofocus>${restartLabel}</button>
+      <button id="summary-menu" class="btn btn-secondary">Menu</button>
+      ${continueButton}
     </div>
   `);
-  const select = document.getElementById('summary-select-level');
+  const restart = document.getElementById('restart-level');
+  restart?.addEventListener('click', () => {
+    resetGame(state.levelIndex);
+  });
+  const select = document.getElementById('summary-menu');
   select?.addEventListener('click', () => {
     renderStartOverlay();
   });
@@ -661,11 +744,6 @@ function completeLevel() {
     const nextBtn = document.getElementById('next-level-btn');
     nextBtn?.addEventListener('click', () => {
       startLevel(nextLevelIndex);
-    });
-  } else {
-    const hangar = document.getElementById('return-hangar');
-    hangar?.addEventListener('click', () => {
-      renderStartOverlay();
     });
   }
 }
@@ -685,14 +763,14 @@ function gameOver() {
     <p>Level ${state.levelIndex}: ${levelName} after <strong>${levelTime}s</strong>.</p>
     <p>Score this run: <strong>${state.score}</strong> · Level gain: <strong>${Math.max(0, scoreDelta)}</strong></p>
     <div class="overlay-actions">
-      <button id="retry-level" class="btn">Retry Level ${state.levelIndex}</button>
-      <button id="overlay-select-level" class="btn btn-secondary">Select Level</button>
+      <button id="restart-level" class="btn" autofocus>Restart Level ${state.levelIndex}</button>
+      <button id="overlay-menu" class="btn btn-secondary">Menu</button>
     </div>
   `);
-  document.getElementById('retry-level')?.addEventListener('click', () => {
+  document.getElementById('restart-level')?.addEventListener('click', () => {
     startRun(state.levelIndex);
   });
-  document.getElementById('overlay-select-level')?.addEventListener('click', () => {
+  document.getElementById('overlay-menu')?.addEventListener('click', () => {
     renderStartOverlay();
   });
 }
@@ -728,7 +806,7 @@ function renderStartOverlay({ resetHud = false } = {}) {
   }).join('');
   showOverlay(`
     <h1>RETRO <span class="cyan">SPACE</span> <span class="heart">RUN</span></h1>
-    <p>WASD / Arrow keys to steer · Space to fire · P pause · F fullscreen · M mute · H Assist Mode</p>
+    <p>WASD / Arrow keys to steer · Space to fire · P pause · R restart level · F fullscreen · M mute · H Assist Mode</p>
     <p>Pick a sector or continue your furthest run. Assist Mode toggles an extra life and softer spawns.</p>
     <div class="difficulty-select">
       <label class="difficulty-select__label" for="difficulty-select">Difficulty</label>

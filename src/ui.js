@@ -40,17 +40,8 @@ export const canvas = document.getElementById('game');
 export const ctx = canvas.getContext('2d');
 
 const hudRoot = document.getElementById('hud');
-
-injectHudStyles();
-setupHudLayout(hudRoot);
-bindDifficultySelect();
-subscribeDifficultyMode((mode) => {
-  syncDifficultySelect(mode);
-});
-
-let DPR = window.devicePixelRatio || 1;
-let VIEW_W = window.innerWidth || canvas.clientWidth || canvas.width || 0;
-let VIEW_H = window.innerHeight || canvas.clientHeight || canvas.height || 0;
+const overlay = document.getElementById('overlay');
+let difficultySelect = document.getElementById('difficulty-select');
 
 const hudLives = document.getElementById('lives');
 const hudScore = document.getElementById('score');
@@ -58,10 +49,8 @@ const hudTime = document.getElementById('time');
 const hudPower = document.getElementById('pup');
 const hudWeapon = document.getElementById('weapon');
 const hudLevel = document.getElementById('level-chip');
-const overlay = document.getElementById('overlay');
 const themeSelect = document.getElementById('theme-select');
 const assistToggle = document.getElementById('assist-toggle');
-let difficultySelect = document.getElementById('difficulty-select');
 const hudLivesChip = document.getElementById('hud-lives-chip');
 const hudShieldMeter = document.getElementById('shield-meter');
 const hudShieldFill = document.getElementById('shield-fill');
@@ -80,6 +69,17 @@ const themeListeners = new Set();
 const assistListeners = new Set();
 const autoFireListeners = new Set();
 const DIFFICULTY_KEYS = new Set(Object.keys(DIFFICULTY));
+
+injectHudStyles();
+setupHudLayout(hudRoot);
+bindDifficultySelect();
+subscribeDifficultyMode((mode) => {
+  syncDifficultySelect(mode);
+});
+
+let DPR = window.devicePixelRatio || 1;
+let VIEW_W = window.innerWidth || canvas.clientWidth || canvas.width || 0;
+let VIEW_H = window.innerHeight || canvas.clientHeight || canvas.height || 0;
 
 function syncDifficultySelect(mode = getStoredDifficultyMode()) {
   if (!difficultySelect) {
@@ -707,6 +707,10 @@ export function showOverlay(html) {
   overlay.style.display = 'block';
   bindStartButton();
   bindDifficultySelect();
+  const focusTarget = overlay.querySelector('[autofocus], .btn, button, [role="button"]');
+  if (focusTarget?.focus) {
+    focusTarget.focus();
+  }
 }
 
 export function hideOverlay() {

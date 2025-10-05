@@ -10,6 +10,7 @@ const KEYBOARD_BINDINGS = {
   fullscreen: ['f'],
   assist: ['h'],
   autoFire: ['t'],
+  restart: ['r'],
   precision: ['shift'],
 };
 
@@ -19,6 +20,7 @@ const ACTIONS = Object.freeze({
   FULLSCREEN: 'fullscreen',
   ASSIST: 'assist',
   AUTO_FIRE: 'auto-fire',
+  RESTART: 'restart',
 });
 
 const keyboardState = new Set();
@@ -57,6 +59,7 @@ registerActionKey(KEYBOARD_BINDINGS.mute, ACTIONS.MUTE);
 registerActionKey(KEYBOARD_BINDINGS.fullscreen, ACTIONS.FULLSCREEN);
 registerActionKey(KEYBOARD_BINDINGS.assist, ACTIONS.ASSIST);
 registerActionKey(KEYBOARD_BINDINGS.autoFire, ACTIONS.AUTO_FIRE);
+registerActionKey(KEYBOARD_BINDINGS.restart, ACTIONS.RESTART);
 
 function emitAction(action) {
   const listeners = actionListeners.get(action);
