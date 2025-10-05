@@ -498,12 +498,13 @@ const DROP_LIFETIME = 10000;
 const TOKEN_BASE_VY = 90;
 const TOKEN_ATTRACT_RADIUS = 120;
 const TOKEN_ATTRACT_RADIUS_SQ = TOKEN_ATTRACT_RADIUS * TOKEN_ATTRACT_RADIUS;
-const TOKEN_PULL_ACCEL = 420;
-const TOKEN_MAX_SPEED = 320;
-const TOKEN_VISUAL_RADIUS = 15;
-const TOKEN_PICKUP_RADIUS = 19;
-const TOKEN_FLOAT_SPEED = 1.8;
-const TOKEN_PULSE_SPEED = 2.6;
+const TOKEN_PULL_ACCEL = 520;
+const TOKEN_MAX_SPEED = 340;
+const TOKEN_VISUAL_RADIUS = 16;
+const TOKEN_PICKUP_RADIUS = 24;
+const TOKEN_FLOAT_SPEED = 1.6;
+const TOKEN_PULSE_SPEED = 2.2;
+const TOKEN_SPIN_SPEED = 1.2;
 const WEAPON_PICKUP_FLASH_TIME = 200;
 
 function ensureWeaponState(state) {
@@ -544,6 +545,7 @@ function pushWeaponDrop(state, weapon, x, y) {
     visualRadius: TOKEN_VISUAL_RADIUS,
     weapon,
     spin: Math.random() * Math.PI,
+    spinSpeed: rand(0.7, 1.3) * TOKEN_SPIN_SPEED,
     floatPhase: Math.random() * Math.PI * 2,
     pulsePhase: Math.random() * Math.PI * 2,
     life: DROP_LIFETIME,
@@ -908,16 +910,21 @@ export function updateWeaponDrops(state, dt) {
     const drop = state.weaponDrops[i];
     drop.floatPhase = (drop.floatPhase || 0) + dt * TOKEN_FLOAT_SPEED;
     drop.pulsePhase = (drop.pulsePhase || 0) + dt * TOKEN_PULSE_SPEED;
-    drop.spin = (drop.spin || 0) + dt * 2.4;
+    const spinSpeed = drop.spinSpeed ?? TOKEN_SPIN_SPEED;
+    drop.spinSpeed = spinSpeed;
+    drop.spin = (drop.spin || 0) + dt * spinSpeed;
     const baseVy = drop.baseVy ?? TOKEN_BASE_VY;
     drop.baseVy = baseVy;
     drop.vx = drop.vx ?? 0;
     drop.vy = drop.vy ?? baseVy;
-    if (state.player) {
+    const activeWeaponName = state.weapon?.name;
+    const hasPlayer = Boolean(state.player);
+    const shouldMagnet = hasPlayer && activeWeaponName && drop.weapon === activeWeaponName;
+    if (hasPlayer) {
       const dx = state.player.x - drop.x;
       const dy = state.player.y - drop.y;
       const distSq = dx * dx + dy * dy;
-      if (distSq < TOKEN_ATTRACT_RADIUS_SQ) {
+      if (shouldMagnet && distSq < TOKEN_ATTRACT_RADIUS_SQ) {
         const dist = Math.sqrt(distSq) || 1;
         const pull = 1 - Math.min(1, dist / TOKEN_ATTRACT_RADIUS);
         const accel = TOKEN_PULL_ACCEL * (0.35 + pull * 0.65);
@@ -954,55 +961,81 @@ export function updateWeaponDrops(state, dt) {
 export function drawWeaponDrops(ctx, drops, palette) {
   const tokenPalette = resolvePaletteSection(palette, 'weaponToken');
   for (const drop of drops) {
-    const fill = tokenPalette.fill;
-    const stroke = tokenPalette.stroke;
-    const glow = tokenPalette.glow;
+    const fill = tokenPalette.fill || '#ff3df7';
+    const stroke = tokenPalette.stroke || '#00e5ff';
+    const glow = tokenPalette.glow || stroke;
+    const textColour = tokenPalette.text || stroke;
     const radius = drop.visualRadius ?? TOKEN_VISUAL_RADIUS;
     const drift = Math.sin(drop.floatPhase || 0) * 3;
-    const pulse = 0.7 + 0.3 * Math.sin(drop.pulsePhase || 0);
+    const pulsePhase = drop.pulsePhase || 0;
+    const pulse = 0.5 + 0.5 * Math.sin(pulsePhase);
+    const rimRadius = radius - 1.2;
     const pictogram = getWeaponPictogram(drop.weapon);
     ctx.save();
     ctx.translate(drop.x, drop.y + drift);
+    const glowStrength = 14 + pulse * 12;
     ctx.shadowColor = glow;
-    ctx.shadowBlur = 12 + pulse * 10;
-    const gradient = ctx.createRadialGradient(0, 0, radius * 0.2, 0, 0, radius);
-    gradient.addColorStop(0, colourWithAlpha(fill, 0.92));
-    gradient.addColorStop(0.6, colourWithAlpha(fill, 0.55));
-    gradient.addColorStop(1, colourWithAlpha(fill, 0.08));
+    ctx.shadowBlur = glowStrength;
+    const gradient = ctx.createRadialGradient(0, 0, radius * 0.1, 0, 0, radius);
+    gradient.addColorStop(0, colourWithAlpha(fill, 0.98));
+    gradient.addColorStop(0.45, colourWithAlpha(fill, 0.66));
+    gradient.addColorStop(0.82, colourWithAlpha(fill, 0.22));
+    gradient.addColorStop(1, colourWithAlpha(fill, 0.06));
     ctx.fillStyle = gradient;
     ctx.beginPath();
     ctx.arc(0, 0, radius, 0, Math.PI * 2);
     ctx.fill();
+
     ctx.shadowBlur = 0;
-    ctx.globalAlpha = 0.85 + pulse * 0.1;
-    ctx.strokeStyle = colourWithAlpha(stroke, 0.8);
-    ctx.lineWidth = 2.6;
+    const rimAlpha = 0.55 + pulse * 0.25;
+    ctx.lineWidth = 2.8;
+    ctx.strokeStyle = colourWithAlpha(stroke, rimAlpha);
+    ctx.beginPath();
+    ctx.arc(0, 0, rimRadius, 0, Math.PI * 2);
+    ctx.stroke();
+
     ctx.save();
     ctx.rotate(drop.spin || 0);
-    ctx.beginPath();
-    ctx.arc(0, 0, radius - 1.2, -Math.PI / 3, Math.PI / 3);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(0, 0, radius - 1.2, Math.PI - Math.PI / 3, Math.PI + Math.PI / 3);
-    ctx.stroke();
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 8 + pulse * 10;
+    ctx.lineWidth = 3.4;
+    ctx.strokeStyle = colourWithAlpha(stroke, 0.9);
+    const segments = 3;
+    const arcSpan = Math.PI / 2.3;
+    for (let s = 0; s < segments; s++) {
+      const centreAngle = (s / segments) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, rimRadius - 0.4, centreAngle - arcSpan / 2, centreAngle + arcSpan / 2);
+      ctx.stroke();
+    }
     ctx.restore();
-    ctx.globalAlpha = 0.95;
-    ctx.lineWidth = 1.4;
+
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = 1.3;
     ctx.strokeStyle = colourWithAlpha(stroke, 0.35);
     ctx.beginPath();
-    ctx.arc(0, 0, radius - 0.6, 0, Math.PI * 2);
+    ctx.arc(0, 0, radius * 0.55, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.globalAlpha = 0.45 + pulse * 0.25;
-    ctx.fillStyle = colourWithAlpha(tokenPalette.text, 0.18);
+
+    const innerPulse = 0.18 + pulse * 0.22;
+    ctx.fillStyle = colourWithAlpha(textColour, innerPulse, stroke);
     ctx.beginPath();
-    ctx.arc(0, 0, radius * 0.58, 0, Math.PI * 2);
+    ctx.arc(0, 0, radius * 0.5, 0, Math.PI * 2);
     ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = tokenPalette.text;
-    ctx.font = 'bold 18px "IBM Plex Mono", monospace';
+
+    ctx.fillStyle = colourWithAlpha('#ffffff', 0.22 + pulse * 0.1, '#ffffff');
+    ctx.beginPath();
+    ctx.ellipse(0, -radius * 0.35, radius * 0.6, radius * 0.32, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.shadowColor = colourWithAlpha(glow, 0.65, stroke);
+    ctx.shadowBlur = 6 + pulse * 6;
+    ctx.fillStyle = textColour;
+    ctx.font = '600 17px "IBM Plex Mono", monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(pictogram, 0, 0.5);
+    ctx.shadowBlur = 0;
     ctx.restore();
   }
 }
