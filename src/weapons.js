@@ -6,6 +6,7 @@ import { playPew, playPow, playUpgrade } from './audio.js';
 import { updateWeapon, updateScore, getViewSize } from './ui.js';
 import { resolvePaletteSection, DEFAULT_THEME_PALETTE } from './themes.js';
 import { getBullet } from './bullets.js';
+import { showToast } from './effects.js';
 
 const DEFAULT_BULLET_LEVELS = DEFAULT_THEME_PALETTE.bullets.playerLevels;
 
@@ -600,16 +601,9 @@ function getWeaponPictogram(id) {
   return WEAPON_PICTOGRAMS[id] || '•';
 }
 
-export function updateWeaponHud(state, { flash = false } = {}) {
+export function updateWeaponHud(state) {
   const weapon = state?.weapon ?? null;
-  const def = weapon ? weaponDefs[weapon.name] : null;
-  const levelIndex = def ? clampLevel(def, weapon.level) : null;
-  const name = weapon ? getWeaponDisplayName(weapon.name) : null;
-  const roman = typeof levelIndex === 'number' ? romanNumeral(levelIndex) : null;
   updateWeapon(weaponHudLabel(weapon), {
-    flash: flash && Boolean(name) && Boolean(roman),
-    upgradeName: name || undefined,
-    upgradeLevel: roman || undefined,
     icon: weapon ? getWeaponPictogram(weapon.name) : undefined,
   });
 }
@@ -623,7 +617,7 @@ export function setupWeapons(state) {
   state.weaponDropSecured = false;
   state.muzzleFlashes.length = 0;
   state.weaponPickupFlash = null;
-  updateWeaponHud(state, { flash: false });
+  updateWeaponHud(state);
 }
 
 function projectileColour(state, index = 0) {
@@ -871,7 +865,7 @@ function upgradeWeapon(state, weaponName) {
   } else {
     state.score = (state.score ?? 0) + 500;
     updateScore(state.score);
-    updateWeaponHud(state, { flash: false });
+    updateWeaponHud(state);
     state.weaponDropSecured = true;
     playPow();
     return;
@@ -881,8 +875,16 @@ function upgradeWeapon(state, weaponName) {
   if (upgraded) {
     triggerWeaponPickupFlash(state, weaponName);
   }
-  updateWeaponHud(state, { flash: upgraded });
+  updateWeaponHud(state);
   if (upgraded) {
+    const displayName = getWeaponDisplayName(state.weapon.name);
+    const levelIndex = def ? clampLevel(def, state.weapon.level) : null;
+    if (displayName && levelIndex !== null && levelIndex !== undefined) {
+      const roman = romanNumeral(levelIndex);
+      if (roman) {
+        showToast(`UPGRADE: ${displayName} · ${roman}`, 1200);
+      }
+    }
     playUpgrade();
   } else {
     playPow();
