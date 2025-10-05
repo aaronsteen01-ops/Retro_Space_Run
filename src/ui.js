@@ -71,6 +71,7 @@ const themeListeners = new Set();
 const assistListeners = new Set();
 const autoFireListeners = new Set();
 const DIFFICULTY_KEYS = new Set(Object.keys(DIFFICULTY));
+const mutatorPulseTimers = new WeakMap();
 
 injectHudStyles();
 setupHudLayout(hudRoot);
@@ -121,6 +122,13 @@ function refreshLevelChipRefs() {
   hudLevel = document.getElementById('level-chip');
   hudLevelLabel = document.getElementById('level-chip-label');
   hudLevelIcons = document.getElementById('level-chip-icons');
+}
+
+function ensureLevelIconRoot() {
+  if (!hudLevelIcons || !hudLevelIcons.isConnected) {
+    refreshLevelChipRefs();
+  }
+  return hudLevelIcons;
 }
 
 function injectHudStyles() {
@@ -308,6 +316,9 @@ function injectHudStyles() {
     #hud .level-chip__icon--squall {
       animation: levelChipSquall 2.6s linear infinite;
     }
+    #hud .level-chip__icon--squall.level-chip__icon--squall-burst {
+      animation: levelChipSquall 2.6s linear infinite, levelChipSquallBurst 0.65s ease-out;
+    }
     @keyframes levelChipWindRight {
       0% {
         transform: translateX(0);
@@ -336,6 +347,17 @@ function injectHudStyles() {
       }
       100% {
         transform: rotate(360deg);
+      }
+    }
+    @keyframes levelChipSquallBurst {
+      0% {
+        transform: scale(1) rotate(0deg);
+      }
+      35% {
+        transform: scale(1.35) rotate(80deg);
+      }
+      100% {
+        transform: scale(1) rotate(360deg);
       }
     }
     #hud button.pill {
@@ -906,6 +928,9 @@ export function updateLevelChip({ levelIndex, name, mutators } = {}) {
         if (descriptor.kind) {
           icon.classList.add(`level-chip__icon--${descriptor.kind}`);
         }
+        if (descriptor.kind) {
+          icon.dataset.kind = descriptor.kind;
+        }
         if (descriptor.kind === 'wind' && descriptor.direction) {
           icon.dataset.direction = descriptor.direction;
           icon.classList.add(`level-chip__icon--wind-${descriptor.direction}`);
@@ -933,6 +958,32 @@ export function updateLevelChip({ levelIndex, name, mutators } = {}) {
   if (!hudLevelLabel && !hudLevelIcons) {
     hudLevel.textContent = accessibleLabel;
   }
+}
+
+export function pulseMutatorIcon(kind) {
+  const cleanKind = typeof kind === 'string' ? kind.trim() : '';
+  if (!cleanKind) {
+    return;
+  }
+  const root = ensureLevelIconRoot();
+  if (!root) {
+    return;
+  }
+  const target = root.querySelector(`.level-chip__icon--${cleanKind}`);
+  if (!target) {
+    return;
+  }
+  const pulseClass = `level-chip__icon--${cleanKind}-burst`;
+  const existing = mutatorPulseTimers.get(target);
+  if (existing) {
+    window.clearTimeout(existing);
+  }
+  target.classList.add(pulseClass);
+  const timeout = window.setTimeout(() => {
+    target.classList.remove(pulseClass);
+    mutatorPulseTimers.delete(target);
+  }, 720);
+  mutatorPulseTimers.set(target, timeout);
 }
 
 export function updateWeapon(

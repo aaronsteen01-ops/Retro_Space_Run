@@ -23,6 +23,7 @@ import {
   onAutoFireChange,
   setTheme,
   setGamepadIndicator,
+  pulseMutatorIcon,
 } from './ui.js';
 import { playZap, playHit, toggleAudio, resumeAudioContext, playPow, playSfx, playBossDown } from './audio.js';
 import { resetPlayer, updatePlayer, clampPlayerToBounds, drawPlayer } from './player.js';
@@ -79,6 +80,8 @@ let activePalette = getActiveThemePalette() ?? DEFAULT_THEME_PALETTE;
 const DEFAULT_LEVEL = LEVELS[0] ?? null;
 
 const PROGRESS_STORAGE_KEY = 'retro-space-run.highest-level';
+
+const MAX_WIND_DRIFT = 80;
 
 function defaultStarfieldConfig() {
   return {
@@ -194,6 +197,7 @@ const state = {
   enemies: [],
   enemyBullets: [],
   particles: [],
+  windStrands: [],
   powerups: [],
   weaponDrops: [],
   weaponDropSecured: false,
@@ -221,7 +225,7 @@ const state = {
     autoFire: getAutoFire(),
   },
   levelContext: { enemyWeights: {}, mutators: {}, themeKey: null },
-  weather: { windX: 0, squall: null },
+  weather: { windX: 0, windDrift: 0, squall: null },
   levelIntroTimeout: null,
 };
 
@@ -345,6 +349,37 @@ function spawnStars() {
       twinkleAmplitude: amplitude,
     });
   }
+  spawnWindStrands();
+}
+
+function spawnWindStrands() {
+  state.windStrands.length = 0;
+  const { w, h } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const viewH = Math.max(h, 1);
+  if (viewW <= 0 || viewH <= 0) {
+    return;
+  }
+  const area = viewW * viewH;
+  const baseCount = Math.max(6, Math.floor(area / 90000));
+  const windMagnitude = Number.isFinite(state.weather?.windX) ? Math.abs(state.weather.windX) : 0;
+  if (windMagnitude < 0.5) {
+    return;
+  }
+  const emphasis = Math.max(0.6, Math.min(1.4, windMagnitude / 40 + 0.6));
+  const count = Math.max(6, Math.floor(baseCount * emphasis));
+  for (let i = 0; i < count; i++) {
+    const depth = rand(0.45, 1.1);
+    state.windStrands.push({
+      x: rand(0, viewW),
+      y: rand(0, viewH),
+      speed: rand(90, 160) * depth,
+      jitter: rand(-14, 14),
+      length: rand(26, 46) * depth,
+      alpha: rand(0.08, 0.18) * depth,
+      depth,
+    });
+  }
 }
 
 window.addEventListener('resize', () => {
@@ -399,12 +434,13 @@ function resolveSquallConfig(setting) {
     return null;
   }
   const defaults = {
-    intervalMin: 9,
+    intervalMin: 10,
     intervalMax: 14,
-    duration: 3.2,
-    dimFactor: 0.6,
+    duration: 1.2,
+    dimFactor: 0.8,
     playerSpread: 140,
     enemySpread: 28,
+    enemySpreadMultiplier: 1.3,
   };
   if (typeof setting === 'object') {
     const interval = Array.isArray(setting.interval) && setting.interval.length >= 2
@@ -438,16 +474,35 @@ function resolveSquallConfig(setting) {
     } else if (spreadSource !== null) {
       defaults.enemySpread = Math.max(0, defaults.playerSpread * 0.2);
     }
+    const spreadMultiplierSource = Number.isFinite(setting.enemySpreadMultiplier)
+      ? setting.enemySpreadMultiplier
+      : Number.isFinite(setting.spreadMultiplier)
+        ? setting.spreadMultiplier
+        : null;
+    if (Number.isFinite(spreadMultiplierSource)) {
+      defaults.enemySpreadMultiplier = Math.max(1, spreadMultiplierSource);
+    }
   }
   return defaults;
 }
 
 function applyLevelMutators(mutators = {}) {
   const wind = Number.isFinite(mutators.windX) ? mutators.windX : 0;
+  const drift = Math.max(-MAX_WIND_DRIFT, Math.min(MAX_WIND_DRIFT, wind));
   state.weather.windX = wind;
+  state.weather.windDrift = drift;
+  spawnWindStrands();
   const squallConfig = resolveSquallConfig(mutators.squalls);
   if (squallConfig) {
-    const { intervalMin, intervalMax, duration, dimFactor, playerSpread, enemySpread } = squallConfig;
+    const {
+      intervalMin,
+      intervalMax,
+      duration,
+      dimFactor,
+      playerSpread,
+      enemySpread,
+      enemySpreadMultiplier,
+    } = squallConfig;
     state.weather.squall = {
       active: false,
       intervalMin,
@@ -459,6 +514,7 @@ function applyLevelMutators(mutators = {}) {
       dimFactor,
       playerSpread,
       enemySpread,
+      enemySpreadMultiplier,
     };
   } else {
     state.weather.squall = null;
@@ -475,10 +531,12 @@ function updateWeather() {
     squall.active = true;
     squall.startedAt = time;
     squall.endsAt = time + squall.duration;
+    squall.justActivated = true;
   } else if (squall.active && time >= squall.endsAt) {
     squall.active = false;
     squall.startedAt = time;
     squall.nextAt = time + rand(squall.intervalMin, squall.intervalMax);
+    squall.justDeactivated = true;
   }
 }
 
@@ -737,6 +795,11 @@ function drawSquallOverlay(viewW, viewH, palette) {
   const gradientPulse = Number.isFinite(squallPalette.gradientPulse) ? squallPalette.gradientPulse : 0.25;
   const bandAlphaBase = Number.isFinite(squallPalette.bandAlpha) ? squallPalette.bandAlpha : 0.18;
   const bandPulse = Number.isFinite(squallPalette.bandPulse) ? squallPalette.bandPulse : 0.2;
+  const hatchColour = squallPalette.hatch ?? 'rgba(255, 255, 255, 0.22)';
+  const hatchAlphaBase = Number.isFinite(squallPalette.hatchAlpha) ? squallPalette.hatchAlpha : 0.18;
+  const hatchPulse = Number.isFinite(squallPalette.hatchPulse) ? squallPalette.hatchPulse : 0.24;
+  const hatchSpacing = Number.isFinite(squallPalette.hatchSpacing) ? squallPalette.hatchSpacing : 38;
+  const hatchWidth = Number.isFinite(squallPalette.hatchWidth) ? squallPalette.hatchWidth : 2.2;
   ctx.save();
   const gradientAlpha = Math.max(0, Math.min(1, gradientBase + pulse * gradientPulse));
   ctx.globalAlpha = gradientAlpha;
@@ -747,6 +810,18 @@ function drawSquallOverlay(viewW, viewH, palette) {
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, viewW, viewH);
   ctx.globalCompositeOperation = 'lighter';
+  const hatchAlpha = Math.max(0, Math.min(1, hatchAlphaBase + pulse * hatchPulse));
+  if (hatchAlpha > 0.02) {
+    ctx.globalAlpha = hatchAlpha;
+    ctx.strokeStyle = hatchColour;
+    ctx.lineWidth = hatchWidth;
+    ctx.beginPath();
+    for (let x = -viewH; x < viewW + viewH; x += hatchSpacing) {
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x + viewH * 0.85, viewH);
+    }
+    ctx.stroke();
+  }
   const bandAlpha = Math.max(0, Math.min(1, bandAlphaBase + pulse * bandPulse));
   ctx.globalAlpha = bandAlpha;
   ctx.fillStyle = bandColour;
@@ -1025,6 +1100,8 @@ function loop(now) {
   const bulletBounds = { minX: -40, maxX: viewW + 40, minY: -40, maxY: viewH + 40 };
   const palette = activePalette ?? DEFAULT_THEME_PALETTE;
   const starPalette = resolvePaletteSection(palette, 'stars');
+  const weatherPalette = resolvePaletteSection(palette, 'weather') ?? {};
+  const windPalette = weatherPalette.wind ?? {};
   if (state.paused) {
     requestAnimationFrame(loop);
     return;
@@ -1036,6 +1113,15 @@ function loop(now) {
   scheduleLevelWaves();
   updateEffects(state, dt);
   updateWeather();
+  const squall = state.weather?.squall;
+  if (squall?.justActivated) {
+    showToast('SQUALL!', 1000);
+    pulseMutatorIcon('squall');
+    squall.justActivated = false;
+  }
+  if (squall?.justDeactivated) {
+    squall.justDeactivated = false;
+  }
 
   if (state.time >= state.levelDur) {
     if (!state.bossSpawned) {
@@ -1059,9 +1145,9 @@ function loop(now) {
     ctx.fillRect(0, 0, viewW, viewH);
     ctx.globalAlpha = 1;
   }
-  const wind = Number.isFinite(state.weather?.windX) ? state.weather.windX : 0;
-  const squall = state.weather?.squall;
-  const squallDim = squall?.active ? squall.dimFactor ?? 0.6 : 1;
+  const windVisual = Number.isFinite(state.weather?.windX) ? state.weather.windX : 0;
+  const wind = Number.isFinite(state.weather?.windDrift) ? state.weather.windDrift : windVisual;
+  const squallDim = squall?.active ? squall.dimFactor ?? 0.8 : 1;
   const starfield = state.starfield ?? mergeStarfieldConfig();
   const baseAlpha = Number.isFinite(starfield.baseAlpha) ? starfield.baseAlpha : 0.4;
   const brightThreshold = Number.isFinite(starfield.brightThreshold) ? starfield.brightThreshold : 1.1;
@@ -1076,7 +1162,7 @@ function loop(now) {
   const timeSeconds = performance.now() * 0.001;
   for (const star of state.stars) {
     const depth = star.z ?? 1;
-    star.x += wind * windFactor * depth * dt;
+    star.x += windVisual * windFactor * depth * dt;
     star.y += (scrollBase * depth + state.speed * scrollFactor * depth) * dt;
     if (star.x < -2) {
       star.x = viewW + 2;
@@ -1105,11 +1191,64 @@ function loop(now) {
     const size = Number.isFinite(star.size) ? Math.max(1, star.size) : 2;
     ctx.fillRect(star.x, star.y, size, size);
   }
+  const windStrands = state.windStrands ?? [];
+  if (windStrands.length) {
+    const windStrength = Math.abs(wind);
+    const alphaScale = Math.max(0, Math.min(1, windStrength / MAX_WIND_DRIFT));
+    const streakColour = windPalette.streak ?? '#c5f6ff';
+    const glowColour = windPalette.glow ?? 'rgba(0, 229, 255, 0.35)';
+    const baseAlpha = Number.isFinite(windPalette.alpha) ? Math.max(0, windPalette.alpha) : 0.18;
+    const spawnLeft = windVisual >= 0;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.shadowColor = glowColour;
+    ctx.shadowBlur = Number.isFinite(windPalette.shadow)
+      ? Math.max(0, windPalette.shadow)
+      : 6;
+    ctx.lineWidth = 2;
+    for (const streak of windStrands) {
+      const vx = wind * 1.25 + streak.jitter * 0.25;
+      const vy = streak.speed;
+      streak.x += vx * dt;
+      streak.y += vy * dt;
+      if (streak.y > viewH + streak.length) {
+        streak.y = -rand(20, viewH * 0.25);
+        streak.x = spawnLeft ? rand(-40, viewW * 0.4) : rand(viewW * 0.6, viewW + 40);
+        streak.jitter = rand(-14, 14);
+      } else if (streak.x < -80 || streak.x > viewW + 80) {
+        streak.x = spawnLeft ? rand(-40, 0) : rand(viewW, viewW + 40);
+        streak.y = rand(-viewH * 0.1, viewH * 0.9);
+        streak.jitter = rand(-14, 14);
+      }
+      const dx = vx;
+      const dy = vy;
+      const len = streak.length;
+      const mag = Math.hypot(dx, dy) || 1;
+      const ux = dx / mag;
+      const uy = dy / mag;
+      const half = len / 2;
+      const startX = streak.x - ux * half;
+      const startY = streak.y - uy * half;
+      const endX = streak.x + ux * half;
+      const endY = streak.y + uy * half;
+      const streakAlpha = Math.max(
+        0.04,
+        Math.min(0.7, (baseAlpha + streak.alpha * 0.6) * (0.4 + alphaScale * 1.2)),
+      );
+      ctx.globalAlpha = streakAlpha;
+      ctx.strokeStyle = streakColour;
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(endX, endY);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
   ctx.globalAlpha = 1;
   drawSquallOverlay(viewW, viewH, palette);
 
   const player = state.player;
-  updatePlayer(player, inputState, dt, state.power.name === 'boost');
+  updatePlayer(player, inputState, dt, state.power.name === 'boost', wind);
   clampPlayerToBounds(player);
 
   const bulletTime = state.time * 1000;

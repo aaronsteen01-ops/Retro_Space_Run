@@ -41,7 +41,10 @@ function enemySquallSpread(state, scale = 1) {
     return 0;
   }
   const factor = Number.isFinite(scale) ? Math.max(0, scale) : 1;
-  return rand(-spread * factor, spread * factor);
+  const multiplier = Number.isFinite(squall.enemySpreadMultiplier)
+    ? Math.max(1, squall.enemySpreadMultiplier)
+    : 1.3;
+  return rand(-spread * factor * multiplier, spread * factor * multiplier);
 }
 
 function resolveSpawnCount(baseCount, assistEnabled) {

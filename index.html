@@ -31,6 +31,7 @@
   #hud .level-chip__icon--wind-right{animation:levelChipWindRight 1.8s ease-in-out infinite;}
   #hud .level-chip__icon--wind-left{animation:levelChipWindLeft 1.8s ease-in-out infinite;}
   #hud .level-chip__icon--squall{animation:levelChipSquall 2.6s linear infinite;}
+  #hud .level-chip__icon--squall.level-chip__icon--squall-burst{animation:levelChipSquall 2.6s linear infinite, levelChipSquallBurst 0.65s ease-out;}
   #hud .hud-label{position:relative; display:inline-flex; align-items:center; font-size:.75rem; text-transform:uppercase; letter-spacing:.08em; opacity:.78; min-width:5.1rem; justify-content:flex-end;}
   #hud .hud-label::after{content:':'; margin-left:.35rem; opacity:.6; font-size:.8rem; letter-spacing:0;}
   #hud .hud-value{font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:.02em;}
@@ -100,6 +101,7 @@
   @keyframes levelChipWindRight{0%{transform:translateX(0)}50%{transform:translateX(4px)}100%{transform:translateX(0)}}
   @keyframes levelChipWindLeft{0%{transform:translateX(0)}50%{transform:translateX(-4px)}100%{transform:translateX(0)}}
   @keyframes levelChipSquall{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+  @keyframes levelChipSquallBurst{0%{transform:scale(1) rotate(0deg)}35%{transform:scale(1.35) rotate(80deg)}100%{transform:scale(1) rotate(360deg)}}
 </style>
 </head>
 <body>
