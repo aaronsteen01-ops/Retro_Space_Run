@@ -18,6 +18,9 @@ import {
   getAssistMode,
   toggleAssistMode,
   onAssistChange,
+  getAutoFire,
+  toggleAutoFire,
+  onAutoFireChange,
   setTheme,
 } from './ui.js';
 import { playZap, playHit, toggleAudio, resumeAudioContext, playPow } from './audio.js';
@@ -198,6 +201,9 @@ const state = {
   weapon: null,
   theme: activePalette,
   assistEnabled: getAssistMode(),
+  settings: {
+    autoFire: getAutoFire(),
+  },
   levelContext: { spawnTweaks: {}, enemyWeights: {}, mechanics: {}, themeKey: null },
   weather: { windX: 0, squall: null },
 };
@@ -211,6 +217,10 @@ onAssistChange((enabled) => {
   state.assistEnabled = enabled;
 });
 
+onAutoFireChange((enabled) => {
+  state.settings.autoFire = enabled;
+});
+
 const keys = new Set();
 
 window.addEventListener('keydown', (e) => {
@@ -221,6 +231,9 @@ window.addEventListener('keydown', (e) => {
   keys.add(key);
   if (key === 'h') {
     toggleAssistMode();
+  }
+  if (key === 't') {
+    toggleAutoFire();
   }
   if (!state.running) {
     return;
@@ -898,7 +911,13 @@ function loop(now) {
 
   const bulletTime = state.time * 1000;
 
-  handlePlayerShooting(state, keys, now);
+  let shootingKeys = keys;
+  if (state.settings?.autoFire && !keys.has(' ') && !keys.has('space')) {
+    shootingKeys = new Set(keys);
+    shootingKeys.add(' ');
+    shootingKeys.add('space');
+  }
+  handlePlayerShooting(state, shootingKeys, now);
   updateBullets(state.bullets, bulletTime, bulletBounds, { windX: wind });
   updateMuzzleFlashes(state, dt);
 

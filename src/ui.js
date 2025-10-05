@@ -59,12 +59,15 @@ const hudShieldChip = document.getElementById('hud-shield-chip');
 const hudPowerChip = document.getElementById('power-chip');
 const hudWeaponChip = document.getElementById('weapon-chip');
 const hudWeaponIcon = document.getElementById('weapon-icon');
+let autoFirePill = document.getElementById('auto-fire-pill');
 
 const THEME_STORAGE_KEY = 'retro-space-run.theme';
 const ASSIST_STORAGE_KEY = 'retro-space-run.assist';
+const AUTO_FIRE_STORAGE_KEY = 'retro-space-run.auto-fire';
 
 const themeListeners = new Set();
 const assistListeners = new Set();
+const autoFireListeners = new Set();
 let upgradeBannerTimeout = null;
 
 function injectHudStyles() {
@@ -205,6 +208,18 @@ function injectHudStyles() {
     #hud button.pill {
       padding: 0.25rem 0.75rem;
     }
+    #hud .pill.pill--auto {
+      font-size: 0.72rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 0.2rem 0.65rem;
+      opacity: 0.82;
+    }
+    #hud .pill.pill--auto.is-on {
+      box-shadow: 0 0 8px #00e5ff44 inset, 0 0 8px #ff3df744;
+      background: #ffffff12;
+      opacity: 1;
+    }
     #hud .pill.pill--theme {
       display: inline-flex;
       align-items: center;
@@ -289,6 +304,7 @@ function setupHudLayout(root) {
       <span id="level-chip" class="pill pill--level" aria-live="polite">—</span>
       <div class="hud-secondary-group">
         <button id="assist-toggle" class="pill" type="button" aria-pressed="false">Assist: Off</button>
+        <span id="auto-fire-pill" class="pill pill--auto" role="status" aria-live="polite">Auto: Off</span>
         <span class="pill pill--theme">
           <span class="hud-title">Theme</span>
           <select id="theme-select" class="hud-theme" aria-label="Theme selection"></select>
@@ -357,6 +373,22 @@ function readStoredAssist() {
 }
 
 let assistMode = readStoredAssist();
+let autoFire = readStoredAutoFire();
+
+function readStoredAutoFire() {
+  try {
+    const stored = window.localStorage?.getItem(AUTO_FIRE_STORAGE_KEY);
+    if (stored === 'on') {
+      return true;
+    }
+    if (stored === 'off') {
+      return false;
+    }
+  } catch (err) {
+    /* ignore storage errors */
+  }
+  return false;
+}
 
 function populateThemeControl() {
   if (!themeSelect) {
@@ -405,6 +437,18 @@ function syncAssistToggle() {
   assistToggle.classList.toggle('is-on', assistMode);
 }
 
+function syncAutoFirePill() {
+  if (!autoFirePill) {
+    autoFirePill = document.getElementById('auto-fire-pill');
+    if (!autoFirePill) {
+      return;
+    }
+  }
+  autoFirePill.textContent = `Auto: ${autoFire ? 'On' : 'Off'}`;
+  autoFirePill.setAttribute('aria-label', `Auto-fire ${autoFire ? 'on' : 'off'}`);
+  autoFirePill.classList.toggle('is-on', autoFire);
+}
+
 function emitThemeChange() {
   const palette = getThemePalette(activeThemeKey);
   applyThemeToDocument(palette);
@@ -416,6 +460,12 @@ function emitThemeChange() {
 function emitAssistChange() {
   for (const cb of assistListeners) {
     cb(assistMode);
+  }
+}
+
+function emitAutoFireChange() {
+  for (const cb of autoFireListeners) {
+    cb(autoFire);
   }
 }
 
@@ -439,6 +489,7 @@ populateThemeControl();
 syncThemeControl();
 emitThemeChange();
 syncAssistToggle();
+syncAutoFirePill();
 
 if (themeSelect) {
   themeSelect.addEventListener('change', (event) => {
@@ -512,6 +563,48 @@ export function onAssistChange(handler, { immediate = true } = {}) {
   }
   return () => {
     assistListeners.delete(handler);
+  };
+}
+
+function setAutoFireInternal(enabled, { persist = true } = {}) {
+  const value = Boolean(enabled);
+  if (autoFire === value) {
+    return;
+  }
+  autoFire = value;
+  syncAutoFirePill();
+  if (persist) {
+    try {
+      window.localStorage?.setItem(AUTO_FIRE_STORAGE_KEY, autoFire ? 'on' : 'off');
+    } catch (err) {
+      /* ignore storage errors */
+    }
+  }
+  emitAutoFireChange();
+}
+
+export function getAutoFire() {
+  return autoFire;
+}
+
+export function setAutoFire(enabled) {
+  setAutoFireInternal(enabled);
+}
+
+export function toggleAutoFire() {
+  setAutoFireInternal(!autoFire);
+}
+
+export function onAutoFireChange(handler, { immediate = true } = {}) {
+  if (typeof handler !== 'function') {
+    return () => {};
+  }
+  autoFireListeners.add(handler);
+  if (immediate) {
+    handler(autoFire);
+  }
+  return () => {
+    autoFireListeners.delete(handler);
   };
 }
 
