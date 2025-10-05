@@ -11,6 +11,7 @@ import {
   updateScore,
   updateTime,
   updatePower,
+  updateLevelChip,
   getActiveThemePalette,
   onThemeChange,
   getViewSize,
@@ -63,6 +64,68 @@ let activePalette = getActiveThemePalette() ?? DEFAULT_THEME_PALETTE;
 const DEFAULT_LEVEL = LEVELS[0] ?? null;
 
 const PROGRESS_STORAGE_KEY = 'retro-space-run.highest-level';
+
+function defaultStarfieldConfig() {
+  return {
+    density: 1,
+    depthRange: [0.4, 1.6],
+    sizeRange: [1.4, 2.4],
+    twinkle: { amplitude: 0.22, speed: 1.1 },
+    baseAlpha: 0.42,
+    brightThreshold: 1.18,
+    brightBoost: 1.4,
+    windFactor: 0.04,
+    scrollSpeed: 60,
+    scrollSpeedFactor: 0.05,
+  };
+}
+
+function mergeStarfieldConfig(overrides = {}) {
+  const defaults = defaultStarfieldConfig();
+  const sizeRange = Array.isArray(overrides.sizeRange) && overrides.sizeRange.length >= 2
+    ? overrides.sizeRange
+    : defaults.sizeRange;
+  const depthRange = Array.isArray(overrides.depthRange) && overrides.depthRange.length >= 2
+    ? overrides.depthRange
+    : defaults.depthRange;
+  const twinkleDefaults = defaults.twinkle ?? {};
+  const twinkleOverrides = overrides.twinkle ?? {};
+  const twinkleAmplitude = Number.isFinite(twinkleOverrides.amplitude)
+    ? Math.max(0, twinkleOverrides.amplitude)
+    : twinkleDefaults.amplitude;
+  const twinkleSpeed = Number.isFinite(twinkleOverrides.speed)
+    ? Math.max(0, twinkleOverrides.speed)
+    : twinkleDefaults.speed;
+  return {
+    ...defaults,
+    ...overrides,
+    density: Number.isFinite(overrides.density) ? Math.max(0.2, overrides.density) : defaults.density,
+    baseAlpha: Number.isFinite(overrides.baseAlpha) ? Math.max(0.05, overrides.baseAlpha) : defaults.baseAlpha,
+    brightThreshold: Number.isFinite(overrides.brightThreshold)
+      ? Math.max(0.1, overrides.brightThreshold)
+      : defaults.brightThreshold,
+    brightBoost: Number.isFinite(overrides.brightBoost)
+      ? Math.max(1, overrides.brightBoost)
+      : defaults.brightBoost,
+    windFactor: Number.isFinite(overrides.windFactor) ? overrides.windFactor : defaults.windFactor,
+    scrollSpeed: Number.isFinite(overrides.scrollSpeed) ? Math.max(0, overrides.scrollSpeed) : defaults.scrollSpeed,
+    scrollSpeedFactor: Number.isFinite(overrides.scrollSpeedFactor)
+      ? Math.max(0, overrides.scrollSpeedFactor)
+      : defaults.scrollSpeedFactor,
+    sizeRange: [
+      Math.max(0.2, sizeRange[0]),
+      Math.max(Math.max(0.2, sizeRange[0]), sizeRange[1]),
+    ],
+    depthRange: [
+      Math.max(0.05, depthRange[0]),
+      Math.max(Math.max(0.05, depthRange[0]), depthRange[1]),
+    ],
+    twinkle: {
+      amplitude: twinkleAmplitude,
+      speed: twinkleSpeed,
+    },
+  };
+}
 
 function readHighestUnlockedLevel() {
   try {
@@ -117,6 +180,8 @@ const state = {
   weaponDropSecured: false,
   muzzleFlashes: [],
   weaponPickupFlash: null,
+  levelOverlay: null,
+  starfield: mergeStarfieldConfig(),
   screenShake: { time: 0, duration: 0, magnitude: 0, offsetX: 0, offsetY: 0 },
   stars: [],
   finishGate: null,
@@ -233,9 +298,27 @@ function spawnStars() {
   const { w, h } = getViewSize();
   const viewW = Math.max(w, 1);
   const viewH = Math.max(h, 1);
-  const count = Math.ceil((viewW * viewH) / 9000);
+  const starfield = state.starfield ?? mergeStarfieldConfig();
+  const density = Number.isFinite(starfield.density) ? Math.max(0.2, starfield.density) : 1;
+  const baseCount = Math.ceil((viewW * viewH) / 9000);
+  const count = Math.max(1, Math.floor(baseCount * density));
+  const [depthMin, depthMax] = starfield.depthRange ?? [0.4, 1.6];
+  const [sizeMin, sizeMax] = starfield.sizeRange ?? [1.4, 2.4];
+  const twinkle = starfield.twinkle ?? {};
+  const twinkleAmplitude = Number.isFinite(twinkle.amplitude) ? Math.max(0, twinkle.amplitude) : 0;
+  const twinkleSpeed = Number.isFinite(twinkle.speed) ? Math.max(0, twinkle.speed) : 0;
   for (let i = 0; i < count; i++) {
-    state.stars.push({ x: rand(0, viewW), y: rand(0, viewH), z: rand(0.4, 1.6) });
+    const depth = rand(depthMin, depthMax);
+    const amplitude = twinkleAmplitude ? rand(twinkleAmplitude * 0.6, twinkleAmplitude * 1.2) : 0;
+    state.stars.push({
+      x: rand(0, viewW),
+      y: rand(0, viewH),
+      z: depth,
+      size: rand(sizeMin, sizeMax),
+      twinklePhase: rand(0, Math.PI * 2),
+      twinkleSpeed: twinkleSpeed ? rand(twinkleSpeed * 0.75, twinkleSpeed * 1.25) : 0,
+      twinkleAmplitude: amplitude,
+    });
   }
 }
 
@@ -385,12 +468,38 @@ function configureLevelContext(level) {
     themeKey: level?.theme ?? null,
   };
   applyLevelMechanics(state.levelContext.mechanics);
-  if (state.levelContext.themeKey) {
-    setTheme(state.levelContext.themeKey, { persist: false });
-  }
 }
 
-function drawSquallOverlay(viewW, viewH) {
+function levelIntro(level) {
+  const themeKey = state.levelContext?.themeKey ?? level?.theme ?? DEFAULT_THEME_KEY;
+  if (themeKey) {
+    setTheme(themeKey, { persist: false });
+  }
+  const palette = getActiveThemePalette() ?? DEFAULT_THEME_PALETTE;
+  state.theme = palette;
+  const overlayDef = level?.visuals?.overlay ?? null;
+  if (overlayDef) {
+    const background = resolvePaletteSection(palette, 'background');
+    const fallbackColour = background?.base ?? '#000000';
+    const colour = overlayDef.colour ?? overlayDef.color ?? fallbackColour;
+    const alpha = Number.isFinite(overlayDef.alpha) ? Math.max(0, Math.min(1, overlayDef.alpha)) : 0;
+    state.levelOverlay = colour && alpha > 0 ? { colour, alpha } : null;
+  } else {
+    state.levelOverlay = null;
+  }
+  const starfieldOverrides = level?.visuals?.starfield ?? {};
+  state.starfield = mergeStarfieldConfig(starfieldOverrides);
+  const mutators = Array.isArray(level?.mutators)
+    ? level.mutators.filter((entry) => typeof entry === 'string' && entry.trim().length > 0)
+    : [];
+  updateLevelChip({
+    levelIndex: state.levelIndex,
+    name: level?.name ?? null,
+    mutators,
+  });
+}
+
+function drawSquallOverlay(viewW, viewH, palette) {
   const squall = state.weather?.squall;
   if (!squall?.active) {
     return;
@@ -398,17 +507,29 @@ function drawSquallOverlay(viewW, viewH) {
   const elapsed = Math.max(0, state.time - (squall.startedAt ?? 0));
   const progress = squall.duration > 0 ? Math.min(1, elapsed / squall.duration) : 1;
   const pulse = Math.sin(progress * Math.PI);
+  const weather = resolvePaletteSection(palette, 'weather');
+  const squallPalette = weather?.squall ?? {};
+  const top = squallPalette.top ?? 'transparent';
+  const mid = squallPalette.mid ?? top;
+  const bottom = squallPalette.bottom ?? mid;
+  const bandColour = squallPalette.band ?? mid;
+  const gradientBase = Number.isFinite(squallPalette.gradientBase) ? squallPalette.gradientBase : 0.12;
+  const gradientPulse = Number.isFinite(squallPalette.gradientPulse) ? squallPalette.gradientPulse : 0.25;
+  const bandAlphaBase = Number.isFinite(squallPalette.bandAlpha) ? squallPalette.bandAlpha : 0.18;
+  const bandPulse = Number.isFinite(squallPalette.bandPulse) ? squallPalette.bandPulse : 0.2;
   ctx.save();
-  ctx.globalAlpha = 0.12 + pulse * 0.25;
+  const gradientAlpha = Math.max(0, Math.min(1, gradientBase + pulse * gradientPulse));
+  ctx.globalAlpha = gradientAlpha;
   const gradient = ctx.createLinearGradient(0, 0, viewW, viewH * 0.6);
-  gradient.addColorStop(0, 'rgba(160, 210, 255, 0.0)');
-  gradient.addColorStop(0.45, 'rgba(160, 210, 255, 0.35)');
-  gradient.addColorStop(0.8, 'rgba(120, 190, 255, 0.15)');
+  gradient.addColorStop(0, top);
+  gradient.addColorStop(0.45, mid);
+  gradient.addColorStop(0.8, bottom);
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, viewW, viewH);
   ctx.globalCompositeOperation = 'lighter';
-  ctx.globalAlpha = 0.18 + pulse * 0.2;
-  ctx.fillStyle = 'rgba(140, 210, 255, 0.5)';
+  const bandAlpha = Math.max(0, Math.min(1, bandAlphaBase + pulse * bandPulse));
+  ctx.globalAlpha = bandAlpha;
+  ctx.fillStyle = bandColour;
   ctx.fillRect(0, viewH * 0.15, viewW, 4);
   ctx.fillRect(0, viewH * 0.35, viewW, 3);
   ctx.fillRect(0, viewH * 0.55, viewW, 4);
@@ -481,6 +602,7 @@ function startLevel(levelIndex) {
   state.levelStartScore = state.score;
   state.levelStartTime = performance.now();
   configureLevelContext(targetLevel);
+  levelIntro(targetLevel);
   clearLevelEntities();
   updateScore(state.score);
   updateLives(state.lives);
@@ -587,6 +709,9 @@ function renderStartOverlay({ resetHud = false } = {}) {
     state.score = 0;
   }
   configureLevelContext(null);
+  state.starfield = mergeStarfieldConfig();
+  state.levelOverlay = null;
+  updateLevelChip();
   clearLevelEntities();
   state.level = null;
   state.levelDur = 0;
@@ -711,12 +836,32 @@ function loop(now) {
   if (state.screenShake.offsetX || state.screenShake.offsetY) {
     ctx.translate(state.screenShake.offsetX, state.screenShake.offsetY);
   }
+  const overlayTint = state.levelOverlay;
+  if (overlayTint?.colour && overlayTint.alpha > 0) {
+    ctx.globalAlpha = overlayTint.alpha;
+    ctx.fillStyle = overlayTint.colour;
+    ctx.fillRect(0, 0, viewW, viewH);
+    ctx.globalAlpha = 1;
+  }
   const wind = Number.isFinite(state.weather?.windX) ? state.weather.windX : 0;
   const squall = state.weather?.squall;
   const squallDim = squall?.active ? squall.dimFactor ?? 0.6 : 1;
+  const starfield = state.starfield ?? mergeStarfieldConfig();
+  const baseAlpha = Number.isFinite(starfield.baseAlpha) ? starfield.baseAlpha : 0.4;
+  const brightThreshold = Number.isFinite(starfield.brightThreshold) ? starfield.brightThreshold : 1.1;
+  const brightBoost = Number.isFinite(starfield.brightBoost) ? starfield.brightBoost : 1.35;
+  const windFactor = Number.isFinite(starfield.windFactor) ? starfield.windFactor : 0.04;
+  const scrollBase = Number.isFinite(starfield.scrollSpeed) ? starfield.scrollSpeed : 60;
+  const scrollFactor = Number.isFinite(starfield.scrollSpeedFactor) ? starfield.scrollSpeedFactor : 0.05;
+  const [depthMin, depthMax] = starfield.depthRange ?? [0.4, 1.6];
+  const [sizeMin, sizeMax] = starfield.sizeRange ?? [1.4, 2.4];
+  const twinkleAmpBase = Number.isFinite(starfield.twinkle?.amplitude) ? Math.max(0, starfield.twinkle.amplitude) : 0;
+  const twinkleSpeedBase = Number.isFinite(starfield.twinkle?.speed) ? Math.max(0, starfield.twinkle.speed) : 0;
+  const timeSeconds = performance.now() * 0.001;
   for (const star of state.stars) {
-    star.x += wind * 0.04 * star.z * dt;
-    star.y += (60 * star.z + state.speed * 0.05 * star.z) * dt;
+    const depth = star.z ?? 1;
+    star.x += wind * windFactor * depth * dt;
+    star.y += (scrollBase * depth + state.speed * scrollFactor * depth) * dt;
     if (star.x < -2) {
       star.x = viewW + 2;
     } else if (star.x > viewW + 2) {
@@ -725,13 +870,27 @@ function loop(now) {
     if (star.y > viewH) {
       star.y = -2;
       star.x = rand(0, viewW);
+      star.z = rand(depthMin, depthMax);
+      star.size = rand(sizeMin, sizeMax);
+      star.twinklePhase = rand(0, Math.PI * 2);
+      star.twinkleSpeed = twinkleSpeedBase ? rand(twinkleSpeedBase * 0.75, twinkleSpeedBase * 1.25) : 0;
+      star.twinkleAmplitude = twinkleAmpBase ? rand(twinkleAmpBase * 0.6, twinkleAmpBase * 1.2) : 0;
     }
-    ctx.globalAlpha = Math.max(0, 0.4 * star.z * squallDim);
-    ctx.fillStyle = star.z > 1.1 ? starPalette.bright : starPalette.dim;
-    ctx.fillRect(star.x, star.y, 2, 2);
+    const twinkleAmplitude = Number.isFinite(star.twinkleAmplitude) ? star.twinkleAmplitude : twinkleAmpBase;
+    const twinkleSpeed = Number.isFinite(star.twinkleSpeed) ? star.twinkleSpeed : twinkleSpeedBase;
+    const twinklePhase = Number.isFinite(star.twinklePhase) ? star.twinklePhase : 0;
+    const twinkle = twinkleAmplitude && twinkleSpeed
+      ? Math.sin(timeSeconds * twinkleSpeed + twinklePhase) * twinkleAmplitude
+      : 0;
+    const brightness = depth > brightThreshold ? brightBoost : 1;
+    const alpha = Math.max(0, Math.min(1, (baseAlpha * depth * brightness + twinkle) * squallDim));
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = depth > brightThreshold ? starPalette.bright : starPalette.dim;
+    const size = Number.isFinite(star.size) ? Math.max(1, star.size) : 2;
+    ctx.fillRect(star.x, star.y, size, size);
   }
   ctx.globalAlpha = 1;
-  drawSquallOverlay(viewW, viewH);
+  drawSquallOverlay(viewW, viewH, palette);
 
   const player = state.player;
   updatePlayer(player, keys, dt, state.power.name === 'boost');
@@ -871,8 +1030,8 @@ function loop(now) {
     drawBoss(ctx, state.boss, palette);
   }
   drawEnemyBullets(ctx, state.enemyBullets, palette);
-  drawPlayerBullets(ctx, state.bullets);
-  drawMuzzleFlashes(ctx, state.muzzleFlashes);
+  drawPlayerBullets(ctx, state.bullets, palette);
+  drawMuzzleFlashes(ctx, state.muzzleFlashes, palette);
   if (state.finishGate) {
     drawGate(state.finishGate, palette);
   }

@@ -23,6 +23,7 @@
     padding:.3rem .6rem; border-radius:10px; backdrop-filter:blur(3px);
   }
   #hud .pill{display:inline-flex; align-items:center; gap:.4rem; margin-right:.6rem; padding:.15rem .7rem; border:1px solid #00e5ff66; border-radius:999px; font-size:.9rem}
+  #hud .pill--level{font-size:.78rem; letter-spacing:.08em; font-weight:700; text-transform:none; white-space:nowrap; max-width:22rem; overflow:hidden; text-overflow:ellipsis;}
   #hud .hud-label{position:relative; display:inline-flex; align-items:center; font-size:.75rem; text-transform:uppercase; letter-spacing:.08em; opacity:.78; min-width:5.1rem; justify-content:flex-end;}
   #hud .hud-label::after{content:':'; margin-left:.35rem; opacity:.6; font-size:.8rem; letter-spacing:0;}
   #hud .hud-value{font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:.02em;}
@@ -90,6 +91,7 @@
 <div id="wrap"><canvas id="game" width="1280" height="720"></canvas></div>
 
 <div id="hud">
+  <span id="level-chip" class="pill pill--level" aria-live="polite">—</span>
   <span class="pill"><span class="hud-label">Lives</span><span id="lives" class="hud-value">3</span></span>
   <span class="pill"><span class="hud-label">Score</span><span id="score" class="hud-value">0</span></span>
   <span class="pill"><span class="hud-label">Time</span><span id="time" class="hud-value">0s</span></span>

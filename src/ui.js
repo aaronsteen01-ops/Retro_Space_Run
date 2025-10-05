@@ -22,6 +22,7 @@ const hudScore = document.getElementById('score');
 const hudTime = document.getElementById('time');
 const hudPower = document.getElementById('pup');
 const hudWeapon = document.getElementById('weapon');
+const hudLevel = document.getElementById('level-chip');
 const overlay = document.getElementById('overlay');
 const themeSelect = document.getElementById('theme-select');
 const assistToggle = document.getElementById('assist-toggle');
@@ -270,6 +271,33 @@ export function updateTime(value) {
 
 export function updatePower(label) {
   hudPower.textContent = label || 'None';
+}
+
+export function updateLevelChip({ levelIndex, name, mutators } = {}) {
+  if (!hudLevel) {
+    return;
+  }
+  const parts = [];
+  if (Number.isFinite(levelIndex)) {
+    const safeIndex = Math.max(1, Math.floor(levelIndex));
+    parts.push(`L${safeIndex}`);
+  }
+  const cleanName = typeof name === 'string' ? name.trim() : '';
+  if (cleanName) {
+    parts.push(cleanName);
+  }
+  if (Array.isArray(mutators)) {
+    for (const mutator of mutators) {
+      const cleanMutator = typeof mutator === 'string' ? mutator.trim() : '';
+      if (cleanMutator) {
+        parts.push(cleanMutator);
+      }
+    }
+  }
+  const label = parts.length ? parts.join(' · ') : '—';
+  hudLevel.textContent = label;
+  hudLevel.title = label;
+  hudLevel.setAttribute('aria-label', `Level status: ${label}`);
 }
 
 function showUpgradeBanner(name, level) {

@@ -40,6 +40,18 @@ export const THEMES = {
         bright: '#00e5ff',
         dim: '#ff3df7',
       },
+      weather: {
+        squall: {
+          top: 'rgba(0, 229, 255, 0)',
+          mid: 'rgba(0, 229, 255, 0.35)',
+          bottom: 'rgba(255, 61, 247, 0.18)',
+          band: 'rgba(0, 229, 255, 0.5)',
+          gradientBase: 0.12,
+          gradientPulse: 0.25,
+          bandAlpha: 0.18,
+          bandPulse: 0.2,
+        },
+      },
       particles: {
         shieldHit: '#00e5ff',
         playerHit: '#ff3df7',
@@ -100,6 +112,9 @@ export const THEMES = {
         playerLevels: ['#ffb8ff', '#ffd6ff', '#ffeeff'],
         enemyGlow: '#00e5ffaa',
         enemyFill: '#8af5ff',
+        highlight: '#ffeeff',
+        muzzleCore: '#ff3df7',
+        muzzleEdge: '#00e5ff',
       },
       weaponToken: {
         fill: '#ff3df7',
@@ -149,6 +164,18 @@ export const THEMES = {
       stars: {
         bright: '#24f5d9',
         dim: '#1680ff',
+      },
+      weather: {
+        squall: {
+          top: 'rgba(36, 245, 217, 0)',
+          mid: 'rgba(22, 128, 255, 0.32)',
+          bottom: 'rgba(19, 116, 210, 0.16)',
+          band: 'rgba(36, 245, 217, 0.48)',
+          gradientBase: 0.16,
+          gradientPulse: 0.24,
+          bandAlpha: 0.22,
+          bandPulse: 0.24,
+        },
       },
       particles: {
         shieldHit: '#24f5d9',
@@ -210,6 +237,9 @@ export const THEMES = {
         playerLevels: ['#a5f6ff', '#c2fbff', '#e2ffff'],
         enemyGlow: '#24f5d9aa',
         enemyFill: '#9df5ff',
+        highlight: '#e2ffff',
+        muzzleCore: '#24f5d9',
+        muzzleEdge: '#c2fbff',
       },
       weaponToken: {
         fill: '#1680ff',
@@ -259,6 +289,18 @@ export const THEMES = {
       stars: {
         bright: '#ffbd2d',
         dim: '#ff7b39',
+      },
+      weather: {
+        squall: {
+          top: 'rgba(255, 123, 57, 0)',
+          mid: 'rgba(255, 189, 45, 0.32)',
+          bottom: 'rgba(255, 123, 57, 0.18)',
+          band: 'rgba(255, 189, 45, 0.5)',
+          gradientBase: 0.18,
+          gradientPulse: 0.26,
+          bandAlpha: 0.24,
+          bandPulse: 0.24,
+        },
       },
       particles: {
         shieldHit: '#ffbd2d',
@@ -320,6 +362,9 @@ export const THEMES = {
         playerLevels: ['#ffd9a6', '#ffe7c0', '#fff4da'],
         enemyGlow: '#ffbd2daa',
         enemyFill: '#ffd18c',
+        highlight: '#fff4da',
+        muzzleCore: '#ff7b39',
+        muzzleEdge: '#ffe47a',
       },
       weaponToken: {
         fill: '#ff7b39',
@@ -369,6 +414,18 @@ export const THEMES = {
       stars: {
         bright: '#6dff8d',
         dim: '#c43dff',
+      },
+      weather: {
+        squall: {
+          top: 'rgba(196, 61, 255, 0)',
+          mid: 'rgba(109, 255, 141, 0.32)',
+          bottom: 'rgba(196, 61, 255, 0.18)',
+          band: 'rgba(109, 255, 141, 0.5)',
+          gradientBase: 0.14,
+          gradientPulse: 0.24,
+          bandAlpha: 0.2,
+          bandPulse: 0.22,
+        },
       },
       particles: {
         shieldHit: '#6dff8d',
@@ -430,6 +487,9 @@ export const THEMES = {
         playerLevels: ['#f3b7ff', '#d7ffed', '#f4ffe1'],
         enemyGlow: '#6dff8daa',
         enemyFill: '#b6ffd0',
+        highlight: '#f4ffe1',
+        muzzleCore: '#c43dff',
+        muzzleEdge: '#d7ffed',
       },
       weaponToken: {
         fill: '#c43dff',
