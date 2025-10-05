@@ -58,7 +58,7 @@ import {
   drawMuzzleFlashes,
   updateWeaponHud,
 } from './weapons.js';
-import { DEFAULT_THEME_PALETTE, resolvePaletteSection } from './themes.js';
+import { DEFAULT_THEME_KEY, DEFAULT_THEME_PALETTE, resolvePaletteSection } from './themes.js';
 import { LEVELS } from './levels.js';
 import { getDifficultyMode, getDifficultyMultipliers, onDifficultyModeChange } from './difficulty.js';
 import { updateBullets, freeBullet, drainBullets } from './bullets.js';
@@ -220,8 +220,9 @@ const state = {
   settings: {
     autoFire: getAutoFire(),
   },
-  levelContext: { spawnTweaks: {}, enemyWeights: {}, mechanics: {}, themeKey: null },
+  levelContext: { enemyWeights: {}, mutators: {}, themeKey: null },
   weather: { windX: 0, squall: null },
+  levelIntroTimeout: null,
 };
 
 onDifficultyModeChange((mode) => {
@@ -393,30 +394,60 @@ function drawGate(gate, palette) {
   ctx.restore();
 }
 
-function applyLevelMechanics(mechanics = {}) {
-  const wind = Number.isFinite(mechanics.windX) ? mechanics.windX : 0;
+function resolveSquallConfig(setting) {
+  if (!setting) {
+    return null;
+  }
+  const defaults = {
+    intervalMin: 9,
+    intervalMax: 14,
+    duration: 3.2,
+    dimFactor: 0.6,
+    playerSpread: 140,
+    enemySpread: 28,
+  };
+  if (typeof setting === 'object') {
+    const interval = Array.isArray(setting.interval) && setting.interval.length >= 2
+      ? setting.interval
+      : null;
+    const rawIntervalMin = interval ? Number(interval[0]) : Number(setting.intervalMin);
+    const rawIntervalMax = interval ? Number(interval[1]) : Number(setting.intervalMax);
+    if (Number.isFinite(rawIntervalMin)) {
+      defaults.intervalMin = Math.max(1, rawIntervalMin);
+    }
+    if (Number.isFinite(rawIntervalMax)) {
+      defaults.intervalMax = Math.max(defaults.intervalMin, rawIntervalMax);
+    }
+    if (Number.isFinite(setting.duration)) {
+      defaults.duration = Math.max(0.2, setting.duration);
+    }
+    if (Number.isFinite(setting.dimFactor)) {
+      const rawDim = Math.max(0.15, Math.min(1, setting.dimFactor));
+      defaults.dimFactor = rawDim;
+    }
+    const spreadSource = Number.isFinite(setting.playerSpread)
+      ? setting.playerSpread
+      : Number.isFinite(setting.spread)
+        ? setting.spread
+        : null;
+    if (Number.isFinite(spreadSource)) {
+      defaults.playerSpread = Math.max(0, spreadSource);
+    }
+    if (Number.isFinite(setting.enemySpread)) {
+      defaults.enemySpread = Math.max(0, setting.enemySpread);
+    } else if (spreadSource !== null) {
+      defaults.enemySpread = Math.max(0, defaults.playerSpread * 0.2);
+    }
+  }
+  return defaults;
+}
+
+function applyLevelMutators(mutators = {}) {
+  const wind = Number.isFinite(mutators.windX) ? mutators.windX : 0;
   state.weather.windX = wind;
-  const squallConfig = mechanics.squallBursts;
+  const squallConfig = resolveSquallConfig(mutators.squalls);
   if (squallConfig) {
-    const interval = Array.isArray(squallConfig.interval) && squallConfig.interval.length >= 2
-      ? squallConfig.interval
-      : [10, 14];
-    const rawMin = Number(interval[0]);
-    const rawMax = Number(interval[1]);
-    const intervalMin = Number.isFinite(rawMin) ? Math.max(1, rawMin) : 10;
-    const intervalMax = Number.isFinite(rawMax) ? Math.max(intervalMin, rawMax) : Math.max(intervalMin, intervalMin + 4);
-    const duration = Number.isFinite(squallConfig.duration) ? Math.max(0.2, squallConfig.duration) : 1.2;
-    const playerSpread = Number.isFinite(squallConfig.playerSpread)
-      ? Math.max(0, squallConfig.playerSpread)
-      : Number.isFinite(squallConfig.spread)
-        ? Math.max(0, squallConfig.spread)
-        : 0;
-    const enemySpread = Number.isFinite(squallConfig.enemySpread)
-      ? Math.max(0, squallConfig.enemySpread)
-      : Math.max(0, playerSpread * 0.3);
-    const dimFactor = Number.isFinite(squallConfig.dimFactor)
-      ? Math.max(0.15, Math.min(1, squallConfig.dimFactor))
-      : 0.55;
+    const { intervalMin, intervalMax, duration, dimFactor, playerSpread, enemySpread } = squallConfig;
     state.weather.squall = {
       active: false,
       intervalMin,
@@ -533,43 +564,157 @@ function promptLevelRestart() {
 }
 
 function configureLevelContext(level) {
-  const modifiers = level?.modifiers ?? {};
   state.levelContext = {
-    spawnTweaks: modifiers.spawn ?? {},
-    enemyWeights: modifiers.enemyWeights ?? {},
-    mechanics: level?.mechanics ?? {},
+    enemyWeights: level?.enemyWeights ?? {},
+    mutators: level?.mutators ?? {},
     themeKey: level?.theme ?? null,
   };
-  applyLevelMechanics(state.levelContext.mechanics);
+  applyLevelMutators(state.levelContext.mutators);
+}
+
+function normaliseOverlayTint(tint) {
+  if (typeof tint !== 'string') {
+    return null;
+  }
+  const trimmed = tint.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const rgbaMatch = trimmed.match(/^rgba?\((.+)\)$/i);
+  if (!rgbaMatch) {
+    return { colour: trimmed, alpha: 1 };
+  }
+  const parts = rgbaMatch[1]
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  if (parts.length < 3) {
+    return { colour: trimmed, alpha: 1 };
+  }
+  const rgbValues = parts.slice(0, 3).map((value) => Number.parseFloat(value));
+  const hasNumericRgb = rgbValues.every((value) => Number.isFinite(value));
+  const colour = hasNumericRgb
+    ? `rgb(${rgbValues.map((value) => Math.max(0, value)).join(', ')})`
+    : trimmed;
+  const rawAlpha = parts.length >= 4 ? Number.parseFloat(parts[3]) : 1;
+  const alpha = Number.isFinite(rawAlpha) ? Math.max(0, Math.min(1, rawAlpha)) : 1;
+  return { colour, alpha };
+}
+
+function resolveMutatorDescriptors(mutators = {}) {
+  if (!mutators) {
+    return [];
+  }
+  const descriptors = [];
+  const wind = Number.isFinite(mutators.windX) ? mutators.windX : 0;
+  if (Math.abs(wind) >= 1) {
+    const direction = wind > 0 ? 'Solar Wind →' : 'Solar Wind ←';
+    const magnitude = Math.abs(Math.round(wind));
+    const label = magnitude ? `${direction} ${magnitude}` : direction;
+    descriptors.push({ icon: '💨', label });
+  }
+  if (mutators.squalls) {
+    descriptors.push({ icon: '⚡', label: 'Ion Squalls' });
+  }
+  return descriptors;
 }
 
 function levelIntro(level) {
+  if (state.levelIntroTimeout) {
+    clearTimeout(state.levelIntroTimeout);
+    state.levelIntroTimeout = null;
+  }
   const themeKey = state.levelContext?.themeKey ?? level?.theme ?? DEFAULT_THEME_KEY;
   if (themeKey) {
     setTheme(themeKey, { persist: false });
   }
   const palette = getActiveThemePalette() ?? DEFAULT_THEME_PALETTE;
   state.theme = palette;
-  const overlayDef = level?.visuals?.overlay ?? null;
-  if (overlayDef) {
-    const background = resolvePaletteSection(palette, 'background');
-    const fallbackColour = background?.base ?? '#000000';
-    const colour = overlayDef.colour ?? overlayDef.color ?? fallbackColour;
-    const alpha = Number.isFinite(overlayDef.alpha) ? Math.max(0, Math.min(1, overlayDef.alpha)) : 0;
-    state.levelOverlay = colour && alpha > 0 ? { colour, alpha } : null;
-  } else {
-    state.levelOverlay = null;
-  }
-  const starfieldOverrides = level?.visuals?.starfield ?? {};
+  const overlayTint = normaliseOverlayTint(level?.overlays?.tint);
+  state.levelOverlay = overlayTint && overlayTint.alpha > 0 ? overlayTint : null;
+  const starfieldOverrides = level?.starfield ?? {};
   state.starfield = mergeStarfieldConfig(starfieldOverrides);
-  const mutators = Array.isArray(level?.mutators)
-    ? level.mutators.filter((entry) => typeof entry === 'string' && entry.trim().length > 0)
-    : [];
+  clearLevelEntities();
+  const mutatorDescriptors = resolveMutatorDescriptors(level?.mutators);
   updateLevelChip({
     levelIndex: state.levelIndex,
     name: level?.name ?? null,
-    mutators,
+    mutators: mutatorDescriptors.map((entry) => entry.label),
   });
+  const overlayName = level?.name ?? `Level ${state.levelIndex}`;
+  const mutatorMarkup = mutatorDescriptors.length
+    ? mutatorDescriptors
+        .map((entry) => `<span class="level-card__mutator" title="${entry.label}" aria-label="${entry.label}">${entry.icon}</span>`)
+        .join(' ')
+    : '<span class="level-card__mutator" title="Standard Conditions" aria-label="Standard Conditions">✅</span>';
+  showOverlay(`
+    <div class="level-card" role="status" aria-live="polite">
+      <p class="level-card__label">Level ${state.levelIndex}</p>
+      <h1>${overlayName}</h1>
+      <div class="level-card__mutators" role="presentation">
+        ${mutatorMarkup}
+      </div>
+    </div>
+  `);
+  state.levelIntroTimeout = window.setTimeout(() => {
+    hideOverlay();
+    state.levelIntroTimeout = null;
+  }, 1600);
+}
+
+function pickReplacementType(originalType, weights) {
+  const entries = Object.entries(weights || {})
+    .filter(([type, weight]) => type !== originalType && Number.isFinite(weight) && weight > 0)
+    .map(([type, weight]) => [type, weight]);
+  if (!entries.length) {
+    return null;
+  }
+  const total = entries.reduce((sum, [, weight]) => sum + Math.max(0, weight), 0);
+  if (total <= 0) {
+    return null;
+  }
+  let roll = Math.random() * total;
+  for (const [type, weight] of entries) {
+    roll -= Math.max(0, weight);
+    if (roll <= 0) {
+      return type;
+    }
+  }
+  return entries[entries.length - 1][0];
+}
+
+function resolveWaveType(waveType, weights) {
+  const baseWeight = Number.isFinite(weights?.[waveType]) ? weights[waveType] : 1;
+  if (baseWeight > 1) {
+    return waveType;
+  }
+  if (baseWeight <= 0) {
+    return pickReplacementType(waveType, weights);
+  }
+  if (Math.random() <= Math.min(1, baseWeight)) {
+    return waveType;
+  }
+  const replacement = pickReplacementType(waveType, weights);
+  if (replacement) {
+    return replacement;
+  }
+  return null;
+}
+
+function normaliseWaveParams(params = {}) {
+  const resolved = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (Array.isArray(value) && value.length >= 2) {
+      const [minRaw, maxRaw] = value;
+      const min = Number.isFinite(minRaw) ? minRaw : Number.parseFloat(minRaw);
+      const max = Number.isFinite(maxRaw) ? maxRaw : Number.parseFloat(maxRaw);
+      resolved[`${key}Min`] = Number.isFinite(min) ? min : minRaw;
+      resolved[`${key}Max`] = Number.isFinite(max) ? max : maxRaw;
+    } else {
+      resolved[key] = value;
+    }
+  }
+  return resolved;
 }
 
 function drawSquallOverlay(viewW, viewH, palette) {
@@ -613,35 +758,18 @@ function spawnWaveFromSchedule(wave) {
   if (!wave || !wave.type) {
     return;
   }
-  const typeConfig = state.levelContext.spawnTweaks?.[wave.type] || {};
-  const waveOverrides = wave.params ? { ...wave.params } : {};
-  const mergedParams = { ...typeConfig, ...waveOverrides };
-  const weight = Number.isFinite(state.levelContext.enemyWeights?.[wave.type])
-    ? state.levelContext.enemyWeights[wave.type]
-    : 1;
-  const baseDensity = Number.isFinite(mergedParams.density) ? mergedParams.density : 1;
-  const density = Math.max(0, baseDensity * (Number.isFinite(weight) ? weight : 1));
-  const waveRange = Array.isArray(wave.countRange) && wave.countRange.length >= 2 ? wave.countRange : null;
-  const mergedRange = Array.isArray(mergedParams.countRange) && mergedParams.countRange.length >= 2
-    ? mergedParams.countRange
-    : null;
-  const range = waveRange ?? mergedRange;
-  const baseCount = Number.isFinite(wave.count)
-    ? wave.count
-    : Number.isFinite(mergedParams.count)
-      ? mergedParams.count
-      : 1;
-  const finalParams = { ...mergedParams };
-  if (range) {
-    finalParams.countRange = range.map((value) => value * density);
-    delete finalParams.count;
-  } else {
-    finalParams.count = baseCount * density;
-    delete finalParams.countRange;
+  const weights = state.levelContext?.enemyWeights ?? {};
+  const resolvedType = resolveWaveType(wave.type, weights);
+  if (!resolvedType) {
+    return;
   }
-  delete finalParams.density;
-  finalParams.spawnTime = state.time;
-  spawn(state, wave.type, finalParams);
+  const params = normaliseWaveParams(wave.params ?? {});
+  if (Array.isArray(wave.countRange) && wave.countRange.length >= 2) {
+    params.countRange = wave.countRange.slice();
+  } else if (Number.isFinite(wave.count)) {
+    params.count = wave.count;
+  }
+  spawn(state, resolvedType, params);
 }
 
 function scheduleLevelWaves() {
@@ -675,11 +803,9 @@ function startLevel(levelIndex) {
   state.levelStartWeapon = state.weapon ? { ...state.weapon } : null;
   configureLevelContext(targetLevel);
   levelIntro(targetLevel);
-  clearLevelEntities();
   updateScore(state.score);
   updateLives(state.lives);
   updateWeaponHud(state);
-  hideOverlay();
   clearInput();
   state.running = true;
   state.paused = false;
@@ -709,7 +835,7 @@ function completeLevel() {
   const scoreDelta = state.score - (state.levelStartScore ?? 0);
   const nextLevelIndex = state.levelIndex + 1;
   const currentLevel = state.level;
-  applyLevelMechanics({});
+  applyLevelMutators({});
   clearLevelEntities();
   updateScore(state.score);
   updateLives(state.lives);
@@ -754,7 +880,7 @@ function gameOver() {
   const levelTime = Math.floor(state.time);
   const scoreDelta = state.score - (state.levelStartScore ?? 0);
   const levelName = state.level?.name ?? 'Sector';
-  applyLevelMechanics({});
+  applyLevelMutators({});
   clearLevelEntities();
   updateScore(state.score);
   updateLives(state.lives);

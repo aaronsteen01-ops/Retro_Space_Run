@@ -115,6 +115,8 @@ function spawnStrafers(state, count, params) {
       r: radius,
       hp,
       cd: rand(fireCdMin, fireCdMax),
+      cdMin: fireCdMin,
+      cdMax: fireCdMax,
     });
   }
 }
@@ -173,6 +175,8 @@ function spawnTurrets(state, count, params) {
       r: radius,
       hp,
       cd: rand(fireCdMin, fireCdMax),
+      cdMin: fireCdMin,
+      cdMax: fireCdMax,
       bulletSpeed,
     });
   }
@@ -543,16 +547,12 @@ export function updateEnemies(state, dt, now, player) {
   const { w, h } = getViewSize();
   const viewW = Math.max(w, 1);
   const viewH = Math.max(h, 1);
-  const spawnConfig = state.levelContext?.spawnTweaks || {};
-  const straferSettings = spawnConfig.strafer || {};
-  const droneSettings = spawnConfig.drone || {};
-  const turretSettings = spawnConfig.turret || {};
-  const straferCdMin = straferSettings.fireCdMin ?? straferSettings.fireCdMsMin ?? 600;
-  const straferCdMax = straferSettings.fireCdMax ?? straferSettings.fireCdMsMax ?? 1100;
-  const droneAccel = droneSettings.steerAccel ?? droneSettings.accel ?? 60;
-  const turretCdMin = turretSettings.fireCdMin ?? 600;
-  const turretCdMax = turretSettings.fireCdMax ?? 1200;
-  const turretBulletSpeed = turretSettings.bulletSpeed ?? 220;
+  const defaultStraferCdMin = 600;
+  const defaultStraferCdMax = 1100;
+  const defaultDroneAccel = 60;
+  const defaultTurretCdMin = 600;
+  const defaultTurretCdMax = 1200;
+  const defaultTurretBulletSpeed = 220;
   const speedFactor = getDifficultyFactor(state, 'speed', 1);
   for (let i = state.enemies.length - 1; i >= 0; i--) {
     const e = state.enemies[i];
@@ -569,7 +569,9 @@ export function updateEnemies(state, dt, now, player) {
       e.y += Math.sin(now * 0.004 + i) * 40 * dt;
       e.cd -= dt * 1000;
       if (e.cd <= 0) {
-        e.cd = rand(straferCdMin, straferCdMax);
+        const cdMin = Number.isFinite(e.cdMin) ? e.cdMin : defaultStraferCdMin;
+        const cdMax = Number.isFinite(e.cdMax) ? e.cdMax : defaultStraferCdMax;
+        e.cd = rand(cdMin, cdMax);
         const bullet = getBullet();
         const bornAt = state.time * 1000;
         bullet.x = e.x;
@@ -591,7 +593,7 @@ export function updateEnemies(state, dt, now, player) {
       const dx = player.x - e.x;
       const dy = player.y - e.y;
       const d = Math.hypot(dx, dy) + 0.0001;
-      const accel = e.accel ?? droneAccel;
+      const accel = Number.isFinite(e.accel) ? e.accel : defaultDroneAccel;
       e.vx += (dx / d) * accel * dt;
       e.vy += (dy / d) * accel * dt;
       e.x += e.vx * dt;
@@ -604,13 +606,15 @@ export function updateEnemies(state, dt, now, player) {
       e.y += e.vy * dt;
       e.cd -= dt * 1000;
       if (e.cd <= 0) {
-        e.cd = rand(turretCdMin, turretCdMax);
+        const cdMin = Number.isFinite(e.cdMin) ? e.cdMin : defaultTurretCdMin;
+        const cdMax = Number.isFinite(e.cdMax) ? e.cdMax : defaultTurretCdMax;
+        e.cd = rand(cdMin, cdMax);
         const angle = Math.atan2(player.y - e.y, player.x - e.x) + enemySquallSpread(state, 0.005);
         const bullet = getBullet();
         const bornAt = state.time * 1000;
         bullet.x = e.x;
         bullet.y = e.y;
-        const projectileSpeed = (e.bulletSpeed ?? turretBulletSpeed) * speedFactor;
+        const projectileSpeed = (Number.isFinite(e.bulletSpeed) ? e.bulletSpeed : defaultTurretBulletSpeed) * speedFactor;
         bullet.vx = Math.cos(angle) * projectileSpeed;
         bullet.vy = Math.sin(angle) * projectileSpeed;
         bullet.r = 6;
