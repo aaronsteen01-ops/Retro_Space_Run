@@ -48,7 +48,9 @@ const hudScore = document.getElementById('score');
 const hudTime = document.getElementById('time');
 const hudPower = document.getElementById('pup');
 const hudWeapon = document.getElementById('weapon');
-const hudLevel = document.getElementById('level-chip');
+let hudLevel = document.getElementById('level-chip');
+let hudLevelLabel = document.getElementById('level-chip-label');
+let hudLevelIcons = document.getElementById('level-chip-icons');
 const themeSelect = document.getElementById('theme-select');
 const assistToggle = document.getElementById('assist-toggle');
 const hudLivesChip = document.getElementById('hud-lives-chip');
@@ -72,6 +74,7 @@ const DIFFICULTY_KEYS = new Set(Object.keys(DIFFICULTY));
 
 injectHudStyles();
 setupHudLayout(hudRoot);
+refreshLevelChipRefs();
 bindDifficultySelect();
 subscribeDifficultyMode((mode) => {
   syncDifficultySelect(mode);
@@ -112,6 +115,12 @@ function bindDifficultySelect() {
   }
   syncDifficultySelect();
   difficultySelect.addEventListener('change', handleDifficultySelectChange);
+}
+
+function refreshLevelChipRefs() {
+  hudLevel = document.getElementById('level-chip');
+  hudLevelLabel = document.getElementById('level-chip-label');
+  hudLevelIcons = document.getElementById('level-chip-icons');
 }
 
 function injectHudStyles() {
@@ -249,6 +258,86 @@ function injectHudStyles() {
     #hud .pill {
       background: #ffffff08;
     }
+    #hud .pill--level {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.2rem 0.75rem;
+      font-size: 0.82rem;
+      letter-spacing: 0.08em;
+      font-weight: 700;
+      text-transform: none;
+      white-space: nowrap;
+      max-width: 22rem;
+      overflow: hidden;
+    }
+    #hud .pill--level .level-chip__label {
+      display: block;
+      max-width: 16rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #hud .level-chip__icons {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+    #hud .level-chip__icons[hidden] {
+      display: none;
+    }
+    #hud .level-chip__icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.2rem;
+      height: 1.2rem;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      line-height: 1;
+      color: var(--cyn);
+      text-shadow: 0 0 8px var(--mag);
+      box-shadow: 0 0 8px #00e5ff33 inset, 0 0 10px #ff3df722;
+      background: #ffffff12;
+    }
+    #hud .level-chip__icon--wind-right {
+      animation: levelChipWindRight 1.8s ease-in-out infinite;
+    }
+    #hud .level-chip__icon--wind-left {
+      animation: levelChipWindLeft 1.8s ease-in-out infinite;
+    }
+    #hud .level-chip__icon--squall {
+      animation: levelChipSquall 2.6s linear infinite;
+    }
+    @keyframes levelChipWindRight {
+      0% {
+        transform: translateX(0);
+      }
+      50% {
+        transform: translateX(4px);
+      }
+      100% {
+        transform: translateX(0);
+      }
+    }
+    @keyframes levelChipWindLeft {
+      0% {
+        transform: translateX(0);
+      }
+      50% {
+        transform: translateX(-4px);
+      }
+      100% {
+        transform: translateX(0);
+      }
+    }
+    @keyframes levelChipSquall {
+      0% {
+        transform: rotate(0deg);
+      }
+      100% {
+        transform: rotate(360deg);
+      }
+    }
     #hud button.pill {
       padding: 0.25rem 0.75rem;
     }
@@ -357,7 +446,10 @@ function setupHudLayout(root) {
       </div>
     </div>
     <div class="hud-secondary">
-      <span id="level-chip" class="pill pill--level" aria-live="polite">—</span>
+      <span id="level-chip" class="pill pill--level" aria-live="polite">
+        <span id="level-chip-label" class="level-chip__label">—</span>
+        <span id="level-chip-icons" class="level-chip__icons" aria-hidden="true" hidden></span>
+      </span>
       <div class="hud-secondary-group">
         <button id="assist-toggle" class="pill" type="button" aria-pressed="false">Assist: Off</button>
         <span id="auto-fire-pill" class="pill pill--auto" role="status" aria-live="polite">Auto: Off</span>
@@ -789,18 +881,58 @@ export function updateLevelChip({ levelIndex, name, mutators } = {}) {
   if (cleanName) {
     parts.push(cleanName);
   }
-  if (Array.isArray(mutators)) {
-    for (const mutator of mutators) {
-      const cleanMutator = typeof mutator === 'string' ? mutator.trim() : '';
-      if (cleanMutator) {
-        parts.push(cleanMutator);
+  const baseLabel = parts.length ? parts.join(' · ') : '—';
+  if (hudLevelLabel) {
+    hudLevelLabel.textContent = baseLabel;
+  } else if (!hudLevelIcons) {
+    hudLevel.textContent = baseLabel;
+  }
+  const descriptors = Array.isArray(mutators)
+    ? mutators
+        .map((entry) => ({
+          icon: typeof entry?.icon === 'string' ? entry.icon.trim() : '',
+          label: typeof entry?.label === 'string' ? entry.label : '',
+          kind: entry?.kind,
+          direction: entry?.direction,
+        }))
+        .filter((entry) => entry.icon.length > 0)
+    : [];
+  if (hudLevelIcons) {
+    hudLevelIcons.textContent = '';
+    if (descriptors.length) {
+      for (const descriptor of descriptors) {
+        const icon = document.createElement('span');
+        icon.classList.add('level-chip__icon');
+        if (descriptor.kind) {
+          icon.classList.add(`level-chip__icon--${descriptor.kind}`);
+        }
+        if (descriptor.kind === 'wind' && descriptor.direction) {
+          icon.dataset.direction = descriptor.direction;
+          icon.classList.add(`level-chip__icon--wind-${descriptor.direction}`);
+        }
+        icon.textContent = descriptor.icon;
+        icon.setAttribute('aria-hidden', 'true');
+        if (descriptor.label) {
+          icon.title = descriptor.label;
+        }
+        hudLevelIcons.appendChild(icon);
       }
+      hudLevelIcons.removeAttribute('hidden');
+    } else {
+      hudLevelIcons.setAttribute('hidden', 'hidden');
     }
   }
-  const label = parts.length ? parts.join(' · ') : '—';
-  hudLevel.textContent = label;
-  hudLevel.title = label;
-  hudLevel.setAttribute('aria-label', `Level status: ${label}`);
+  const mutatorLabels = descriptors
+    .map((entry) => entry.label)
+    .filter((value) => typeof value === 'string' && value.trim().length > 0);
+  const accessibleLabel = mutatorLabels.length
+    ? `${baseLabel} · ${mutatorLabels.join(' · ')}`
+    : baseLabel;
+  hudLevel.title = accessibleLabel;
+  hudLevel.setAttribute('aria-label', `Level status: ${accessibleLabel}`);
+  if (!hudLevelLabel && !hudLevelIcons) {
+    hudLevel.textContent = accessibleLabel;
+  }
 }
 
 export function updateWeapon(

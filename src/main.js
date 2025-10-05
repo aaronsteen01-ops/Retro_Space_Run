@@ -608,13 +608,15 @@ function resolveMutatorDescriptors(mutators = {}) {
   const descriptors = [];
   const wind = Number.isFinite(mutators.windX) ? mutators.windX : 0;
   if (Math.abs(wind) >= 1) {
-    const direction = wind > 0 ? 'Solar Wind →' : 'Solar Wind ←';
+    const direction = wind > 0 ? 'right' : 'left';
+    const icon = direction === 'right' ? '→' : '←';
+    const descriptor = wind > 0 ? 'Solar Wind →' : 'Solar Wind ←';
     const magnitude = Math.abs(Math.round(wind));
-    const label = magnitude ? `${direction} ${magnitude}` : direction;
-    descriptors.push({ icon: '💨', label });
+    const label = magnitude ? `${descriptor} ${magnitude}` : descriptor;
+    descriptors.push({ icon, label, kind: 'wind', direction });
   }
   if (mutators.squalls) {
-    descriptors.push({ icon: '⚡', label: 'Ion Squalls' });
+    descriptors.push({ icon: '⟲', label: 'Ion Squalls', kind: 'squall' });
   }
   return descriptors;
 }
@@ -639,7 +641,7 @@ function levelIntro(level) {
   updateLevelChip({
     levelIndex: state.levelIndex,
     name: level?.name ?? null,
-    mutators: mutatorDescriptors.map((entry) => entry.label),
+    mutators: mutatorDescriptors,
   });
   const overlayName = level?.name ?? `Level ${state.levelIndex}`;
   const mutatorMarkup = mutatorDescriptors.length
