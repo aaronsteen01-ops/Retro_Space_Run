@@ -24,10 +24,21 @@ import {
   toggleAutoFire,
   onAutoFireChange,
   setTheme,
+  getActiveThemeKey,
   setGamepadIndicator,
   pulseMutatorIcon,
 } from './ui.js';
-import { playZap, playHit, toggleAudio, resumeAudioContext, playPow, playSfx, playBossDown } from './audio.js';
+import {
+  playZap,
+  playHit,
+  toggleAudio,
+  resumeAudioContext,
+  playPow,
+  playSfx,
+  playBossDown,
+  getVolume,
+  setVolume,
+} from './audio.js';
 import { resetPlayer, updatePlayer, clampPlayerToBounds, drawPlayer } from './player.js';
 import {
   spawn,
@@ -61,9 +72,21 @@ import {
   drawMuzzleFlashes,
   updateWeaponHud,
 } from './weapons.js';
-import { DEFAULT_THEME_KEY, DEFAULT_THEME_PALETTE, resolvePaletteSection } from './themes.js';
+import {
+  DEFAULT_THEME_KEY,
+  DEFAULT_THEME_PALETTE,
+  resolvePaletteSection,
+  getThemeKeys,
+  getThemeLabel,
+} from './themes.js';
 import { LEVELS } from './levels.js';
-import { getDifficultyMode, getDifficultyMultipliers, onDifficultyModeChange } from './difficulty.js';
+import {
+  DIFFICULTY,
+  getDifficultyMode,
+  getDifficultyMultipliers,
+  onDifficultyModeChange,
+  setDifficultyMode,
+} from './difficulty.js';
 import { updateBullets, freeBullet, drainBullets } from './bullets.js';
 import { getState as getInputState, onAction as onInputAction, clearInput, ACTIONS as INPUT_ACTIONS } from './input.js';
 import {
@@ -76,12 +99,13 @@ import {
   triggerDamagePulse,
   drawDamagePulse,
 } from './effects.js';
+import { getMetaValue, updateStoredMeta } from './storage.js';
 
 let activePalette = getActiveThemePalette() ?? DEFAULT_THEME_PALETTE;
 
 const DEFAULT_LEVEL = LEVELS[0] ?? null;
 
-const PROGRESS_STORAGE_KEY = 'retro-space-run.highest-level';
+const LEGACY_PROGRESS_STORAGE_KEY = 'retro-space-run.highest-level';
 
 const MAX_WIND_DRIFT = 80;
 
@@ -153,25 +177,39 @@ function mergeStarfieldConfig(overrides = {}) {
   };
 }
 
+function clampLevelIndex(value) {
+  if (!Number.isFinite(value)) {
+    return 1;
+  }
+  return Math.max(1, Math.min(LEVELS.length, Math.floor(value)));
+}
+
 function readHighestUnlockedLevel() {
-  try {
-    const stored = window.localStorage?.getItem(PROGRESS_STORAGE_KEY);
-    const parsed = Number.parseInt(stored ?? '', 10);
-    if (Number.isFinite(parsed) && parsed >= 1) {
-      return parsed;
+  const metaValue = Number.parseInt(getMetaValue('highestUnlockedLevel', 1), 10);
+  if (Number.isFinite(metaValue) && metaValue >= 1) {
+    return clampLevelIndex(metaValue);
+  }
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = window.localStorage?.getItem(LEGACY_PROGRESS_STORAGE_KEY);
+      const parsed = Number.parseInt(stored ?? '', 10);
+      if (Number.isFinite(parsed) && parsed >= 1) {
+        const clamped = clampLevelIndex(parsed);
+        updateStoredMeta({ highestUnlockedLevel: clamped });
+        return clamped;
+      }
+    } catch (err) {
+      /* ignore storage access issues */
     }
-  } catch (err) {
-    /* ignore storage access issues */
   }
   return 1;
 }
 
 function writeHighestUnlockedLevel(value) {
-  try {
-    window.localStorage?.setItem(PROGRESS_STORAGE_KEY, String(value));
-  } catch (err) {
-    /* ignore storage access issues */
-  }
+  const clamped = clampLevelIndex(value);
+  const meta = updateStoredMeta({ highestUnlockedLevel: clamped });
+  const stored = Number.parseInt(meta.highestUnlockedLevel ?? clamped, 10);
+  return clampLevelIndex(Number.isFinite(stored) ? stored : clamped);
 }
 
 const LIFE_CAP_BASE = 5;
@@ -203,13 +241,25 @@ function getShieldCapacity(stateLike) {
   return SHIELD_BASE_DURATION * multiplier;
 }
 
-let highestUnlockedLevel = Math.max(1, Math.min(LEVELS.length, readHighestUnlockedLevel()));
+let highestUnlockedLevel = clampLevelIndex(readHighestUnlockedLevel());
+let bestScore = Math.max(0, Number.parseInt(getMetaValue('bestScore', 0), 10) || 0);
 
 function unlockLevel(levelIndex) {
-  const capped = Math.max(1, Math.min(LEVELS.length, Math.floor(levelIndex)));
+  const capped = clampLevelIndex(levelIndex);
   if (capped > highestUnlockedLevel) {
-    highestUnlockedLevel = capped;
-    writeHighestUnlockedLevel(capped);
+    highestUnlockedLevel = writeHighestUnlockedLevel(capped);
+  }
+}
+
+function recordBestScore(score) {
+  const numeric = Math.max(0, Math.floor(Number.isFinite(score) ? score : Number(score) || 0));
+  if (numeric > bestScore) {
+    bestScore = numeric;
+    const meta = updateStoredMeta({ bestScore: numeric });
+    const stored = Number.parseInt(meta.bestScore ?? numeric, 10);
+    if (Number.isFinite(stored) && stored >= 0) {
+      bestScore = Math.max(bestScore, stored);
+    }
   }
 }
 
@@ -375,6 +425,32 @@ onInputAction(INPUT_ACTIONS.AUTO_FIRE, () => {
   toggleAutoFire();
 });
 
+onInputAction(INPUT_ACTIONS.OPTIONS, () => {
+  if (optionsOverlayOpen) {
+    closeOptionsOverlay();
+    return;
+  }
+  if (state.running) {
+    renderOptionsOverlay({
+      context: 'game',
+      onClose: () => {
+        hideOverlay();
+        state.paused = false;
+        clearInput();
+      },
+    });
+    return;
+  }
+  if (atMenuScreen) {
+    renderOptionsOverlay({
+      context: 'menu',
+      onClose: () => {
+        renderStartOverlay();
+      },
+    });
+  }
+});
+
 onInputAction(INPUT_ACTIONS.PAUSE, () => {
   if (!state.running) {
     return;
@@ -426,6 +502,9 @@ onInputAction(INPUT_ACTIONS.FULLSCREEN, () => {
 });
 
 let lastGamepadIndicatorState = false;
+let atMenuScreen = false;
+let optionsOverlayOpen = false;
+let optionsOverlayCloseHandler = null;
 
 function syncGamepadIndicator(connected) {
   const isConnected = Boolean(connected);
@@ -437,6 +516,20 @@ function syncGamepadIndicator(connected) {
 }
 
 syncGamepadIndicator(false);
+
+function closeOptionsOverlay() {
+  if (!optionsOverlayOpen) {
+    return;
+  }
+  const handler = optionsOverlayCloseHandler;
+  optionsOverlayOpen = false;
+  optionsOverlayCloseHandler = null;
+  if (typeof handler === 'function') {
+    handler();
+  } else {
+    hideOverlay();
+  }
+}
 
 window.addEventListener('click', () => {
   resumeAudioContext();
@@ -1028,6 +1121,9 @@ function startLevel(levelIndex) {
 }
 
 function startRun(levelIndex = 1) {
+  atMenuScreen = false;
+  optionsOverlayOpen = false;
+  optionsOverlayCloseHandler = null;
   state.difficultyMode = getDifficultyMode();
   state.difficulty = getDifficultyMultipliers(state.difficultyMode);
   state.assistEnabled = getAssistMode();
@@ -1147,6 +1243,9 @@ function applyRunUpgrade(upgradeId, { choice } = {}) {
 }
 
 function renderUpgradeSelection({ nextLevelIndex, nextLevel, levelTime, scoreDelta }) {
+  atMenuScreen = false;
+  optionsOverlayOpen = false;
+  optionsOverlayCloseHandler = null;
   const options = sampleUpgradesFromPool(buildUpgradePoolForState(), 3);
   if (!options.length) {
     startLevel(nextLevelIndex);
@@ -1185,6 +1284,7 @@ function renderUpgradeSelection({ nextLevelIndex, nextLevel, levelTime, scoreDel
     `;
   }).join('');
   const levelName = state.level?.name ?? 'Sector';
+  recordBestScore(state.score);
   showOverlay(`
     <h1><span class="cyan">LEVEL ${state.levelIndex} COMPLETE</span></h1>
     <p>${levelName} cleared in <strong>${levelTime}s</strong>. Score gained: <strong>${Math.max(0, scoreDelta)}</strong> · Total Score: <strong>${state.score}</strong></p>
@@ -1257,6 +1357,7 @@ function completeLevel() {
   }
   const header = `LEVEL ${state.levelIndex} COMPLETE`;
   const restartLabel = `Restart Level ${state.levelIndex}`;
+  recordBestScore(state.score);
   showOverlay(`
     <h1><span class="cyan">${header}</span></h1>
     <p>${currentLevel?.name ?? 'Sector'} cleared in <strong>${levelTime}s</strong>.</p>
@@ -1275,6 +1376,9 @@ function completeLevel() {
 }
 
 function gameOver() {
+  atMenuScreen = false;
+  optionsOverlayOpen = false;
+  optionsOverlayCloseHandler = null;
   state.running = false;
   state.paused = false;
   const levelTime = Math.floor(state.time);
@@ -1284,6 +1388,7 @@ function gameOver() {
   clearLevelEntities();
   updateScore(state.score);
   updateLives(state.lives);
+  recordBestScore(state.score);
   showOverlay(`
     <h1><span class="heart">SHIP DESTROYED</span></h1>
     <p>Level ${state.levelIndex}: ${levelName} after <strong>${levelTime}s</strong>.</p>
@@ -1302,6 +1407,9 @@ function gameOver() {
 }
 
 function renderStartOverlay({ resetHud = false } = {}) {
+  atMenuScreen = true;
+  optionsOverlayOpen = false;
+  optionsOverlayCloseHandler = null;
   state.running = false;
   state.paused = false;
   if (resetHud) {
@@ -1320,20 +1428,30 @@ function renderStartOverlay({ resetHud = false } = {}) {
   state.levelIndex = 1;
   updateScore(state.score);
   updateLives(state.lives);
-  const continueLabel = highestUnlockedLevel > 1
-    ? `Continue (Level ${highestUnlockedLevel})`
-    : 'Start Level 1';
-  const levelButtons = LEVELS.map((level, index) => {
-    const levelNumber = index + 1;
-    const locked = levelNumber > highestUnlockedLevel;
-    const lockedClass = locked ? ' level-select__btn--locked' : '';
-    const disabled = locked ? ' disabled aria-disabled="true"' : '';
-    return `<button class="level-select__btn${lockedClass}" data-level="${levelNumber}"${disabled}>L${levelNumber} · ${level.name}</button>`;
-  }).join('');
+  highestUnlockedLevel = clampLevelIndex(getMetaValue('highestUnlockedLevel', highestUnlockedLevel));
+  const storedBest = Number.parseInt(getMetaValue('bestScore', bestScore), 10);
+  if (Number.isFinite(storedBest) && storedBest >= 0) {
+    bestScore = Math.max(bestScore, storedBest);
+  }
+  const hasProgress = highestUnlockedLevel > 1;
+  const unlockedLevels = LEVELS.slice(0, highestUnlockedLevel);
+  const levelButtons = unlockedLevels
+    .map((level, index) => {
+      const levelNumber = index + 1;
+      return `<button class="level-select__btn" data-level="${levelNumber}">L${levelNumber} · ${level.name}</button>`;
+    })
+    .join('');
+  const progressSummary = (hasProgress || bestScore > 0)
+    ? `<p class="overlay-progress">Best Score: <strong>${bestScore}</strong> · Highest Level: <strong>L${highestUnlockedLevel}</strong></p>`
+    : '';
+  const primaryAction = hasProgress
+    ? `<button id="continue-btn" class="btn" autofocus>Continue</button>`
+    : `<button id="start-btn" class="btn" autofocus>Start Level 1</button>`;
   showOverlay(`
     <h1>RETRO <span class="cyan">SPACE</span> <span class="heart">RUN</span></h1>
     <p>WASD / Arrow keys to steer · Space to fire · P pause · R restart level · F fullscreen · M mute · H Assist Mode</p>
     <p>Pick a sector or continue your furthest run. Assist Mode toggles an extra life and softer spawns.</p>
+    ${progressSummary}
     <div class="difficulty-select">
       <label class="difficulty-select__label" for="difficulty-select">Difficulty</label>
       <select id="difficulty-select" class="difficulty-select__control">
@@ -1344,17 +1462,22 @@ function renderStartOverlay({ resetHud = false } = {}) {
       <p class="difficulty-select__hint">Adjust enemy density, projectile speed, and boss durability. Normal preserves the current challenge.</p>
     </div>
     <div class="overlay-actions">
-      <button id="continue-btn" class="btn">${continueLabel}</button>
+      ${primaryAction}
       <button id="toggle-level-select" class="btn btn-secondary" aria-expanded="false">Select Level</button>
     </div>
     <div id="level-select" class="level-select" hidden>
       <p class="level-select__label">Unlocked Levels</p>
       <div class="level-select__grid">${levelButtons}</div>
     </div>
+    <p class="overlay-hint">Press Esc for Options</p>
   `);
   const continueBtn = document.getElementById('continue-btn');
   continueBtn?.addEventListener('click', () => {
     startRun(highestUnlockedLevel);
+  });
+  const startBtn = document.getElementById('start-btn');
+  startBtn?.addEventListener('click', () => {
+    startRun(1);
   });
   const toggle = document.getElementById('toggle-level-select');
   const panel = document.getElementById('level-select');
@@ -1362,25 +1485,165 @@ function renderStartOverlay({ resetHud = false } = {}) {
     if (!panel) {
       return;
     }
-    const isHidden = panel.hasAttribute('hidden');
-    if (isHidden) {
-      panel.removeAttribute('hidden');
-      toggle.setAttribute('aria-expanded', 'true');
-    } else {
-      panel.setAttribute('hidden', 'hidden');
-      toggle.setAttribute('aria-expanded', 'false');
-    }
+    panel.removeAttribute('hidden');
+    toggle.setAttribute('aria-expanded', 'true');
+    const firstLevelButton = panel.querySelector('button:not([disabled])');
+    firstLevelButton?.focus();
   });
   panel?.querySelectorAll('[data-level]').forEach((btn) => {
     const element = btn;
     const levelNumber = Number.parseInt(element.getAttribute('data-level') ?? '', 10);
-    if (element.hasAttribute('disabled')) {
-      return;
-    }
     element.addEventListener('click', () => {
       startRun(levelNumber);
     });
   });
+}
+
+function renderOptionsOverlay({ context = 'game', onClose } = {}) {
+  if (optionsOverlayOpen) {
+    return;
+  }
+  if (context === 'game') {
+    state.paused = true;
+    clearInput();
+  }
+  const closeHandler = typeof onClose === 'function'
+    ? onClose
+    : context === 'game'
+      ? () => {
+        hideOverlay();
+        state.paused = false;
+        clearInput();
+      }
+      : () => {
+        renderStartOverlay();
+      };
+  optionsOverlayOpen = true;
+  optionsOverlayCloseHandler = closeHandler;
+  const activeTheme = getActiveThemeKey();
+  const themeButtons = getThemeKeys()
+    .map((key) => {
+      const label = getThemeLabel(key);
+      const isActive = key === activeTheme;
+      const classes = isActive ? 'btn' : 'btn btn-secondary';
+      const pressed = isActive ? 'true' : 'false';
+      const disabled = isActive ? ' disabled aria-disabled="true"' : '';
+      return `<button type="button" class="${classes}" data-theme-option="${key}" aria-pressed="${pressed}"${disabled}>${label}</button>`;
+    })
+    .join('');
+  const currentDifficulty = getDifficultyMode();
+  const difficultyOptions = Object.keys(DIFFICULTY)
+    .map((key) => {
+      const label = key.charAt(0).toUpperCase() + key.slice(1);
+      const selected = key === currentDifficulty ? ' selected' : '';
+      return `<option value="${key}"${selected}>${label}</option>`;
+    })
+    .join('');
+  const assistEnabled = getAssistMode();
+  const assistLabel = `Assist: ${assistEnabled ? 'On' : 'Off'}`;
+  const assistPressed = assistEnabled ? 'true' : 'false';
+  const volumePercent = Math.round(getVolume() * 100);
+  const resumeLabel = context === 'game' ? 'Resume' : 'Back';
+  showOverlay(`
+    <h1>Options</h1>
+    <div class="options-section">
+      <label for="options-volume">Volume <span id="options-volume-value">${volumePercent}%</span></label>
+      <input id="options-volume" type="range" min="0" max="100" value="${volumePercent}" />
+    </div>
+    <div class="options-section">
+      <p class="options-section__label">Theme</p>
+      <div class="options-theme" role="group" aria-label="Theme selection">${themeButtons}</div>
+    </div>
+    <div class="options-section">
+      <label class="options-section__label" for="options-difficulty">Difficulty</label>
+      <select id="options-difficulty" class="difficulty-select__control">${difficultyOptions}</select>
+    </div>
+    <div class="options-section">
+      <button id="options-assist" type="button" class="btn" aria-pressed="${assistPressed}">${assistLabel}</button>
+    </div>
+    <div class="overlay-actions">
+      <button id="options-close" class="btn">${resumeLabel}</button>
+    </div>
+  `);
+  const volumeControl = document.getElementById('options-volume');
+  const volumeValue = document.getElementById('options-volume-value');
+  const syncVolume = () => {
+    if (volumeValue) {
+      volumeValue.textContent = `${Math.round(getVolume() * 100)}%`;
+    }
+    if (volumeControl) {
+      volumeControl.value = `${Math.round(getVolume() * 100)}`;
+    }
+  };
+  volumeControl?.addEventListener('input', (event) => {
+    const target = event.target;
+    const numeric = Number.parseFloat(target.value);
+    const clamped = Number.isFinite(numeric) ? Math.max(0, Math.min(100, numeric)) : 0;
+    const applied = setVolume(clamped / 100);
+    if (applied > 0) {
+      resumeAudioContext();
+    }
+    syncVolume();
+  });
+  const themeButtonsEls = Array.from(document.querySelectorAll('[data-theme-option]'));
+  const updateThemeButtons = (activeKey = getActiveThemeKey()) => {
+    themeButtonsEls.forEach((button) => {
+      const key = button.getAttribute('data-theme-option');
+      const isActive = key === activeKey;
+      button.className = isActive ? 'btn' : 'btn btn-secondary';
+      button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      if (isActive) {
+        button.setAttribute('disabled', 'disabled');
+        button.setAttribute('aria-disabled', 'true');
+      } else {
+        button.removeAttribute('disabled');
+        button.removeAttribute('aria-disabled');
+      }
+    });
+  };
+  themeButtonsEls.forEach((button) => {
+    button.addEventListener('click', () => {
+      const key = button.getAttribute('data-theme-option');
+      if (!key) {
+        return;
+      }
+      setTheme(key);
+      updateThemeButtons(key);
+    });
+  });
+  const difficultySelect = document.getElementById('options-difficulty');
+  difficultySelect?.addEventListener('change', (event) => {
+    const target = event.target;
+    const value = target.value;
+    if (typeof value === 'string') {
+      const next = setDifficultyMode(value);
+      if (typeof next === 'string' && difficultySelect) {
+        difficultySelect.value = next;
+      }
+    }
+  });
+  const assistButton = document.getElementById('options-assist');
+  const syncAssistButton = () => {
+    if (!assistButton) {
+      return;
+    }
+    const enabled = getAssistMode();
+    assistButton.textContent = `Assist: ${enabled ? 'On' : 'Off'}`;
+    assistButton.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+    assistButton.classList.toggle('is-on', enabled);
+  };
+  assistButton?.addEventListener('click', () => {
+    toggleAssistMode();
+    syncAssistButton();
+  });
+  syncAssistButton();
+  updateThemeButtons();
+  syncVolume();
+  const closeBtn = document.getElementById('options-close');
+  closeBtn?.addEventListener('click', () => {
+    closeOptionsOverlay();
+  });
+  closeBtn?.focus();
 }
 
 function handlePlayerHit() {

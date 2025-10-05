@@ -15,6 +15,7 @@ import {
   setDifficultyMode as persistDifficultyMode,
   onDifficultyModeChange as subscribeDifficultyMode,
 } from './difficulty.js';
+import { getMetaValue, updateStoredMeta } from './storage.js';
 
 const HUD_STYLE_ID = 'hud-compact-style';
 
@@ -635,9 +636,14 @@ function normalizeWeaponLabel(label) {
 }
 
 function readStoredTheme() {
+  const metaTheme = getMetaValue('preferredTheme', null);
+  if (metaTheme && THEMES[metaTheme]) {
+    return metaTheme;
+  }
   try {
     const stored = window.localStorage?.getItem(THEME_STORAGE_KEY);
     if (stored && THEMES[stored]) {
+      updateStoredMeta({ preferredTheme: stored });
       return stored;
     }
   } catch (err) {
@@ -649,12 +655,18 @@ function readStoredTheme() {
 let activeThemeKey = readStoredTheme();
 
 function readStoredAssist() {
+  const metaAssist = getMetaValue('assist', false);
+  if (typeof metaAssist === 'boolean') {
+    return metaAssist;
+  }
   try {
     const stored = window.localStorage?.getItem(ASSIST_STORAGE_KEY);
     if (stored === 'on') {
+      updateStoredMeta({ assist: true });
       return true;
     }
     if (stored === 'off') {
+      updateStoredMeta({ assist: false });
       return false;
     }
   } catch (err) {
@@ -786,11 +798,7 @@ function setThemeInternal(key, persist = true) {
   activeThemeKey = key;
   syncThemeControl();
   if (persist) {
-    try {
-      window.localStorage?.setItem(THEME_STORAGE_KEY, key);
-    } catch (err) {
-      /* ignore storage errors */
-    }
+    updateStoredMeta({ preferredTheme: key });
   }
   emitThemeChange();
 }
@@ -840,11 +848,7 @@ function setAssistModeInternal(enabled, { persist = true } = {}) {
   assistMode = value;
   syncAssistToggle();
   if (persist) {
-    try {
-      window.localStorage?.setItem(ASSIST_STORAGE_KEY, assistMode ? 'on' : 'off');
-    } catch (err) {
-      /* ignore storage errors */
-    }
+    updateStoredMeta({ assist: assistMode });
   }
   emitAssistChange();
 }
