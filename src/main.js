@@ -22,6 +22,7 @@ import {
   toggleAutoFire,
   onAutoFireChange,
   setTheme,
+  setGamepadIndicator,
 } from './ui.js';
 import { playZap, playHit, toggleAudio, resumeAudioContext, playPow } from './audio.js';
 import { resetPlayer, updatePlayer, clampPlayerToBounds, drawPlayer } from './player.js';
@@ -61,6 +62,7 @@ import { DEFAULT_THEME_PALETTE, resolvePaletteSection } from './themes.js';
 import { LEVELS } from './levels.js';
 import { getDifficulty } from './difficulty.js';
 import { updateBullets, freeBullet, drainBullets } from './bullets.js';
+import { getState as getInputState, onAction as onInputAction, clearInput, ACTIONS as INPUT_ACTIONS } from './input.js';
 
 let activePalette = getActiveThemePalette() ?? DEFAULT_THEME_PALETTE;
 
@@ -221,45 +223,57 @@ onAutoFireChange((enabled) => {
   state.settings.autoFire = enabled;
 });
 
-const keys = new Set();
+onInputAction(INPUT_ACTIONS.ASSIST, () => {
+  toggleAssistMode();
+});
 
-window.addEventListener('keydown', (e) => {
-  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
-    e.preventDefault();
-  }
-  const key = e.key.toLowerCase();
-  keys.add(key);
-  if (key === 'h') {
-    toggleAssistMode();
-  }
-  if (key === 't') {
-    toggleAutoFire();
-  }
+onInputAction(INPUT_ACTIONS.AUTO_FIRE, () => {
+  toggleAutoFire();
+});
+
+onInputAction(INPUT_ACTIONS.PAUSE, () => {
   if (!state.running) {
     return;
   }
-  if (key === 'p') {
-    state.paused = !state.paused;
-    if (state.paused) {
-      showPauseOverlay();
-    } else {
-      hideOverlay();
-    }
-  } else if (key === 'm') {
-    toggleAudio();
-  } else if (key === 'f') {
-    const el = document.documentElement;
-    if (!document.fullscreenElement) {
-      el.requestFullscreen?.();
-    } else {
-      document.exitFullscreen?.();
-    }
+  state.paused = !state.paused;
+  if (state.paused) {
+    showPauseOverlay();
+  } else {
+    hideOverlay();
   }
 });
 
-window.addEventListener('keyup', (e) => {
-  keys.delete(e.key.toLowerCase());
+onInputAction(INPUT_ACTIONS.MUTE, () => {
+  if (!state.running) {
+    return;
+  }
+  toggleAudio();
 });
+
+onInputAction(INPUT_ACTIONS.FULLSCREEN, () => {
+  if (!state.running) {
+    return;
+  }
+  const el = document.documentElement;
+  if (!document.fullscreenElement) {
+    el.requestFullscreen?.();
+  } else {
+    document.exitFullscreen?.();
+  }
+});
+
+let lastGamepadIndicatorState = false;
+
+function syncGamepadIndicator(connected) {
+  const isConnected = Boolean(connected);
+  if (isConnected === lastGamepadIndicatorState) {
+    return;
+  }
+  lastGamepadIndicatorState = isConnected;
+  setGamepadIndicator(isConnected);
+}
+
+syncGamepadIndicator(false);
 
 window.addEventListener('click', () => {
   resumeAudioContext();
@@ -621,7 +635,7 @@ function startLevel(levelIndex) {
   updateLives(state.lives);
   updateWeaponHud(state, { flash: false });
   hideOverlay();
-  keys.clear();
+  clearInput();
   state.running = true;
   state.paused = false;
   lastFrame = performance.now();
@@ -819,6 +833,8 @@ function loop(now) {
   }
   const dt = (now - lastFrame) / 1000;
   lastFrame = now;
+  const inputState = getInputState();
+  syncGamepadIndicator(inputState.gamepad?.connected);
   const { w: viewW, h: viewH } = getViewSize();
   const bulletBounds = { minX: -40, maxX: viewW + 40, minY: -40, maxY: viewH + 40 };
   const palette = activePalette ?? DEFAULT_THEME_PALETTE;
@@ -906,18 +922,13 @@ function loop(now) {
   drawSquallOverlay(viewW, viewH, palette);
 
   const player = state.player;
-  updatePlayer(player, keys, dt, state.power.name === 'boost');
+  updatePlayer(player, inputState, dt, state.power.name === 'boost');
   clampPlayerToBounds(player);
 
   const bulletTime = state.time * 1000;
 
-  let shootingKeys = keys;
-  if (state.settings?.autoFire && !keys.has(' ') && !keys.has('space')) {
-    shootingKeys = new Set(keys);
-    shootingKeys.add(' ');
-    shootingKeys.add('space');
-  }
-  handlePlayerShooting(state, shootingKeys, now);
+  const wantsFire = inputState.fire || Boolean(state.settings?.autoFire && !inputState.fire);
+  handlePlayerShooting(state, { fire: wantsFire }, now);
   updateBullets(state.bullets, bulletTime, bulletBounds, { windX: wind });
   updateMuzzleFlashes(state, dt);
 
@@ -1054,7 +1065,7 @@ function loop(now) {
   if (state.finishGate) {
     drawGate(state.finishGate, palette);
   }
-  drawPlayer(ctx, player, keys, palette, state.weaponPickupFlash);
+  drawPlayer(ctx, player, inputState, palette, state.weaponPickupFlash);
 
   if (state.boss) {
     drawBossHealth(ctx, state.boss, palette);
@@ -1082,5 +1093,17 @@ function loop(now) {
 
   requestAnimationFrame(loop);
 }
+
+function monitorGamepadIdle() {
+  if (state.running) {
+    requestAnimationFrame(monitorGamepadIdle);
+    return;
+  }
+  const inputState = getInputState();
+  syncGamepadIndicator(inputState.gamepad?.connected);
+  requestAnimationFrame(monitorGamepadIdle);
+}
+
+monitorGamepadIdle();
 
 renderStartOverlay({ resetHud: true });

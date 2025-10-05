@@ -737,7 +737,7 @@ function spawnProjectile(state, projectile, levelIndex) {
   pushMuzzleFlash(state, projectile, levelIndex, width, height, colour, vx, vy);
 }
 
-export function handlePlayerShooting(state, keys, now) {
+export function handlePlayerShooting(state, input, now) {
   ensureWeaponState(state);
   const level = currentLevel(state);
   if (!level) {
@@ -747,7 +747,7 @@ export function handlePlayerShooting(state, keys, now) {
   const levelIndex = def ? clampLevel(def, state.weapon.level) : 0;
   const rapid = state.power.name === 'rapid';
   const delay = Math.max(70, level.delay * (rapid ? 0.6 : 1));
-  if ((keys.has(' ') || keys.has('space')) && now - state.lastShot > delay) {
+  if (input?.fire && now - state.lastShot > delay) {
     state.lastShot = now;
     for (const projectile of level.projectiles) {
       spawnProjectile(state, projectile, levelIndex);

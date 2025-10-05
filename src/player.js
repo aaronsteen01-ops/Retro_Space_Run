@@ -23,14 +23,12 @@ export function resetPlayer(state) {
   state.player = createPlayer();
 }
 
-export function updatePlayer(player, keys, dt, hasBoost) {
+export function updatePlayer(player, input, dt, hasBoost) {
   const accel = hasBoost ? 560 : 380;
-  const up = keys.has('arrowup') || keys.has('w');
-  const down = keys.has('arrowdown') || keys.has('s');
-  const left = keys.has('arrowleft') || keys.has('a');
-  const right = keys.has('arrowright') || keys.has('d');
-  const ax = (left ? -accel : 0) + (right ? accel : 0);
-  const ay = (up ? -accel * 0.8 : 0) + (down ? accel * 0.8 : 0);
+  const moveX = clamp(Number.isFinite(input?.moveX) ? input.moveX : 0, -1, 1);
+  const moveY = clamp(Number.isFinite(input?.moveY) ? input.moveY : 0, -1, 1);
+  const ax = moveX * accel;
+  const ay = moveY * accel * 0.8;
   player.vx = lerp(player.vx, ax, 0.08);
   player.vy = lerp(player.vy, ay, 0.08);
   player.x += player.vx * dt;
@@ -43,16 +41,11 @@ export function clampPlayerToBounds(player) {
   player.y = clamp(player.y, 40, Math.max(h - 40, 40));
 }
 
-export function drawPlayer(ctx, player, keys, palette, weaponFlash = null) {
+export function drawPlayer(ctx, player, input, palette, weaponFlash = null) {
   const ship = resolvePaletteSection(palette, 'ship');
   ctx.save();
   ctx.translate(player.x, player.y);
-  const tilt = clamp(
-    (keys.has('arrowleft') || keys.has('a') ? -1 : 0) +
-      (keys.has('arrowright') || keys.has('d') ? 1 : 0),
-    -1,
-    1,
-  );
+  const tilt = clamp(Number.isFinite(input?.moveX) ? input.moveX : 0, -1, 1);
   ctx.rotate(tilt * 0.08);
 
   const engLen = 14 + (Math.sin(performance.now() * 0.02) + 1) * 6;
