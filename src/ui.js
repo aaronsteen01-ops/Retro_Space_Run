@@ -10,8 +10,33 @@ import {
   getThemePalette,
 } from './themes.js';
 
+const HUD_STYLE_ID = 'hud-compact-style';
+
+const ICONS = Object.freeze({
+  heart:
+    '<svg viewBox="0 0 24 24" class="hud-svg" focusable="false" aria-hidden="true"><path d="M12 20.4c-3.6-2.5-6.1-4.5-7.6-6.2C2.4 12.1 2 10 2.9 8.3 4 6.3 6.7 5.4 8.8 6.3c1 .4 1.8 1 2.4 1.8.6-.8 1.4-1.4 2.4-1.8 2.1-.9 4.8 0 5.9 2 1 1.7.5 3.8-1.5 5.9-1.5 1.6-4 3.6-7.6 6.2z" fill="currentColor"/></svg>',
+  shield:
+    '<svg viewBox="0 0 24 24" class="hud-svg" focusable="false" aria-hidden="true"><path d="M12 3.5 5 6v5.7c0 4.1 2.9 7.9 7 9 4.1-1.1 7-4.9 7-9V6l-7-2.5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 11v6.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/></svg>',
+  weapon:
+    '<svg viewBox="0 0 24 24" class="hud-svg" focusable="false" aria-hidden="true"><path d="M12 4v3.2M12 16.8V20" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="12" cy="12" r="5.5" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M12 9.2v5.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/></svg>',
+  power:
+    '<svg viewBox="0 0 24 24" class="hud-svg" focusable="false" aria-hidden="true"><path d="M11 3 5.5 13.2h5l-1.5 7.8 6.9-11.4h-5L17 3H11Z" fill="currentColor"/></svg>',
+});
+
+const WEAPON_ICON_MAP = new Map([
+  ['•', '<svg viewBox="0 0 24 24" class="hud-svg" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="3.5" fill="currentColor"/></svg>'],
+  ['||', '<svg viewBox="0 0 24 24" class="hud-svg" focusable="false" aria-hidden="true"><path d="M9.5 6.5v11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M14.5 6.5v11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'],
+  ['≋', '<svg viewBox="0 0 24 24" class="hud-svg" focusable="false" aria-hidden="true"><path d="M6 9h12M6 12h12M6 15h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'],
+  ['◎', '<svg viewBox="0 0 24 24" class="hud-svg" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="2.8" fill="currentColor" opacity="0.75"/></svg>'],
+]);
+
 export const canvas = document.getElementById('game');
 export const ctx = canvas.getContext('2d');
+
+const hudRoot = document.getElementById('hud');
+
+injectHudStyles();
+setupHudLayout(hudRoot);
 
 let DPR = window.devicePixelRatio || 1;
 let VIEW_W = window.innerWidth || canvas.clientWidth || canvas.width || 0;
@@ -27,6 +52,13 @@ const overlay = document.getElementById('overlay');
 const themeSelect = document.getElementById('theme-select');
 const assistToggle = document.getElementById('assist-toggle');
 const upgradeBanner = document.getElementById('upgrade-banner');
+const hudLivesChip = document.getElementById('hud-lives-chip');
+const hudShieldMeter = document.getElementById('shield-meter');
+const hudShieldFill = document.getElementById('shield-fill');
+const hudShieldChip = document.getElementById('hud-shield-chip');
+const hudPowerChip = document.getElementById('power-chip');
+const hudWeaponChip = document.getElementById('weapon-chip');
+const hudWeaponIcon = document.getElementById('weapon-icon');
 
 const THEME_STORAGE_KEY = 'retro-space-run.theme';
 const ASSIST_STORAGE_KEY = 'retro-space-run.assist';
@@ -34,6 +66,266 @@ const ASSIST_STORAGE_KEY = 'retro-space-run.assist';
 const themeListeners = new Set();
 const assistListeners = new Set();
 let upgradeBannerTimeout = null;
+
+function injectHudStyles() {
+  if (typeof document === 'undefined' || document.getElementById(HUD_STYLE_ID)) {
+    return;
+  }
+  const style = document.createElement('style');
+  style.id = HUD_STYLE_ID;
+  style.textContent = `
+    #hud {
+      position: fixed;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+      max-width: min(92vw, 880px);
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      padding: 0;
+      background: transparent;
+    }
+    #hud .hud-main,
+    #hud .hud-secondary {
+      border-radius: 14px;
+      background: #0a0d1acc;
+      border: 1px solid #ffffff1f;
+      box-shadow: 0 0 14px #00e5ff1f;
+      backdrop-filter: blur(4px);
+    }
+    #hud .hud-main {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.65rem;
+      padding: 0.45rem 0.75rem;
+    }
+    #hud .hud-secondary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      padding: 0.3rem 0.6rem;
+    }
+    #hud .hud-secondary-group {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+    }
+    #hud .hud-section {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      min-width: 0;
+    }
+    #hud .hud-section--center {
+      justify-content: center;
+      text-align: center;
+    }
+    #hud .hud-section--center .hud-chip {
+      flex-direction: column;
+      align-items: center;
+      gap: 0.1rem;
+      font-size: 0.85rem;
+      min-width: 5.2rem;
+    }
+    #hud .hud-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      min-height: 2rem;
+      padding: 0;
+      color: var(--hud);
+      font-size: 0.92rem;
+      white-space: nowrap;
+    }
+    #hud .hud-chip .hud-title {
+      display: block;
+      font-size: 0.64rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      opacity: 0.78;
+    }
+    #hud .hud-chip .hud-value {
+      display: block;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.04em;
+    }
+    #hud .hud-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.35rem;
+      height: 1.35rem;
+      color: var(--cyn);
+    }
+    #hud .hud-chip--lives .hud-icon,
+    #hud .hud-chip--power .hud-icon {
+      color: var(--mag);
+    }
+    #hud .hud-chip--shield .hud-icon {
+      color: var(--cyn);
+    }
+    #hud .hud-chip--shield .hud-title {
+      margin-bottom: 0.05rem;
+    }
+    #hud .hud-chip--shield .hud-text {
+      display: flex;
+      flex-direction: column;
+      gap: 0.18rem;
+    }
+    #hud .hud-shield-meter {
+      position: relative;
+      width: 6rem;
+      height: 0.35rem;
+      border-radius: 999px;
+      background: #ffffff16;
+      overflow: hidden;
+    }
+    #hud .hud-shield-fill {
+      position: absolute;
+      inset: 0;
+      width: 0%;
+      background: linear-gradient(90deg, var(--cyn), var(--mag));
+      transition: width 0.2s ease-out;
+    }
+    #hud .hud-svg {
+      width: 1.1rem;
+      height: 1.1rem;
+    }
+    #hud .pill {
+      background: #ffffff08;
+    }
+    #hud button.pill {
+      padding: 0.25rem 0.75rem;
+    }
+    #hud .pill.pill--theme {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+    #hud .pill.pill--theme .hud-title {
+      opacity: 0.78;
+    }
+    @media (max-width: 720px) {
+      #hud {
+        transform: translateX(-50%) scale(0.95);
+      }
+      #hud .hud-section {
+        gap: 0.45rem;
+      }
+      #hud .hud-shield-meter {
+        width: 4.6rem;
+      }
+    }
+    @media (max-width: 520px) {
+      #hud {
+        transform: translateX(-50%) scale(0.9);
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function setupHudLayout(root) {
+  if (!root || root.dataset.layout === 'compact') {
+    return;
+  }
+  root.dataset.layout = 'compact';
+  root.innerHTML = `
+    <div class="hud-main">
+      <div class="hud-section hud-section--left">
+        <div class="hud-chip hud-chip--lives" id="hud-lives-chip" aria-live="polite" title="Lives remaining: 3">
+          <span class="hud-icon" aria-hidden="true">${ICONS.heart}</span>
+          <div class="hud-text">
+            <span class="hud-title">Lives</span>
+            <span class="hud-value" id="lives">3</span>
+          </div>
+        </div>
+        <div class="hud-chip hud-chip--shield" id="hud-shield-chip" title="Shield strength: 0%">
+          <span class="hud-icon" aria-hidden="true">${ICONS.shield}</span>
+          <div class="hud-text">
+            <span class="hud-title">Shield</span>
+            <div class="hud-shield-meter" id="shield-meter" role="progressbar" aria-label="Shield strength" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0">
+              <span class="hud-shield-fill" id="shield-fill"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="hud-section hud-section--center" role="group" aria-label="Mission progress">
+        <div class="hud-chip hud-chip--stat" id="score-chip" title="Score">
+          <span class="hud-title">Score</span>
+          <span class="hud-value" id="score">0</span>
+        </div>
+        <div class="hud-chip hud-chip--stat" id="time-chip" title="Time elapsed">
+          <span class="hud-title">Time</span>
+          <span class="hud-value" id="time">0s</span>
+        </div>
+      </div>
+      <div class="hud-section hud-section--right">
+        <div class="hud-chip hud-chip--weapon" id="weapon-chip" title="Weapon: None">
+          <span class="hud-icon" id="weapon-icon" aria-hidden="true">${ICONS.weapon}</span>
+          <div class="hud-text">
+            <span class="hud-title">Weapon</span>
+            <span class="hud-value" id="weapon">None</span>
+          </div>
+        </div>
+        <div class="hud-chip hud-chip--power" id="power-chip" title="Power-up: None">
+          <span class="hud-icon" aria-hidden="true">${ICONS.power}</span>
+          <div class="hud-text">
+            <span class="hud-title">Power-up</span>
+            <span class="hud-value" id="pup">None</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="hud-secondary">
+      <span id="level-chip" class="pill pill--level" aria-live="polite">—</span>
+      <div class="hud-secondary-group">
+        <button id="assist-toggle" class="pill" type="button" aria-pressed="false">Assist: Off</button>
+        <span class="pill pill--theme">
+          <span class="hud-title">Theme</span>
+          <select id="theme-select" class="hud-theme" aria-label="Theme selection"></select>
+        </span>
+      </div>
+    </div>
+  `;
+}
+
+function resolveWeaponIcon(icon) {
+  if (typeof icon === 'string' && icon.includes('<svg')) {
+    return icon;
+  }
+  if (typeof icon === 'string' && WEAPON_ICON_MAP.has(icon)) {
+    return WEAPON_ICON_MAP.get(icon);
+  }
+  return ICONS.weapon;
+}
+
+function normalizeWeaponLabel(label) {
+  const raw = typeof label === 'string' && label.trim().length ? label.trim() : 'None';
+  const separators = [' · ', ' – ', ' - ', ' — '];
+  for (const sep of separators) {
+    const parts = raw.split(sep);
+    if (parts.length === 2) {
+      const name = parts[0].trim();
+      const level = parts[1].trim();
+      const display = name && level ? `${name} · ${level}` : raw;
+      return {
+        display,
+        name: name || null,
+        level: level || null,
+      };
+    }
+  }
+  return { display: raw, name: raw !== 'None' ? raw : null, level: null };
+}
 
 function readStoredTheme() {
   try {
@@ -257,7 +549,16 @@ export function showPauseOverlay() {
 }
 
 export function updateLives(value) {
-  hudLives.textContent = value;
+  if (!hudLives) {
+    return;
+  }
+  const safeValue = Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+  hudLives.textContent = `${safeValue}`;
+  if (hudLivesChip) {
+    const label = `Lives remaining: ${safeValue}`;
+    hudLivesChip.setAttribute('title', label);
+    hudLivesChip.setAttribute('aria-label', label);
+  }
 }
 
 export function updateScore(value) {
@@ -269,8 +570,35 @@ export function updateTime(value) {
   hudTime.textContent = `${seconds}s`;
 }
 
+export function updateShield(value = 0, maxValue = 1) {
+  if (!hudShieldMeter || !hudShieldFill) {
+    return;
+  }
+  const safeMax = Number.isFinite(maxValue) && maxValue > 0 ? maxValue : 1;
+  const safeValue = Number.isFinite(value) ? Math.max(0, Math.min(value, safeMax)) : 0;
+  const ratio = safeMax === 0 ? 0 : safeValue / safeMax;
+  const percent = Math.round(ratio * 100);
+  hudShieldFill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+  hudShieldMeter.setAttribute('aria-valuenow', ratio.toFixed(2));
+  hudShieldMeter.setAttribute('aria-valuetext', `${percent}%`);
+  if (hudShieldChip) {
+    const label = `Shield strength: ${percent}%`;
+    hudShieldChip.setAttribute('title', label);
+    hudShieldChip.setAttribute('aria-label', label);
+  }
+}
+
 export function updatePower(label) {
-  hudPower.textContent = label || 'None';
+  if (!hudPower) {
+    return;
+  }
+  const cleanLabel = typeof label === 'string' && label.trim().length ? label.trim() : 'None';
+  hudPower.textContent = cleanLabel;
+  if (hudPowerChip) {
+    const desc = `Power-up: ${cleanLabel}`;
+    hudPowerChip.setAttribute('title', desc);
+    hudPowerChip.setAttribute('aria-label', desc);
+  }
 }
 
 export function updateLevelChip({ levelIndex, name, mutators } = {}) {
@@ -326,17 +654,23 @@ export function updateWeapon(
   label,
   { flash = false, upgradeName, upgradeLevel, icon } = {},
 ) {
-  const value = label || 'None';
-  if (icon) {
-    hudWeapon.innerHTML = `<span class="weapon-icon" aria-hidden="true">${icon}</span><span class="weapon-text">${value}</span>`;
-  } else {
-    hudWeapon.textContent = value;
+  const resolved = normalizeWeaponLabel(label);
+  if (hudWeapon) {
+    hudWeapon.textContent = resolved.display;
+  }
+  if (hudWeaponIcon) {
+    hudWeaponIcon.innerHTML = resolveWeaponIcon(icon);
+  }
+  if (hudWeaponChip) {
+    const descriptor = `Weapon: ${resolved.display}`;
+    hudWeaponChip.setAttribute('title', descriptor);
+    hudWeaponChip.setAttribute('aria-label', descriptor);
   }
   if (!flash) {
     return;
   }
-  const hudName = upgradeName || (label ? label.split(' – ')[0] : null);
-  const hudLevel = upgradeLevel || (label ? label.split(' – ')[1] : null);
+  const hudName = upgradeName || resolved.name || null;
+  const hudLevel = upgradeLevel || resolved.level || null;
   showUpgradeBanner(hudName, hudLevel);
 }
 
