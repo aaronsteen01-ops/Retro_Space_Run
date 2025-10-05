@@ -87,6 +87,7 @@ const state = {
   boss: null,
   bossSpawned: false,
   bossDefeatedAt: 0,
+  bossMercyUntil: 0,
   lastShot: 0,
   shotDelay: 180,
   speed: 260,
@@ -320,6 +321,7 @@ function resetState() {
   state.boss = null;
   state.bossSpawned = false;
   state.bossDefeatedAt = 0;
+  state.bossMercyUntil = 0;
   state.lastShot = 0;
   state.weaponDropSecured = false;
   state.powerupsGrantedL1 = 0;
@@ -378,6 +380,7 @@ function handlePlayerHit() {
   updateLives(state.lives);
   addParticle(state, player.x, player.y, particles.playerHit, 30, 3.2, 500);
   playZap();
+  state.bossMercyUntil = performance.now() + 600;
   player.invuln = state.assistEnabled ? 3000 : 2000;
   if (state.lives <= 0) {
     gameOver(false);
@@ -526,6 +529,7 @@ function loop(now) {
           }
           state.boss = null;
           state.bossDefeatedAt = now;
+          state.bossMercyUntil = 0;
         }
         break;
       }

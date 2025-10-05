@@ -12,7 +12,14 @@ const DEFAULT_BOSS_HP = 540;
 const ASSIST_DENSITY = 0.7;
 const BOSS_PHASE_THRESHOLDS = [0.7, 0.4];
 const MAX_BOSS_PHASE = 3;
-const PHASE_TELEGRAPH_MS = 400;
+const PHASE_TELEGRAPH_MS = 500;
+const PHASE1_CADENCE_MS = 1180;
+const PHASE2_RING_INTERVAL_MS = 3200;
+const PHASE2_RING_WAVE_GAP_MS = 200;
+const PHASE3_BEAM_PREP_MS = 900;
+const PHASE3_BEAM_DURATION_MS = 2600;
+const PHASE3_BEAM_SWEEP_RANGE = 1.05; // radians swept per beam
+const PHASE3_DRONE_INTERVAL_MS = 5600;
 const BEAM_LENGTH_RATIO = 0.85;
 const BEAM_WIDTH = 220;
 const BEAM_SAFE_WIDTH = 80;
@@ -223,18 +230,25 @@ function spawnBossMinions(state, boss, count = 2) {
   }
 }
 
-function emitBossRing(state, boss, player, count = 24) {
-  const safeAngle = Math.atan2(player.y - boss.y, player.x - boss.x);
-  const gapWidth = 0.42;
+function emitBossRing(state, boss, config = {}) {
+  const {
+    count = 28,
+    speed = 220,
+    safeAngles = [],
+    gapWidth = 0.4,
+  } = config;
   for (let i = 0; i < count; i++) {
-    const angle = (i / count) * TAU;
-    let diff = angle - safeAngle;
-    while (diff > Math.PI) diff -= TAU;
-    while (diff < -Math.PI) diff += TAU;
-    if (Math.abs(diff) < gapWidth) {
+    const angle = (i / Math.max(1, count)) * TAU;
+    const blocked = safeAngles.some((safe) => {
+      let diff = angle - safe;
+      while (diff > Math.PI) diff -= TAU;
+      while (diff < -Math.PI) diff += TAU;
+      return Math.abs(diff) <= gapWidth / 2;
+    });
+    if (blocked) {
       continue;
     }
-    pushBossBullet(state, boss.x, boss.y + 8, 220, angle, 10);
+    pushBossBullet(state, boss.x, boss.y + 8, speed, angle, 10);
   }
 }
 
@@ -359,119 +373,146 @@ function drawBossBeam(ctx, boss, bossPalette) {
   ctx.restore();
 }
 
-function updatePhase1Pattern(state, boss, dt, player) {
+function updatePhase1Pattern(state, boss, dt, player, options = {}) {
+  const { fireFactor = 1 } = options;
   const ps = boss.patternState;
   if (!ps.initialised) {
     ps.initialised = true;
-    ps.fireCooldown = 900;
-    ps.volleyIndex = 0;
+    ps.fireCooldown = PHASE1_CADENCE_MS;
   }
-  ps.fireCooldown -= dt * 1000;
+  const cadenceScale = clamp(fireFactor, 0.1, 1);
+  ps.fireCooldown -= dt * 1000 * cadenceScale;
   if (ps.fireCooldown <= 0) {
-    ps.fireCooldown = 940 + rand(-80, 140);
-    ps.volleyIndex = (ps.volleyIndex + 1) % 6;
+    ps.fireCooldown = PHASE1_CADENCE_MS + rand(-120, 160);
     const aim = Math.atan2(player.y - boss.y, player.x - boss.x);
-    const useCenter = ps.volleyIndex % 3 === 0;
-    const spread = useCenter ? 0.24 : 0.18;
-    if (useCenter) {
-      pushBossBullet(state, boss.x, boss.y + 34, 220, aim, 9);
+    const spread = 0.22;
+    const speed = 220;
+    for (let i = -1; i <= 1; i++) {
+      const angle = aim + i * spread;
+      pushBossBullet(state, boss.x + i * 20, boss.y + 34, speed, angle, 9);
     }
-    pushBossBullet(state, boss.x - 18, boss.y + 34, 200, aim - spread, 9);
-    pushBossBullet(state, boss.x + 18, boss.y + 34, 200, aim + spread, 9);
   }
 }
 
-function updatePhase2Pattern(state, boss, dt, player) {
+function updatePhase2Pattern(state, boss, dt, player, options = {}) {
+  const { fireFactor = 1, mercyActive = false } = options;
   const ps = boss.patternState;
   if (!ps.initialised) {
     ps.initialised = true;
-    ps.fanCooldown = 560;
-    ps.ringCooldown = 2400;
-    ps.ringCharge = 0;
-    ps.droneTimer = 4200;
+    ps.scatterTimer = 1400;
+    ps.ringTimer = PHASE2_RING_INTERVAL_MS;
+    ps.waveTimer = 0;
+    ps.waveRemaining = 0;
+    ps.waveCount = 3;
+    const downward = Math.PI / 2;
+    ps.safeAngles = [downward - 0.4, downward, downward + 0.4].map((angle) => {
+      let wrapped = angle % TAU;
+      if (wrapped < 0) {
+        wrapped += TAU;
+      }
+      return wrapped;
+    });
   }
-  ps.fanCooldown -= dt * 1000;
-  if (ps.fanCooldown <= 0) {
-    ps.fanCooldown = 580 + rand(-60, 120);
+  const cadenceScale = clamp(fireFactor, 0.1, 1);
+  ps.scatterTimer -= dt * 1000 * cadenceScale;
+  if (ps.scatterTimer <= 0) {
+    ps.scatterTimer = 1480 + rand(-200, 200);
     const aim = Math.atan2(player.y - boss.y, player.x - boss.x);
-    for (let i = -2; i <= 2; i++) {
-      const angle = aim + i * 0.11;
-      const speed = 260 + Math.abs(i) * 18;
-      pushBossBullet(state, boss.x + i * 18, boss.y + 30, speed, angle, 8);
-    }
+    const offsets = [-0.18, 0, 0.18];
+    const speedBase = 250;
+    offsets.forEach((offset, index) => {
+      const angle = aim + offset;
+      const speed = speedBase + Math.abs(index - 1) * 18;
+      pushBossBullet(state, boss.x + (index - 1) * 18, boss.y + 30, speed, angle, 8);
+    });
   }
-  if (ps.ringCharge > 0) {
-    ps.ringCharge -= dt * 1000;
-    if (ps.ringCharge <= 0) {
-      emitBossRing(state, boss, player, 28);
-      ps.ringCooldown = rand(3600, 4600);
+  if (ps.waveRemaining > 0) {
+    ps.waveTimer -= dt * 1000;
+    if (ps.waveTimer <= 0) {
+      const waveIndex = ps.waveCount - ps.waveRemaining;
+      const speed = 200 + waveIndex * 40;
+      const gapWidth = mercyActive ? 0.55 : 0.36;
+      const count = mercyActive ? 24 : 30;
+      emitBossRing(state, boss, {
+        count,
+        speed,
+        safeAngles: ps.safeAngles,
+        gapWidth,
+      });
+      ps.waveRemaining -= 1;
+      ps.waveTimer = ps.waveRemaining > 0 ? PHASE2_RING_WAVE_GAP_MS : 0;
     }
   } else {
-    ps.ringCooldown -= dt * 1000;
-    if (ps.ringCooldown <= 0) {
-      ps.ringCharge = 720;
-      boss.specialCueTimer = Math.max(boss.specialCueTimer, 720);
-      ps.ringCooldown = 0;
+    ps.ringTimer -= dt * 1000 * cadenceScale;
+    if (ps.ringTimer <= 0) {
+      ps.waveRemaining = ps.waveCount;
+      ps.waveTimer = 0;
+      ps.ringTimer = PHASE2_RING_INTERVAL_MS + rand(-320, 420);
+      boss.specialCueTimer = Math.max(boss.specialCueTimer, 420);
     }
-  }
-  ps.droneTimer -= dt * 1000;
-  if (ps.droneTimer <= 0) {
-    spawnBossMinions(state, boss, 2);
-    ps.droneTimer = rand(4800, 6200);
   }
 }
 
-function updatePhase3Pattern(state, boss, dt, player, viewH) {
+function updatePhase3Pattern(state, boss, dt, player, viewH, options = {}) {
+  const { fireFactor = 1, mercyActive = false } = options;
   const ps = boss.patternState;
   if (!ps.initialised) {
     ps.initialised = true;
-    ps.volleyTimer = 640;
-    ps.beamCooldown = 2000;
+    ps.volleyTimer = 560;
+    ps.beamCooldown = 2400;
     ps.beamCharge = 0;
+    ps.nextSweepDir = 1;
+    ps.droneTimer = PHASE3_DRONE_INTERVAL_MS;
   }
+  const cadenceScale = clamp(fireFactor, 0.1, 1);
   if (!boss.beam) {
-    ps.volleyTimer -= dt * 1000;
+    ps.volleyTimer -= dt * 1000 * cadenceScale;
     if (ps.volleyTimer <= 0) {
-      ps.volleyTimer = 640 + rand(-80, 140);
+      ps.volleyTimer = 620 + rand(-120, 140);
       const aim = Math.atan2(player.y - boss.y, player.x - boss.x);
-      const skipCenter = ps.lastSkip ?? false;
-      ps.lastSkip = !skipCenter;
-      for (let i = -2; i <= 2; i++) {
-        if (skipCenter && i === 0) {
-          continue;
-        }
-        const angle = aim + i * 0.12;
-        const speed = 300 + Math.abs(i) * 22;
-        pushBossBullet(state, boss.x + i * 18, boss.y + 28, speed, angle, 9);
-      }
+      const offsets = [-0.22, -0.08, 0.08, 0.22];
+      const speedBase = 310;
+      offsets.forEach((offset, index) => {
+        const angle = aim + offset;
+        const speed = speedBase + Math.abs(index - 1.5) * 18;
+        pushBossBullet(state, boss.x + (index - 1.5) * 22, boss.y + 26, speed, angle, 9);
+      });
     }
   }
+
+  ps.droneTimer -= dt * 1000 * cadenceScale;
+  if (ps.droneTimer <= 0) {
+    spawnBossMinions(state, boss, 1);
+    ps.droneTimer = PHASE3_DRONE_INTERVAL_MS + rand(-600, 600);
+  }
+
   if (ps.beamCharge > 0) {
     ps.beamCharge -= dt * 1000;
-    if (ps.beamCharge <= 0 && ps.pendingBeam) {
-      const { startAngle, endAngle } = ps.pendingBeam;
+    if (ps.beamCharge <= 0) {
+      const sweepDir = ps.nextSweepDir || 1;
+      const halfRange = PHASE3_BEAM_SWEEP_RANGE / 2;
+      const startAngle = (Math.PI / 2) + (sweepDir > 0 ? -halfRange : halfRange);
+      const endAngle = (Math.PI / 2) + (sweepDir > 0 ? halfRange : -halfRange);
+      const turnRate = PHASE3_BEAM_SWEEP_RANGE / (PHASE3_BEAM_DURATION_MS / 1000);
       createBossBeam(boss, {
         startAngle,
         endAngle,
-        duration: 2400,
-        turnRate: 0.55,
+        duration: PHASE3_BEAM_DURATION_MS,
+        turnRate,
         length: viewH * BEAM_LENGTH_RATIO,
       });
-      ps.pendingBeam = null;
+      ps.nextSweepDir = -sweepDir;
+      ps.beamCooldown = PHASE3_BEAM_DURATION_MS + 1400;
     }
   } else if (!boss.beam) {
-    ps.beamCooldown -= dt * 1000;
+    ps.beamCooldown -= dt * 1000 * cadenceScale;
     if (ps.beamCooldown <= 0) {
-      const startAngle = (Math.PI / 2) + rand(-0.55, 0.55);
-      const sweepDir = Math.random() < 0.5 ? -1 : 1;
-      const endAngle = startAngle + sweepDir * rand(0.42, 0.68);
-      ps.pendingBeam = { startAngle, endAngle };
-      ps.beamCharge = 820;
-      ps.beamCooldown = rand(4600, 5400);
-      boss.specialCueTimer = Math.max(boss.specialCueTimer, 820);
-      boss.warningTimer = Math.max(boss.warningTimer, 1000);
+      ps.beamCharge = PHASE3_BEAM_PREP_MS;
+      boss.specialCueTimer = Math.max(boss.specialCueTimer, PHASE3_BEAM_PREP_MS);
+      boss.warningTimer = Math.max(boss.warningTimer, 900);
     }
   }
+
 }
 
 export function updateEnemies(state, dt, now, player) {
@@ -591,6 +632,7 @@ export function spawnBoss(state, bossConfig = {}) {
     maxPhase: Math.max(1, resolvedMax ?? MAX_BOSS_PHASE),
     phaseThresholds: thresholds,
     telegraphUntil: 0,
+    telegraphIntensity: 0,
     patternState: {},
     sweepDir: 1,
     entering: true,
@@ -634,8 +676,20 @@ export function updateBoss(state, dt, now, player, palette) {
   boss.specialCueTimer = Math.max(0, boss.specialCueTimer - dt * 1000);
   boss.warningTimer = Math.max(0, boss.warningTimer - dt * 1000);
   boss.introTimer = Math.max(0, boss.introTimer - dt * 1000);
-  if (boss.telegraphUntil && nowMs > boss.telegraphUntil) {
-    boss.telegraphUntil = 0;
+  const mercyActive = state.bossMercyUntil && nowMs < state.bossMercyUntil;
+  const fireFactor = mercyActive ? 0.45 : 1;
+  let telegraphing = false;
+  if (boss.telegraphUntil) {
+    const remaining = boss.telegraphUntil - nowMs;
+    if (remaining > 0) {
+      boss.telegraphIntensity = clamp(remaining / PHASE_TELEGRAPH_MS, 0, 1);
+      telegraphing = true;
+    } else {
+      boss.telegraphUntil = 0;
+      boss.telegraphIntensity = 0;
+    }
+  } else {
+    boss.telegraphIntensity = 0;
   }
 
   const enterPhase = (targetPhase) => {
@@ -648,6 +702,7 @@ export function updateBoss(state, dt, now, player, palette) {
     boss.phaseFlashTimer = PHASE_TELEGRAPH_MS;
     boss.specialCueTimer = PHASE_TELEGRAPH_MS;
     boss.telegraphUntil = nowMs + PHASE_TELEGRAPH_MS;
+    boss.telegraphIntensity = 1;
     boss.patternState = {};
     boss.beam = null;
     addParticle(state, boss.x, boss.y, particles.bossHit, 48, 4.4, 900);
@@ -700,15 +755,17 @@ export function updateBoss(state, dt, now, player, palette) {
   }
 
   updateBossBeam(boss, dt, viewH);
+  if (boss.beam) {
+    boss.beam.safeWidth = mercyActive ? BEAM_SAFE_WIDTH * 1.4 : BEAM_SAFE_WIDTH;
+  }
 
-  const telegraphing = boss.telegraphUntil && nowMs < boss.telegraphUntil;
   if (!telegraphing && !boss.entering) {
     if (boss.currentPhase === 1) {
-      updatePhase1Pattern(state, boss, dt, player);
+      updatePhase1Pattern(state, boss, dt, player, { fireFactor });
     } else if (boss.currentPhase === 2) {
-      updatePhase2Pattern(state, boss, dt, player);
+      updatePhase2Pattern(state, boss, dt, player, { fireFactor, mercyActive });
     } else {
-      updatePhase3Pattern(state, boss, dt, player, viewH);
+      updatePhase3Pattern(state, boss, dt, player, viewH, { fireFactor, mercyActive });
     }
   }
 }
@@ -749,13 +806,24 @@ export function drawBoss(ctx, boss, palette) {
   const phase = boss.currentPhase ?? boss.phase ?? 1;
   const isPhase2 = phase === 2;
   const isPhase3 = phase >= 3;
-  const telegraphActive = Boolean(boss.telegraphUntil);
+  const telegraphIntensity = clamp(boss.telegraphIntensity ?? 0, 0, 1);
   const telegraphStrength = Math.max(
-    boss.phaseFlashTimer / 720,
-    boss.specialCueTimer / 720,
-    telegraphActive ? 0.85 : 0,
+    boss.phaseFlashTimer / PHASE_TELEGRAPH_MS,
+    boss.specialCueTimer / PHASE_TELEGRAPH_MS,
+    telegraphIntensity,
   );
+  const telegraphActive = telegraphStrength > 0.01;
   const telegraphPulse = 0.65 + 0.35 * Math.sin((boss.glowPulse || 0) * 2);
+  if (telegraphActive) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = bossPalette.phaseShiftGlow;
+    ctx.globalAlpha = clamp(0.35 + telegraphStrength * 0.4, 0, 0.85);
+    ctx.beginPath();
+    ctx.arc(0, 0, 110 + telegraphPulse * 16, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
   let shadowColor = isPhase3
     ? bossPalette.shadowPhase3
     : isPhase2
@@ -849,22 +917,76 @@ export function drawBossHealth(ctx, boss, palette) {
   const width = Math.min(viewW * 0.5, 420);
   const x = (viewW - width) / 2;
   const y = 42;
-  const ratio = Math.max(0, boss.hp) / boss.maxHp;
+  const ratio = boss.maxHp > 0 ? Math.max(0, boss.hp) / boss.maxHp : 0;
+  const thresholds = [...(boss.phaseThresholds || [])];
+  while (thresholds.length < 2) {
+    const fallback = thresholds.length === 0 ? 2 / 3 : thresholds[thresholds.length - 1] * 0.5;
+    thresholds.push(clamp(fallback, 0, 1));
+  }
+  const bounds = [1];
+  let lastBound = 1;
+  for (let i = 0; i < 2; i++) {
+    const next = clamp(thresholds[i], 0, lastBound);
+    bounds.push(next);
+    lastBound = next;
+  }
+  bounds.push(0);
+  const phaseColors = [
+    bossPalette.strokePhase1 || bossPalette.healthFill,
+    bossPalette.strokePhase2 || bossPalette.healthFill,
+    bossPalette.strokePhase3 || bossPalette.healthFill,
+  ];
   ctx.save();
   ctx.fillStyle = bossPalette.healthBackground;
   ctx.fillRect(x, y, width, 12);
   ctx.shadowColor = bossPalette.healthShadow;
-  ctx.shadowBlur = 14;
-  ctx.fillStyle = bossPalette.healthFill;
-  ctx.fillRect(x, y, width * ratio, 12);
+  ctx.shadowBlur = 18;
+  let drawX = x;
+  for (let i = 0; i < 3; i++) {
+    const upper = bounds[i];
+    const lower = bounds[i + 1];
+    const span = Math.max(0, upper - lower);
+    const segWidth = width * span;
+    const color = phaseColors[i] || bossPalette.healthFill;
+    const fillAmount = span > 0 ? clamp((ratio - lower) / span, 0, 1) : 0;
+    if (segWidth > 0) {
+      ctx.globalAlpha = 0.25;
+      ctx.fillStyle = color;
+      ctx.fillRect(drawX, y, segWidth, 12);
+      ctx.globalAlpha = 1;
+      if (fillAmount > 0) {
+        ctx.fillStyle = color;
+        ctx.fillRect(drawX, y, segWidth * fillAmount, 12);
+      }
+      if (i < 2) {
+        ctx.fillStyle = bossPalette.healthBackground;
+        ctx.fillRect(drawX + segWidth - 1, y - 1, 2, 14);
+      }
+    }
+    drawX += segWidth;
+  }
   ctx.shadowBlur = 0;
   ctx.strokeStyle = bossPalette.healthStroke;
   ctx.lineWidth = 2;
   ctx.strokeRect(x - 1, y - 1, width + 2, 14);
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  let dividerX = x;
+  for (let i = 0; i < 2; i++) {
+    dividerX += width * Math.max(0, bounds[i] - bounds[i + 1]);
+    ctx.moveTo(dividerX, y - 1);
+    ctx.lineTo(dividerX, y + 13);
+  }
+  ctx.stroke();
   ctx.font = '14px "Segoe UI", sans-serif';
   ctx.textAlign = 'center';
   ctx.fillStyle = bossPalette.healthText;
-  ctx.fillText(`Boss Integrity ${Math.ceil(ratio * 100)}%`, viewW / 2, y - 6);
+  const phaseLabel = clamp(boss.currentPhase ?? 1, 1, boss.maxPhase ?? MAX_BOSS_PHASE);
+  ctx.fillText(
+    `Boss Integrity ${Math.ceil(ratio * 100)}% · Phase ${phaseLabel}`,
+    viewW / 2,
+    y - 6,
+  );
   ctx.restore();
 }
 
