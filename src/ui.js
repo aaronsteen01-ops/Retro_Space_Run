@@ -51,7 +51,6 @@ const hudLevel = document.getElementById('level-chip');
 const overlay = document.getElementById('overlay');
 const themeSelect = document.getElementById('theme-select');
 const assistToggle = document.getElementById('assist-toggle');
-const upgradeBanner = document.getElementById('upgrade-banner');
 const hudLivesChip = document.getElementById('hud-lives-chip');
 const hudShieldMeter = document.getElementById('shield-meter');
 const hudShieldFill = document.getElementById('shield-fill');
@@ -69,7 +68,6 @@ const AUTO_FIRE_STORAGE_KEY = 'retro-space-run.auto-fire';
 const themeListeners = new Set();
 const assistListeners = new Set();
 const autoFireListeners = new Set();
-let upgradeBannerTimeout = null;
 
 function injectHudStyles() {
   if (typeof document === 'undefined' || document.getElementById(HUD_STYLE_ID)) {
@@ -755,31 +753,9 @@ export function updateLevelChip({ levelIndex, name, mutators } = {}) {
   hudLevel.setAttribute('aria-label', `Level status: ${label}`);
 }
 
-function showUpgradeBanner(name, level) {
-  if (!upgradeBanner) {
-    return;
-  }
-  const cleanName = name?.trim();
-  const cleanLevel = level?.trim();
-  if (!cleanName || !cleanLevel) {
-    return;
-  }
-  const message = `UPGRADE: ${cleanName} · ${cleanLevel}`;
-  upgradeBanner.textContent = message;
-  upgradeBanner.classList.remove('is-visible');
-  void upgradeBanner.offsetWidth;
-  upgradeBanner.classList.add('is-visible');
-  if (upgradeBannerTimeout) {
-    window.clearTimeout(upgradeBannerTimeout);
-  }
-  upgradeBannerTimeout = window.setTimeout(() => {
-    upgradeBanner.classList.remove('is-visible');
-  }, 1200);
-}
-
 export function updateWeapon(
   label,
-  { flash = false, upgradeName, upgradeLevel, icon } = {},
+  { icon } = {},
 ) {
   const resolved = normalizeWeaponLabel(label);
   if (hudWeapon) {
@@ -793,12 +769,6 @@ export function updateWeapon(
     hudWeaponChip.setAttribute('title', descriptor);
     hudWeaponChip.setAttribute('aria-label', descriptor);
   }
-  if (!flash) {
-    return;
-  }
-  const hudName = upgradeName || resolved.name || null;
-  const hudLevel = upgradeLevel || resolved.level || null;
-  showUpgradeBanner(hudName, hudLevel);
 }
 
 export function currentOverlay() {
