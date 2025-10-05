@@ -60,7 +60,7 @@ import {
 } from './weapons.js';
 import { DEFAULT_THEME_PALETTE, resolvePaletteSection } from './themes.js';
 import { LEVELS } from './levels.js';
-import { getDifficulty } from './difficulty.js';
+import { getDifficultyMode, getDifficultyMultipliers, onDifficultyModeChange } from './difficulty.js';
 import { updateBullets, freeBullet, drainBullets } from './bullets.js';
 import { getState as getInputState, onAction as onInputAction, clearInput, ACTIONS as INPUT_ACTIONS } from './input.js';
 import {
@@ -185,6 +185,8 @@ const state = {
   levelStartTime: 0,
   score: 0,
   lives: 3,
+  difficultyMode: getDifficultyMode(),
+  difficulty: getDifficultyMultipliers(),
   player: null,
   bullets: [],
   enemies: [],
@@ -218,6 +220,11 @@ const state = {
   levelContext: { spawnTweaks: {}, enemyWeights: {}, mechanics: {}, themeKey: null },
   weather: { windX: 0, squall: null },
 };
+
+onDifficultyModeChange((mode) => {
+  state.difficultyMode = mode;
+  state.difficulty = getDifficultyMultipliers(mode);
+});
 
 onThemeChange((_, palette) => {
   activePalette = palette ?? DEFAULT_THEME_PALETTE;
@@ -527,15 +534,13 @@ function drawSquallOverlay(viewW, viewH, palette) {
   ctx.restore();
 }
 
-function spawnWaveFromSchedule(wave, difficulty) {
+function spawnWaveFromSchedule(wave) {
   if (!wave || !wave.type) {
     return;
   }
-  const spawnConfig = difficulty?.spawn || {};
-  const typeConfig = spawnConfig[wave.type] || {};
-  const levelTweaks = state.levelContext.spawnTweaks?.[wave.type] || {};
+  const typeConfig = state.levelContext.spawnTweaks?.[wave.type] || {};
   const waveOverrides = wave.params ? { ...wave.params } : {};
-  const mergedParams = { ...typeConfig, ...levelTweaks, ...waveOverrides };
+  const mergedParams = { ...typeConfig, ...waveOverrides };
   const weight = Number.isFinite(state.levelContext.enemyWeights?.[wave.type])
     ? state.levelContext.enemyWeights[wave.type]
     : 1;
@@ -569,13 +574,12 @@ function scheduleLevelWaves() {
   if (!level || state.boss || state.bossSpawned) {
     return;
   }
-  const difficulty = getDifficulty(state.levelIndex);
   while (state.nextWaveIndex < level.waves.length) {
     const wave = level.waves[state.nextWaveIndex];
     if (!wave || state.time < wave.at) {
       break;
     }
-    spawnWaveFromSchedule(wave, difficulty);
+    spawnWaveFromSchedule(wave);
     state.nextWaveIndex += 1;
   }
 }
@@ -607,6 +611,8 @@ function startLevel(levelIndex) {
 }
 
 function startRun(levelIndex = 1) {
+  state.difficultyMode = getDifficultyMode();
+  state.difficulty = getDifficultyMultipliers(state.difficultyMode);
   state.assistEnabled = getAssistMode();
   state.lives = state.assistEnabled ? 4 : 3;
   state.score = 0;
@@ -724,6 +730,15 @@ function renderStartOverlay({ resetHud = false } = {}) {
     <h1>RETRO <span class="cyan">SPACE</span> <span class="heart">RUN</span></h1>
     <p>WASD / Arrow keys to steer · Space to fire · P pause · F fullscreen · M mute · H Assist Mode</p>
     <p>Pick a sector or continue your furthest run. Assist Mode toggles an extra life and softer spawns.</p>
+    <div class="difficulty-select">
+      <label class="difficulty-select__label" for="difficulty-select">Difficulty</label>
+      <select id="difficulty-select" class="difficulty-select__control">
+        <option value="easy">Easy · 85% density / 90% speed</option>
+        <option value="normal">Normal · Original balance</option>
+        <option value="hard">Hard · 120% density / 110% speed</option>
+      </select>
+      <p class="difficulty-select__hint">Adjust enemy density, projectile speed, and boss durability. Normal preserves the current challenge.</p>
+    </div>
     <div class="overlay-actions">
       <button id="continue-btn" class="btn">${continueLabel}</button>
       <button id="toggle-level-select" class="btn btn-secondary" aria-expanded="false">Select Level</button>

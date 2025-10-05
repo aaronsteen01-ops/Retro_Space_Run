@@ -1,69 +1,91 @@
 /**
- * difficulty.js — configuration for level tuning.
+ * difficulty.js — player-selectable global difficulty multipliers.
  */
-export const DIFFICULTY = {
-  l1: {
-    spawn: {
-      asteroid: { density: 1, countRange: [5, 7], vyMin: 60, vyMax: 130 },
-      drone: { density: 1, count: 2, steerAccel: 28, vyMin: 60, vyMax: 100 },
-      strafer: {
-        density: 1,
-        count: 2,
-        fireCdMin: 1200,
-        fireCdMax: 1800,
-        speedMin: 120,
-        speedMax: 180,
-        yMin: 60,
-        yMax: 0.5,
-      },
-      turret: {
-        density: 1,
-        count: 2,
-        fireCdMin: 1200,
-        fireCdMax: 1600,
-        bulletSpeed: 140,
-        vyMin: 70,
-        vyMax: 110,
-      },
-    },
-    powerupIntervalMs: 9000,
-    bossHp: 360,
-  },
-  l2: {
-    spawn: {
-      asteroid: { density: 0.9, countRange: [6, 8], vyMin: 100, vyMax: 180 },
-      drone: { density: 1.2, count: 3, steerAccel: 46, vyMin: 80, vyMax: 130 },
-      strafer: {
-        density: 1.2,
-        count: 3,
-        fireCdMin: 820,
-        fireCdMax: 1320,
-        speedMin: 150,
-        speedMax: 220,
-        yMin: 0.25,
-        yMax: 0.6,
-      },
-      turret: {
-        density: 1.25,
-        count: 2,
-        fireCdMin: 780,
-        fireCdMax: 1260,
-        bulletSpeed: 210,
-        vyMin: 90,
-        vyMax: 140,
-      },
-    },
-    powerupIntervalMs: 8400,
-    bossHp: 420,
-  },
-};
 
-export function getDifficulty(levelIndex) {
-  if (levelIndex === 1) {
-    return DIFFICULTY.l1;
+export const DIFFICULTY = Object.freeze({
+  easy: { density: 0.85, speed: 0.9, hp: 0.9 },
+  normal: { density: 1, speed: 1, hp: 1 },
+  hard: { density: 1.2, speed: 1.1, hp: 1.1 },
+});
+
+const DEFAULT_MODE = 'normal';
+const STORAGE_KEY = 'retro-space-run.difficulty';
+const listeners = new Set();
+
+function normaliseMode(mode) {
+  if (typeof mode !== 'string') {
+    return DEFAULT_MODE;
   }
-  if (levelIndex === 2) {
-    return DIFFICULTY.l2;
+  const key = mode.toLowerCase();
+  return Object.prototype.hasOwnProperty.call(DIFFICULTY, key) ? key : DEFAULT_MODE;
+}
+
+function readStoredMode() {
+  if (typeof window === 'undefined') {
+    return DEFAULT_MODE;
   }
-  return DIFFICULTY.l2 ?? DIFFICULTY.l1;
+  try {
+    const stored = window.localStorage?.getItem(STORAGE_KEY);
+    if (!stored) {
+      return DEFAULT_MODE;
+    }
+    return normaliseMode(stored);
+  } catch (err) {
+    return DEFAULT_MODE;
+  }
+}
+
+let currentMode = readStoredMode();
+
+function persistMode(mode) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    window.localStorage?.setItem(STORAGE_KEY, mode);
+  } catch (err) {
+    /* ignore persistence issues */
+  }
+}
+
+function emitChange(mode) {
+  listeners.forEach((listener) => {
+    try {
+      listener(mode);
+    } catch (err) {
+      /* swallow listener errors */
+    }
+  });
+}
+
+export function getDifficultyMode() {
+  return currentMode;
+}
+
+export function setDifficultyMode(mode, { persist = true } = {}) {
+  const next = normaliseMode(mode);
+  if (next === currentMode) {
+    return currentMode;
+  }
+  currentMode = next;
+  if (persist) {
+    persistMode(currentMode);
+  }
+  emitChange(currentMode);
+  return currentMode;
+}
+
+export function getDifficultyMultipliers(mode = currentMode) {
+  const key = normaliseMode(mode);
+  return DIFFICULTY[key] ?? DIFFICULTY[DEFAULT_MODE];
+}
+
+export function onDifficultyModeChange(listener) {
+  if (typeof listener !== 'function') {
+    return () => {};
+  }
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }

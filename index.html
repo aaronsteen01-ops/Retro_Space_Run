@@ -76,6 +76,11 @@
   .level-select__btn{padding:.45rem .65rem; border-radius:10px; border:1px solid #00e5ff44; background:#ffffff10; color:var(--white); font-weight:600; letter-spacing:.03em; cursor:pointer; transition:background .2s ease, box-shadow .2s ease;}
   .level-select__btn:hover:not([disabled]){background:#00e5ff15; box-shadow:0 0 12px #00e5ff33 inset,0 0 14px #00e5ff55;}
   .level-select__btn[disabled],.level-select__btn--locked{border-color:#ffffff22; color:#ffffff55; cursor:not-allowed; background:#ffffff08; box-shadow:none;}
+  .difficulty-select{margin-top:1.1rem; padding:.75rem; border-radius:12px; border:1px solid #00e5ff22; background:#0a0d1acc; box-shadow:0 0 12px #00e5ff11 inset; display:flex; flex-direction:column; gap:.55rem; align-items:center;}
+  .difficulty-select__label{text-transform:uppercase; letter-spacing:.12em; font-size:.78rem; opacity:.78; margin:0;}
+  .difficulty-select__control{min-width:220px; padding:.45rem .6rem; border-radius:999px; border:1px solid #00e5ff55; background:#ffffff0f; color:var(--white); font-weight:600; letter-spacing:.04em; text-transform:none; box-shadow:0 0 10px #00e5ff22 inset;}
+  .difficulty-select__control:focus-visible{outline:2px solid var(--cyn); outline-offset:2px;}
+  .difficulty-select__hint{margin:0; font-size:.75rem; letter-spacing:.04em; opacity:.75; text-align:center; max-width:320px;}
   /* Scanline / vignette */
   #fx{
     position:fixed; inset:0; pointer-events:none; mix-blend-mode:screen;
@@ -114,6 +119,15 @@
     <h1>RETRO <span class="cyan">SPACE</span> <span class="heart">RUN</span></h1>
     <p>WASD / Arrow keys to steer · Space to fire · P pause · F fullscreen · M mute · H Assist Mode</p>
     <p>Reach the <span class="cyan">finish gate</span> with calmer Level&nbsp;1 waves. Assist Mode adds a spare life, gentler drops, and longer invulnerability.</p>
+    <div class="difficulty-select">
+      <label class="difficulty-select__label" for="difficulty-select">Difficulty</label>
+      <select id="difficulty-select" class="difficulty-select__control">
+        <option value="easy">Easy · 85% density / 90% speed</option>
+        <option value="normal">Normal · Original balance</option>
+        <option value="hard">Hard · 120% density / 110% speed</option>
+      </select>
+      <p class="difficulty-select__hint">Adjust enemy density, projectile speed, and boss durability. Normal preserves the current challenge.</p>
+    </div>
     <a id="btn">Start</a>
   </div>
 </div>

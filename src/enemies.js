@@ -3,7 +3,6 @@
  */
 import { rand, TAU, drawGlowCircle, addParticle, clamp } from './utils.js';
 import { getViewSize } from './ui.js';
-import { getDifficulty } from './difficulty.js';
 import { resolvePaletteSection, DEFAULT_THEME_PALETTE } from './themes.js';
 import { playPow } from './audio.js';
 import { getBullet, drainBullets } from './bullets.js';
@@ -26,6 +25,14 @@ const BEAM_SAFE_WIDTH = 80;
 const BEAM_SAFE_LANES = [-0.45, 0.45];
 
 const randInt = (min, max) => Math.floor(rand(min, max + 1));
+
+function getDifficultyFactor(state, key, fallback = 1) {
+  if (!state || !state.difficulty) {
+    return fallback;
+  }
+  const value = state.difficulty[key];
+  return Number.isFinite(value) ? value : fallback;
+}
 
 function enemySquallSpread(state, scale = 1) {
   const squall = state.weather?.squall;
@@ -185,6 +192,10 @@ export function spawn(state, type, params = {}) {
     const high = Math.max(low, Math.max(minInt, maxInt));
     resolvedCount = randInt(low, high);
   }
+  const densityFactor = getDifficultyFactor(state, 'density', 1);
+  if (densityFactor !== 1) {
+    resolvedCount *= densityFactor;
+  }
   resolvedCount = Math.max(0, Math.round(resolvedCount));
   resolvedCount = resolveSpawnCount(resolvedCount, Boolean(state.assistEnabled));
   if (resolvedCount <= 0) {
@@ -207,8 +218,9 @@ function pushBossBullet(state, x, y, speed, angle, radius = 8) {
   bullet.x = x;
   bullet.y = y;
   const angleOffset = angle + enemySquallSpread(state, 0.006);
-  bullet.vx = Math.cos(angleOffset) * speed;
-  bullet.vy = Math.sin(angleOffset) * speed;
+  const finalSpeed = speed * getDifficultyFactor(state, 'speed', 1);
+  bullet.vx = Math.cos(angleOffset) * finalSpeed;
+  bullet.vy = Math.sin(angleOffset) * finalSpeed;
   bullet.r = radius;
   bullet.bornAt = bornAt;
   bullet.updatedAt = bornAt;
@@ -531,8 +543,7 @@ export function updateEnemies(state, dt, now, player) {
   const { w, h } = getViewSize();
   const viewW = Math.max(w, 1);
   const viewH = Math.max(h, 1);
-  const difficulty = getDifficulty(state.levelIndex);
-  const spawnConfig = difficulty?.spawn || {};
+  const spawnConfig = state.levelContext?.spawnTweaks || {};
   const straferSettings = spawnConfig.strafer || {};
   const droneSettings = spawnConfig.drone || {};
   const turretSettings = spawnConfig.turret || {};
@@ -542,6 +553,7 @@ export function updateEnemies(state, dt, now, player) {
   const turretCdMin = turretSettings.fireCdMin ?? 600;
   const turretCdMax = turretSettings.fireCdMax ?? 1200;
   const turretBulletSpeed = turretSettings.bulletSpeed ?? 220;
+  const speedFactor = getDifficultyFactor(state, 'speed', 1);
   for (let i = state.enemies.length - 1; i >= 0; i--) {
     const e = state.enemies[i];
     if (e.type === 'asteroid') {
@@ -562,8 +574,9 @@ export function updateEnemies(state, dt, now, player) {
         const bornAt = state.time * 1000;
         bullet.x = e.x;
         bullet.y = e.y + 10;
-        bullet.vx = (player.x - e.x) * 0.0025 + enemySquallSpread(state, 0.12);
-        bullet.vy = 180;
+        const baseVx = (player.x - e.x) * 0.0025 + enemySquallSpread(state, 0.12);
+        bullet.vx = baseVx * speedFactor;
+        bullet.vy = 180 * speedFactor;
         bullet.r = 6;
         bullet.bornAt = bornAt;
         bullet.updatedAt = bornAt;
@@ -597,8 +610,9 @@ export function updateEnemies(state, dt, now, player) {
         const bornAt = state.time * 1000;
         bullet.x = e.x;
         bullet.y = e.y;
-        bullet.vx = Math.cos(angle) * (e.bulletSpeed ?? turretBulletSpeed);
-        bullet.vy = Math.sin(angle) * (e.bulletSpeed ?? turretBulletSpeed);
+        const projectileSpeed = (e.bulletSpeed ?? turretBulletSpeed) * speedFactor;
+        bullet.vx = Math.cos(angle) * projectileSpeed;
+        bullet.vy = Math.sin(angle) * projectileSpeed;
         bullet.r = 6;
         bullet.bornAt = bornAt;
         bullet.updatedAt = bornAt;
@@ -620,8 +634,8 @@ export function spawnBoss(state, bossConfig = {}) {
   const { w } = getViewSize();
   const viewW = Math.max(w, 1);
   state.enemies.length = 0;
-  const difficulty = getDifficulty(state.levelIndex);
-  const baseHp = bossConfig.hp ?? difficulty?.bossHp ?? DEFAULT_BOSS_HP;
+  const baseHp = bossConfig.hp ?? DEFAULT_BOSS_HP;
+  const resolvedHp = Math.max(1, Math.round(baseHp * getDifficultyFactor(state, 'hp', 1)));
   const rawThresholds = Array.isArray(bossConfig.phases)
     ? bossConfig.phases
     : bossConfig.phaseThresholds ?? BOSS_PHASE_THRESHOLDS;
@@ -637,8 +651,8 @@ export function spawnBoss(state, bossConfig = {}) {
     vx: 0,
     vy: 160,
     r: 60,
-    hp: baseHp,
-    maxHp: baseHp,
+    hp: resolvedHp,
+    maxHp: resolvedHp,
     currentPhase: 1,
     phase: 1,
     maxPhase: Math.max(1, resolvedMax ?? MAX_BOSS_PHASE),

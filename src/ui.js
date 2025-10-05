@@ -9,6 +9,12 @@ import {
   getThemeLabel,
   getThemePalette,
 } from './themes.js';
+import {
+  DIFFICULTY,
+  getDifficultyMode as getStoredDifficultyMode,
+  setDifficultyMode as persistDifficultyMode,
+  onDifficultyModeChange as subscribeDifficultyMode,
+} from './difficulty.js';
 
 const HUD_STYLE_ID = 'hud-compact-style';
 
@@ -37,6 +43,10 @@ const hudRoot = document.getElementById('hud');
 
 injectHudStyles();
 setupHudLayout(hudRoot);
+bindDifficultySelect();
+subscribeDifficultyMode((mode) => {
+  syncDifficultySelect(mode);
+});
 
 let DPR = window.devicePixelRatio || 1;
 let VIEW_W = window.innerWidth || canvas.clientWidth || canvas.width || 0;
@@ -51,6 +61,7 @@ const hudLevel = document.getElementById('level-chip');
 const overlay = document.getElementById('overlay');
 const themeSelect = document.getElementById('theme-select');
 const assistToggle = document.getElementById('assist-toggle');
+let difficultySelect = document.getElementById('difficulty-select');
 const hudLivesChip = document.getElementById('hud-lives-chip');
 const hudShieldMeter = document.getElementById('shield-meter');
 const hudShieldFill = document.getElementById('shield-fill');
@@ -68,6 +79,40 @@ const AUTO_FIRE_STORAGE_KEY = 'retro-space-run.auto-fire';
 const themeListeners = new Set();
 const assistListeners = new Set();
 const autoFireListeners = new Set();
+const DIFFICULTY_KEYS = new Set(Object.keys(DIFFICULTY));
+
+function syncDifficultySelect(mode = getStoredDifficultyMode()) {
+  if (!difficultySelect) {
+    return;
+  }
+  const target = typeof mode === 'string' && DIFFICULTY_KEYS.has(mode)
+    ? mode
+    : getStoredDifficultyMode();
+  if (difficultySelect.value !== target) {
+    difficultySelect.value = target;
+  }
+}
+
+function handleDifficultySelectChange(event) {
+  const value = event?.target?.value;
+  if (typeof value !== 'string') {
+    return;
+  }
+  persistDifficultyMode(value);
+}
+
+function bindDifficultySelect() {
+  const element = document.getElementById('difficulty-select');
+  if (difficultySelect && difficultySelect !== element) {
+    difficultySelect.removeEventListener('change', handleDifficultySelectChange);
+  }
+  difficultySelect = element;
+  if (!difficultySelect) {
+    return;
+  }
+  syncDifficultySelect();
+  difficultySelect.addEventListener('change', handleDifficultySelectChange);
+}
 
 function injectHudStyles() {
   if (typeof document === 'undefined' || document.getElementById(HUD_STYLE_ID)) {
@@ -661,6 +706,7 @@ export function showOverlay(html) {
   overlay.innerHTML = html;
   overlay.style.display = 'block';
   bindStartButton();
+  bindDifficultySelect();
 }
 
 export function hideOverlay() {
