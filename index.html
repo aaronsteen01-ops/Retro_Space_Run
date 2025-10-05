@@ -77,6 +77,8 @@
   .btn.btn-secondary{background:#ffffff08; border-color:#00e5ff44; box-shadow:0 0 10px #00e5ff22 inset, 0 0 10px #00e5ff22;}
   .btn.btn-secondary:hover{background:#00e5ff12;}
   .overlay-actions{display:flex; flex-wrap:wrap; gap:.75rem; justify-content:center; margin-top:1rem;}
+  .overlay-progress{margin:0.6rem 0 0; font-size:.9rem; letter-spacing:.05em;}
+  .overlay-hint{margin:1.2rem 0 0; font-size:.78rem; opacity:.72; letter-spacing:.08em;}
   .upgrade-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:1rem; margin-top:1.2rem;}
   .upgrade-card{display:flex; flex-direction:column; align-items:flex-start; gap:.55rem; padding:1rem; border:1px solid #00e5ff33; border-radius:14px; background:#0a0d1acc; box-shadow:0 0 12px #00e5ff1c inset; color:var(--white); text-align:left; cursor:pointer; transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease; font:inherit; width:100%;}
   .upgrade-card:hover{transform:translateY(-2px); box-shadow:0 0 18px #00e5ff44 inset,0 0 14px #00e5ff44; border-color:#00e5ff66;}
@@ -100,6 +102,11 @@
   .difficulty-select__control{min-width:220px; padding:.45rem .6rem; border-radius:999px; border:1px solid #00e5ff55; background:#ffffff0f; color:var(--white); font-weight:600; letter-spacing:.04em; text-transform:none; box-shadow:0 0 10px #00e5ff22 inset;}
   .difficulty-select__control:focus-visible{outline:2px solid var(--cyn); outline-offset:2px;}
   .difficulty-select__hint{margin:0; font-size:.75rem; letter-spacing:.04em; opacity:.75; text-align:center; max-width:320px;}
+  .options-section{margin-top:1rem; display:flex; flex-direction:column; gap:.55rem; align-items:center;}
+  .options-section:first-of-type{margin-top:1.2rem;}
+  .options-section__label{margin:0; text-transform:uppercase; letter-spacing:.1em; font-size:.78rem; opacity:.78;}
+  .options-theme{display:flex; flex-wrap:wrap; gap:.5rem; justify-content:center;}
+  #options-volume{width:240px;}
   /* Scanline / vignette */
   #fx{
     position:fixed; inset:0; pointer-events:none; mix-blend-mode:screen;

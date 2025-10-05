@@ -5,6 +5,9 @@ let audioOn = true;
 let ac;
 let master;
 
+const DEFAULT_MASTER_GAIN = 0.12;
+let masterVolumeScalar = 1;
+
 const SFX_PRESETS = {
   hit: [
     { type: 'triangle', freq: 200, len: 0.22, gain: 0.32 },
@@ -35,8 +38,16 @@ function ensureAudio() {
   }
   ac = new Ctx();
   master = ac.createGain();
-  master.gain.value = 0.12;
+  applyVolume();
   master.connect(ac.destination);
+}
+
+function applyVolume() {
+  if (!master) {
+    return;
+  }
+  const gainValue = audioOn ? DEFAULT_MASTER_GAIN * masterVolumeScalar : 0;
+  master.gain.value = gainValue;
 }
 
 function playTone(type, freq, len, gain, delay = 0) {
@@ -104,8 +115,13 @@ export function toggleAudio() {
   audioOn = !audioOn;
   if (audioOn) {
     ensureAudio();
+    if (masterVolumeScalar <= 0) {
+      masterVolumeScalar = 1;
+    }
+    applyVolume();
     playPow();
   }
+  applyVolume();
   return audioOn;
 }
 
@@ -113,11 +129,37 @@ export function setAudioEnabled(enabled) {
   audioOn = enabled;
   if (audioOn) {
     ensureAudio();
+    applyVolume();
   }
+  applyVolume();
 }
 
 export function isAudioEnabled() {
   return audioOn;
+}
+
+export function getVolume() {
+  if (!audioOn) {
+    return 0;
+  }
+  return masterVolumeScalar;
+}
+
+export function setVolume(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return getVolume();
+  }
+  const clamped = Math.max(0, Math.min(1, numeric));
+  masterVolumeScalar = clamped;
+  if (clamped <= 0) {
+    audioOn = false;
+  } else {
+    audioOn = true;
+    ensureAudio();
+  }
+  applyVolume();
+  return getVolume();
 }
 
 export function resumeAudioContext() {

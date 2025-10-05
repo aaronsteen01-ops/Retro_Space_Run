@@ -8,8 +8,9 @@ export const DIFFICULTY = Object.freeze({
   hard: { density: 1.2, speed: 1.1, hp: 1.1 },
 });
 
+import { getMetaValue, updateStoredMeta } from './storage.js';
+
 const DEFAULT_MODE = 'normal';
-const STORAGE_KEY = 'retro-space-run.difficulty';
 const listeners = new Set();
 
 function normaliseMode(mode) {
@@ -21,31 +22,14 @@ function normaliseMode(mode) {
 }
 
 function readStoredMode() {
-  if (typeof window === 'undefined') {
-    return DEFAULT_MODE;
-  }
-  try {
-    const stored = window.localStorage?.getItem(STORAGE_KEY);
-    if (!stored) {
-      return DEFAULT_MODE;
-    }
-    return normaliseMode(stored);
-  } catch (err) {
-    return DEFAULT_MODE;
-  }
+  const stored = getMetaValue('difficulty', DEFAULT_MODE);
+  return normaliseMode(stored);
 }
 
 let currentMode = readStoredMode();
 
 function persistMode(mode) {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  try {
-    window.localStorage?.setItem(STORAGE_KEY, mode);
-  } catch (err) {
-    /* ignore persistence issues */
-  }
+  updateStoredMeta({ difficulty: mode });
 }
 
 function emitChange(mode) {
