@@ -60,6 +60,7 @@ const hudPowerChip = document.getElementById('power-chip');
 const hudWeaponChip = document.getElementById('weapon-chip');
 const hudWeaponIcon = document.getElementById('weapon-icon');
 let autoFirePill = document.getElementById('auto-fire-pill');
+let gamepadPill = document.getElementById('gamepad-pill');
 
 const THEME_STORAGE_KEY = 'retro-space-run.theme';
 const ASSIST_STORAGE_KEY = 'retro-space-run.assist';
@@ -220,6 +221,18 @@ function injectHudStyles() {
       background: #ffffff12;
       opacity: 1;
     }
+    #hud .pill.pill--gamepad {
+      font-size: 0.7rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 0.2rem 0.6rem;
+      opacity: 0.72;
+    }
+    #hud .pill.pill--gamepad.is-active {
+      opacity: 1;
+      background: #ffffff12;
+      box-shadow: 0 0 8px #00e5ff33 inset, 0 0 12px #00e5ff1f;
+    }
     #hud .pill.pill--theme {
       display: inline-flex;
       align-items: center;
@@ -305,6 +318,14 @@ function setupHudLayout(root) {
       <div class="hud-secondary-group">
         <button id="assist-toggle" class="pill" type="button" aria-pressed="false">Assist: Off</button>
         <span id="auto-fire-pill" class="pill pill--auto" role="status" aria-live="polite">Auto: Off</span>
+        <span
+          id="gamepad-pill"
+          class="pill pill--gamepad"
+          role="status"
+          aria-live="polite"
+          aria-hidden="true"
+          hidden
+        >Gamepad: Connected</span>
         <span class="pill pill--theme">
           <span class="hud-title">Theme</span>
           <select id="theme-select" class="hud-theme" aria-label="Theme selection"></select>
@@ -447,6 +468,19 @@ function syncAutoFirePill() {
   autoFirePill.textContent = `Auto: ${autoFire ? 'On' : 'Off'}`;
   autoFirePill.setAttribute('aria-label', `Auto-fire ${autoFire ? 'on' : 'off'}`);
   autoFirePill.classList.toggle('is-on', autoFire);
+}
+
+export function setGamepadIndicator(connected) {
+  if (!gamepadPill) {
+    gamepadPill = document.getElementById('gamepad-pill');
+    if (!gamepadPill) {
+      return;
+    }
+  }
+  const isConnected = Boolean(connected);
+  gamepadPill.hidden = !isConnected;
+  gamepadPill.setAttribute('aria-hidden', isConnected ? 'false' : 'true');
+  gamepadPill.classList.toggle('is-active', isConnected);
 }
 
 function emitThemeChange() {
