@@ -865,8 +865,12 @@ function upgradeWeapon(state, weaponName) {
     state.weapon.level += 1;
     upgraded = true;
   } else {
-    state.score = (state.score ?? 0) + 500;
-    updateScore(state.score);
+    if (typeof state.addScore === 'function') {
+      state.addScore(500);
+    } else {
+      state.score = (state.score ?? 0) + 500;
+      updateScore(state.score);
+    }
     updateWeaponHud(state);
     state.weaponDropSecured = true;
     playPow();

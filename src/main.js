@@ -9,6 +9,7 @@ import {
   showPauseOverlay,
   updateLives,
   updateScore,
+  updateComboMultiplier,
   updateTime,
   updatePower,
   updateLevelChip,
@@ -82,6 +83,12 @@ const DEFAULT_LEVEL = LEVELS[0] ?? null;
 const PROGRESS_STORAGE_KEY = 'retro-space-run.highest-level';
 
 const MAX_WIND_DRIFT = 80;
+
+const COMBO_DECAY_DELAY = 3.5;
+const COMBO_MAX_VALUE = 20;
+const COMBO_STEP = 0.1;
+const COMBO_MAX_MULTIPLIER = 3;
+const PASSIVE_SCORE_RATE = 30;
 
 function defaultStarfieldConfig() {
   return {
@@ -190,6 +197,8 @@ const state = {
   levelStartWeapon: null,
   score: 0,
   lives: 3,
+  combo: { value: 0, decayTimer: 0, multiplier: 1 },
+  passiveScoreCarry: 0,
   difficultyMode: getDifficultyMode(),
   difficulty: getDifficultyMultipliers(),
   player: null,
@@ -228,6 +237,85 @@ const state = {
   weather: { windX: 0, windDrift: 0, squall: null },
   levelIntroTimeout: null,
 };
+
+function getComboState() {
+  if (!state.combo) {
+    state.combo = { value: 0, decayTimer: 0, multiplier: 1 };
+  }
+  return state.combo;
+}
+
+function computeComboMultiplier(value = 0) {
+  const safeValue = Number.isFinite(value) ? Math.max(0, Math.min(COMBO_MAX_VALUE, value)) : 0;
+  const raw = 1 + safeValue * COMBO_STEP;
+  return Math.min(COMBO_MAX_MULTIPLIER, raw);
+}
+
+function applyComboValue(value, { allowHighlight = false } = {}) {
+  const comboState = getComboState();
+  const prevMultiplier = comboState.multiplier ?? computeComboMultiplier(comboState.value ?? 0);
+  const safeValue = Math.max(0, Math.min(COMBO_MAX_VALUE, Number.isFinite(value) ? value : comboState.value || 0));
+  comboState.value = safeValue;
+  comboState.decayTimer = safeValue > 0 ? COMBO_DECAY_DELAY : 0;
+  if (safeValue <= 0) {
+    state.passiveScoreCarry = 0;
+  }
+  const newMultiplier = computeComboMultiplier(safeValue);
+  comboState.multiplier = newMultiplier;
+  const highlight = allowHighlight && newMultiplier > prevMultiplier + 0.001;
+  updateComboMultiplier(newMultiplier, { highlight });
+}
+
+function incrementCombo() {
+  const comboState = getComboState();
+  applyComboValue((comboState.value ?? 0) + 1, { allowHighlight: true });
+}
+
+function resetCombo() {
+  applyComboValue(0);
+}
+
+function updateComboTimer(dt) {
+  const comboState = getComboState();
+  if (comboState.value <= 0) {
+    return;
+  }
+  comboState.decayTimer -= dt;
+  if (comboState.decayTimer <= 0) {
+    applyComboValue(0);
+  }
+}
+
+function getScoreMultiplier() {
+  const comboState = getComboState();
+  return comboState.multiplier ?? computeComboMultiplier(comboState.value ?? 0);
+}
+
+function addScore(basePoints, { allowFraction = false } = {}) {
+  const numericBase = Number(basePoints);
+  if (!Number.isFinite(numericBase) || numericBase <= 0) {
+    return 0;
+  }
+  const multiplier = getScoreMultiplier();
+  if (allowFraction) {
+    state.passiveScoreCarry = (state.passiveScoreCarry ?? 0) + numericBase * multiplier;
+    const whole = Math.floor(state.passiveScoreCarry);
+    if (whole > 0) {
+      state.passiveScoreCarry -= whole;
+      state.score += whole;
+      updateScore(state.score);
+    }
+    return whole;
+  }
+  const awarded = Math.max(0, Math.round(numericBase * multiplier));
+  if (awarded > 0) {
+    state.score += awarded;
+    updateScore(state.score);
+  }
+  return awarded;
+}
+
+state.addScore = addScore;
 
 onDifficultyModeChange((mode) => {
   state.difficultyMode = mode;
@@ -541,6 +629,8 @@ function updateWeather() {
 }
 
 function clearLevelEntities() {
+  resetCombo();
+  state.passiveScoreCarry = 0;
   drainBullets(state.bullets);
   drainBullets(state.enemyBullets);
   state.enemies.length = 0;
@@ -577,6 +667,8 @@ function resetGame(levelIndex = state.levelIndex) {
   const startWeapon = state.levelStartWeapon ? { ...state.levelStartWeapon } : null;
   state.score = startScore;
   state.lives = startLives;
+  state.passiveScoreCarry = 0;
+  resetCombo();
   updateScore(state.score);
   updateLives(state.lives);
   if (startWeapon) {
@@ -878,6 +970,8 @@ function startLevel(levelIndex) {
   state.levelStartTime = performance.now();
   state.levelStartLives = state.lives;
   state.levelStartWeapon = state.weapon ? { ...state.weapon } : null;
+  state.passiveScoreCarry = 0;
+  resetCombo();
   configureLevelContext(targetLevel);
   levelIntro(targetLevel);
   updateScore(state.score);
@@ -898,6 +992,8 @@ function startRun(levelIndex = 1) {
   state.score = 0;
   state.levelStartScore = 0;
   state.levelStartTime = performance.now();
+  state.passiveScoreCarry = 0;
+  resetCombo();
   updateLives(state.lives);
   updateScore(state.score);
   setupWeapons(state);
@@ -1065,6 +1161,7 @@ function handlePlayerHit() {
   const particles = resolvePaletteSection(state.theme, 'particles');
   if (player.shield > 0) {
     player.shield -= 400;
+    resetCombo();
     addParticle(state, player.x, player.y, particles.shieldHit, 20, 3, 400);
     playHit();
     return false;
@@ -1073,6 +1170,7 @@ function handlePlayerHit() {
     return false;
   }
   state.lives -= 1;
+  resetCombo();
   updateLives(state.lives);
   triggerDamagePulse(state.lives <= 1 ? 0.85 : 0.55);
   addParticle(state, player.x, player.y, particles.playerHit, 30, 3.2, 500);
@@ -1113,6 +1211,7 @@ function loop(now) {
   scheduleLevelWaves();
   updateEffects(state, dt);
   updateWeather();
+  updateComboTimer(dt);
   const squall = state.weather?.squall;
   if (squall?.justActivated) {
     showToast('SQUALL!', 1000);
@@ -1305,8 +1404,8 @@ function loop(now) {
         if (enemy.hp <= 0) {
           spawnExplosion(enemy.x, enemy.y, 'small');
           state.enemies.splice(i, 1);
-          state.score += 25;
-          updateScore(state.score);
+          incrementCombo();
+          addScore(25);
           playSfx('explode');
           maybeDropWeaponToken(state, enemy);
         }
@@ -1334,8 +1433,8 @@ function loop(now) {
           shakeScreen(6, 500);
           showToast('BOSS DEFEATED', 1200);
           playBossDown();
-          state.score += 600;
-          updateScore(state.score);
+          incrementCombo();
+          addScore(600);
           if (!defeatedBoss.rewardDropped) {
             defeatedBoss.rewardDropped = true;
             maybeDropWeaponToken(state, { x: defeatedBoss.x, y: defeatedBoss.y });
@@ -1418,8 +1517,7 @@ function loop(now) {
 
   ctx.restore();
 
-  state.score += Math.floor(30 * dt);
-  updateScore(state.score);
+  addScore(PASSIVE_SCORE_RATE * dt, { allowFraction: true });
 
   requestAnimationFrame(loop);
 }

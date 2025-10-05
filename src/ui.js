@@ -45,6 +45,8 @@ let difficultySelect = document.getElementById('difficulty-select');
 
 const hudLives = document.getElementById('lives');
 const hudScore = document.getElementById('score');
+let hudComboValue = document.getElementById('combo');
+let hudComboChip = document.getElementById('combo-chip');
 const hudTime = document.getElementById('time');
 const hudPower = document.getElementById('pup');
 const hudWeapon = document.getElementById('weapon');
@@ -64,6 +66,8 @@ const hudWeaponIcon = document.getElementById('weapon-icon');
 let autoFirePill = document.getElementById('auto-fire-pill');
 let autoFireToggleBound = false;
 let gamepadPill = document.getElementById('gamepad-pill');
+
+let comboBoostTimeout = null;
 
 const THEME_STORAGE_KEY = 'retro-space-run.theme';
 const ASSIST_STORAGE_KEY = 'retro-space-run.assist';
@@ -175,6 +179,11 @@ function refreshLevelChipRefs() {
   hudLevelIcons = document.getElementById('level-chip-icons');
 }
 
+function refreshComboRefs() {
+  hudComboValue = document.getElementById('combo');
+  hudComboChip = document.getElementById('combo-chip');
+}
+
 function ensureLevelIconRoot() {
   if (!hudLevelIcons || !hudLevelIcons.isConnected) {
     refreshLevelChipRefs();
@@ -274,6 +283,24 @@ function injectHudStyles() {
       font-weight: 700;
       font-variant-numeric: tabular-nums;
       letter-spacing: 0.04em;
+    }
+    #hud .hud-chip--combo {
+      padding: 0.35rem 0.9rem;
+      border-radius: 999px;
+      background: #ffffff0e;
+      box-shadow: 0 0 10px #00e5ff1f inset, 0 0 12px #00e5ff1a;
+      transition: transform 0.25s ease, box-shadow 0.25s ease;
+    }
+    #hud .hud-chip--combo .hud-title {
+      letter-spacing: 0.16em;
+    }
+    #hud .hud-chip--combo .hud-value {
+      font-size: 1.05rem;
+      letter-spacing: 0.08em;
+    }
+    #hud .hud-chip--combo.is-boosting {
+      animation: comboBoost 0.5s ease-out;
+      box-shadow: 0 0 12px #ff3df766 inset, 0 0 18px #00e5ff55;
     }
     #hud .hud-icon {
       display: inline-flex;
@@ -414,6 +441,17 @@ function injectHudStyles() {
         transform: scale(1) rotate(360deg);
       }
     }
+    @keyframes comboBoost {
+      0% {
+        transform: scale(1);
+      }
+      45% {
+        transform: scale(1.1);
+      }
+      100% {
+        transform: scale(1);
+      }
+    }
     #hud button.pill {
       display: inline-flex;
       align-items: center;
@@ -507,6 +545,10 @@ function setupHudLayout(root) {
           <span class="hud-title">Score</span>
           <span class="hud-value" id="score">0</span>
         </div>
+        <div class="hud-chip hud-chip--combo" id="combo-chip" role="status" aria-live="polite" title="Score multiplier: x1.0">
+          <span class="hud-title">Multiplier</span>
+          <span class="hud-value" id="combo">x1.0</span>
+        </div>
         <div class="hud-chip hud-chip--stat" id="time-chip" title="Time elapsed">
           <span class="hud-title">Time</span>
           <span class="hud-value" id="time">0s</span>
@@ -560,6 +602,7 @@ function setupHudLayout(root) {
       </div>
     </div>
   `;
+  refreshComboRefs();
 }
 
 function resolveWeaponIcon(icon) {
@@ -922,6 +965,43 @@ export function updateLives(value) {
 
 export function updateScore(value) {
   hudScore.textContent = value;
+}
+
+export function updateComboMultiplier(multiplier = 1, { highlight = false } = {}) {
+  if (!hudComboValue || !hudComboValue.isConnected) {
+    refreshComboRefs();
+  }
+  const fallbackMultiplier = Number.isFinite(multiplier) ? multiplier : 1;
+  const clamped = Math.max(1, Math.min(3, fallbackMultiplier));
+  const display = clamped.toFixed(1);
+  if (hudComboValue) {
+    hudComboValue.textContent = `x${display}`;
+  }
+  if (!hudComboChip) {
+    return;
+  }
+  const label = `Score multiplier: x${display}`;
+  hudComboChip.setAttribute('title', label);
+  hudComboChip.setAttribute('aria-label', label);
+  if (highlight) {
+    hudComboChip.classList.remove('is-boosting');
+    // Force reflow so the animation can retrigger
+    void hudComboChip.offsetWidth;
+    hudComboChip.classList.add('is-boosting');
+    if (comboBoostTimeout) {
+      clearTimeout(comboBoostTimeout);
+    }
+    comboBoostTimeout = setTimeout(() => {
+      hudComboChip?.classList.remove('is-boosting');
+      comboBoostTimeout = null;
+    }, 520);
+  } else if (!highlight && comboBoostTimeout) {
+    clearTimeout(comboBoostTimeout);
+    comboBoostTimeout = null;
+    hudComboChip.classList.remove('is-boosting');
+  } else if (!highlight) {
+    hudComboChip.classList.remove('is-boosting');
+  }
 }
 
 export function updateTime(value) {
