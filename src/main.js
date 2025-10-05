@@ -974,7 +974,7 @@ function gameOver() {
     startRun(state.levelIndex);
   });
   document.getElementById('overlay-menu')?.addEventListener('click', () => {
-    renderStartOverlay();
+    renderStartOverlay({ resetHud: true });
   });
 }
 
