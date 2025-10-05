@@ -4,7 +4,6 @@
 import { rand, coll, addParticle } from './utils.js';
 import {
   ctx,
-  setStartHandler,
   showOverlay,
   hideOverlay,
   showPauseOverlay,
@@ -18,6 +17,7 @@ import {
   getAssistMode,
   toggleAssistMode,
   onAssistChange,
+  setTheme,
 } from './ui.js';
 import { playZap, playHit, toggleAudio, resumeAudioContext, playPow } from './audio.js';
 import { resetPlayer, updatePlayer, clampPlayerToBounds, drawPlayer } from './player.js';
@@ -51,6 +51,7 @@ import {
   ensureGuaranteedWeaponDrop,
   updateMuzzleFlashes,
   drawMuzzleFlashes,
+  updateWeaponHud,
 } from './weapons.js';
 import { DEFAULT_THEME_PALETTE, resolvePaletteSection } from './themes.js';
 import { LEVELS } from './levels.js';
@@ -61,6 +62,39 @@ let activePalette = getActiveThemePalette() ?? DEFAULT_THEME_PALETTE;
 
 const DEFAULT_LEVEL = LEVELS[0] ?? null;
 
+const PROGRESS_STORAGE_KEY = 'retro-space-run.highest-level';
+
+function readHighestUnlockedLevel() {
+  try {
+    const stored = window.localStorage?.getItem(PROGRESS_STORAGE_KEY);
+    const parsed = Number.parseInt(stored ?? '', 10);
+    if (Number.isFinite(parsed) && parsed >= 1) {
+      return parsed;
+    }
+  } catch (err) {
+    /* ignore storage access issues */
+  }
+  return 1;
+}
+
+function writeHighestUnlockedLevel(value) {
+  try {
+    window.localStorage?.setItem(PROGRESS_STORAGE_KEY, String(value));
+  } catch (err) {
+    /* ignore storage access issues */
+  }
+}
+
+let highestUnlockedLevel = Math.max(1, Math.min(LEVELS.length, readHighestUnlockedLevel()));
+
+function unlockLevel(levelIndex) {
+  const capped = Math.max(1, Math.min(LEVELS.length, Math.floor(levelIndex)));
+  if (capped > highestUnlockedLevel) {
+    highestUnlockedLevel = capped;
+    writeHighestUnlockedLevel(capped);
+  }
+}
+
 const state = {
   running: false,
   paused: false,
@@ -69,6 +103,8 @@ const state = {
   level: DEFAULT_LEVEL,
   nextWaveIndex: 0,
   time: 0,
+  levelStartScore: 0,
+  levelStartTime: 0,
   score: 0,
   lives: 3,
   player: null,
@@ -97,6 +133,8 @@ const state = {
   weapon: null,
   theme: activePalette,
   assistEnabled: getAssistMode(),
+  levelContext: { spawnTweaks: {}, enemyWeights: {}, mechanics: {}, themeKey: null },
+  weather: { windX: 0, squall: null },
 };
 
 onThemeChange((_, palette) => {
@@ -248,40 +286,169 @@ function drawGate(gate, palette) {
   ctx.restore();
 }
 
+function applyLevelMechanics(mechanics = {}) {
+  const wind = Number.isFinite(mechanics.windX) ? mechanics.windX : 0;
+  state.weather.windX = wind;
+  const squallConfig = mechanics.squallBursts;
+  if (squallConfig) {
+    const interval = Array.isArray(squallConfig.interval) && squallConfig.interval.length >= 2
+      ? squallConfig.interval
+      : [10, 14];
+    const rawMin = Number(interval[0]);
+    const rawMax = Number(interval[1]);
+    const intervalMin = Number.isFinite(rawMin) ? Math.max(1, rawMin) : 10;
+    const intervalMax = Number.isFinite(rawMax) ? Math.max(intervalMin, rawMax) : Math.max(intervalMin, intervalMin + 4);
+    const duration = Number.isFinite(squallConfig.duration) ? Math.max(0.2, squallConfig.duration) : 1.2;
+    const playerSpread = Number.isFinite(squallConfig.playerSpread)
+      ? Math.max(0, squallConfig.playerSpread)
+      : Number.isFinite(squallConfig.spread)
+        ? Math.max(0, squallConfig.spread)
+        : 0;
+    const enemySpread = Number.isFinite(squallConfig.enemySpread)
+      ? Math.max(0, squallConfig.enemySpread)
+      : Math.max(0, playerSpread * 0.3);
+    const dimFactor = Number.isFinite(squallConfig.dimFactor)
+      ? Math.max(0.15, Math.min(1, squallConfig.dimFactor))
+      : 0.55;
+    state.weather.squall = {
+      active: false,
+      intervalMin,
+      intervalMax,
+      duration,
+      nextAt: rand(intervalMin, intervalMax),
+      startedAt: 0,
+      endsAt: 0,
+      dimFactor,
+      playerSpread,
+      enemySpread,
+    };
+  } else {
+    state.weather.squall = null;
+  }
+}
+
+function updateWeather() {
+  const squall = state.weather?.squall;
+  if (!squall) {
+    return;
+  }
+  const time = state.time;
+  if (!squall.active && time >= squall.nextAt) {
+    squall.active = true;
+    squall.startedAt = time;
+    squall.endsAt = time + squall.duration;
+  } else if (squall.active && time >= squall.endsAt) {
+    squall.active = false;
+    squall.startedAt = time;
+    squall.nextAt = time + rand(squall.intervalMin, squall.intervalMax);
+  }
+}
+
+function clearLevelEntities() {
+  drainBullets(state.bullets);
+  drainBullets(state.enemyBullets);
+  state.enemies.length = 0;
+  state.powerups.length = 0;
+  state.weaponDrops.length = 0;
+  state.muzzleFlashes.length = 0;
+  state.particles.length = 0;
+  state.finishGate = null;
+  state.boss = null;
+  state.bossSpawned = false;
+  state.bossDefeatedAt = 0;
+  state.bossMercyUntil = 0;
+  state.weaponDropSecured = false;
+  state.powerupsGrantedL1 = 0;
+  state.lastGuaranteedPowerup = null;
+  state.weaponPickupFlash = null;
+  state.lastShot = 0;
+  state.screenShake.time = 0;
+  state.screenShake.duration = 0;
+  state.screenShake.magnitude = 0;
+  state.screenShake.offsetX = 0;
+  state.screenShake.offsetY = 0;
+  state.power = { name: null, until: 0 };
+  resetPowerState(state);
+  resetPowerTimers();
+  spawnStars();
+  resetPlayer(state);
+  updatePower('None');
+  updateTime(0);
+}
+
+function configureLevelContext(level) {
+  const modifiers = level?.modifiers ?? {};
+  state.levelContext = {
+    spawnTweaks: modifiers.spawn ?? {},
+    enemyWeights: modifiers.enemyWeights ?? {},
+    mechanics: level?.mechanics ?? {},
+    themeKey: level?.theme ?? null,
+  };
+  applyLevelMechanics(state.levelContext.mechanics);
+  if (state.levelContext.themeKey) {
+    setTheme(state.levelContext.themeKey, { persist: false });
+  }
+}
+
+function drawSquallOverlay(viewW, viewH) {
+  const squall = state.weather?.squall;
+  if (!squall?.active) {
+    return;
+  }
+  const elapsed = Math.max(0, state.time - (squall.startedAt ?? 0));
+  const progress = squall.duration > 0 ? Math.min(1, elapsed / squall.duration) : 1;
+  const pulse = Math.sin(progress * Math.PI);
+  ctx.save();
+  ctx.globalAlpha = 0.12 + pulse * 0.25;
+  const gradient = ctx.createLinearGradient(0, 0, viewW, viewH * 0.6);
+  gradient.addColorStop(0, 'rgba(160, 210, 255, 0.0)');
+  gradient.addColorStop(0.45, 'rgba(160, 210, 255, 0.35)');
+  gradient.addColorStop(0.8, 'rgba(120, 190, 255, 0.15)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, viewW, viewH);
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = 0.18 + pulse * 0.2;
+  ctx.fillStyle = 'rgba(140, 210, 255, 0.5)';
+  ctx.fillRect(0, viewH * 0.15, viewW, 4);
+  ctx.fillRect(0, viewH * 0.35, viewW, 3);
+  ctx.fillRect(0, viewH * 0.55, viewW, 4);
+  ctx.restore();
+}
+
 function spawnWaveFromSchedule(wave, difficulty) {
   if (!wave || !wave.type) {
     return;
   }
   const spawnConfig = difficulty?.spawn || {};
   const typeConfig = spawnConfig[wave.type] || {};
-  const { density = 1, count: typeCount, countRange: typeRange, ...typeParams } = typeConfig;
-  const rawWaveParams = wave.params ? { ...wave.params } : {};
-  const { countRange: waveRange, ...waveParams } = rawWaveParams;
-  let baseCount = typeof wave.count === 'number' ? wave.count : undefined;
-  if (baseCount === undefined && typeof typeCount === 'number') {
-    baseCount = typeCount;
-  }
-  const range = Array.isArray(waveRange) && waveRange.length >= 2
-    ? waveRange
-    : Array.isArray(typeRange) && typeRange.length >= 2
-      ? typeRange
-      : null;
+  const levelTweaks = state.levelContext.spawnTweaks?.[wave.type] || {};
+  const waveOverrides = wave.params ? { ...wave.params } : {};
+  const mergedParams = { ...typeConfig, ...levelTweaks, ...waveOverrides };
+  const weight = Number.isFinite(state.levelContext.enemyWeights?.[wave.type])
+    ? state.levelContext.enemyWeights[wave.type]
+    : 1;
+  const baseDensity = Number.isFinite(mergedParams.density) ? mergedParams.density : 1;
+  const density = Math.max(0, baseDensity * (Number.isFinite(weight) ? weight : 1));
+  const waveRange = Array.isArray(wave.countRange) && wave.countRange.length >= 2 ? wave.countRange : null;
+  const mergedRange = Array.isArray(mergedParams.countRange) && mergedParams.countRange.length >= 2
+    ? mergedParams.countRange
+    : null;
+  const range = waveRange ?? mergedRange;
+  const baseCount = Number.isFinite(wave.count)
+    ? wave.count
+    : Number.isFinite(mergedParams.count)
+      ? mergedParams.count
+      : 1;
+  const finalParams = { ...mergedParams };
   if (range) {
-    const min = Math.floor(range[0]);
-    const max = Math.floor(range[1]);
-    const low = Math.min(min, max);
-    const high = Math.max(min, max);
-    const safeLow = Math.max(0, low);
-    const safeHigh = Math.max(safeLow, high);
-    baseCount = Math.floor(rand(safeLow, safeHigh + 1));
+    finalParams.countRange = range.map((value) => value * density);
+    delete finalParams.count;
+  } else {
+    finalParams.count = baseCount * density;
+    delete finalParams.countRange;
   }
-  if (baseCount === undefined) {
-    baseCount = 1;
-  }
-  const densityMultiplier = Number.isFinite(density) ? density : 1;
-  const finalCount = Math.max(0, Math.round(baseCount * densityMultiplier));
-  const finalParams = { ...typeParams, ...waveParams, count: finalCount, spawnTime: state.time };
-  delete finalParams.countRange;
+  delete finalParams.density;
+  finalParams.spawnTime = state.time;
   spawn(state, wave.type, finalParams);
 }
 
@@ -301,67 +468,184 @@ function scheduleLevelWaves() {
   }
 }
 
-function resetState() {
-  state.running = true;
-  state.paused = false;
-  state.levelIndex = 1;
-  state.level = LEVELS[state.levelIndex - 1] ?? DEFAULT_LEVEL;
-  state.levelDur = state.level?.duration ?? 0;
+function startLevel(levelIndex) {
+  const targetLevel = LEVELS[levelIndex - 1] ?? DEFAULT_LEVEL;
+  if (!targetLevel) {
+    return;
+  }
+  state.levelIndex = levelIndex;
+  state.level = targetLevel;
+  state.levelDur = targetLevel?.duration ?? 0;
   state.nextWaveIndex = 0;
   state.time = 0;
-  state.score = 0;
-  state.assistEnabled = getAssistMode();
-  state.lives = state.assistEnabled ? 4 : 3;
-  drainBullets(state.bullets);
-  state.enemies.length = 0;
-  drainBullets(state.enemyBullets);
-  state.powerups.length = 0;
-  state.particles.length = 0;
-  state.finishGate = null;
-  state.boss = null;
-  state.bossSpawned = false;
-  state.bossDefeatedAt = 0;
-  state.bossMercyUntil = 0;
-  state.lastShot = 0;
-  state.weaponDropSecured = false;
-  state.powerupsGrantedL1 = 0;
-  state.lastGuaranteedPowerup = null;
-  state.muzzleFlashes.length = 0;
-  state.screenShake.time = 0;
-  state.screenShake.duration = 0;
-  state.screenShake.magnitude = 0;
-  state.screenShake.offsetX = 0;
-  state.screenShake.offsetY = 0;
-  state.theme = activePalette;
-  resetPlayer(state);
-  resetPowerState(state);
-  resetPowerTimers();
-  setupWeapons(state);
-  spawnStars();
-  updateLives(state.lives);
+  state.levelStartScore = state.score;
+  state.levelStartTime = performance.now();
+  configureLevelContext(targetLevel);
+  clearLevelEntities();
   updateScore(state.score);
-  updateTime(0);
-  updatePower('None');
+  updateLives(state.lives);
+  updateWeaponHud(state, { flash: false });
   hideOverlay();
   keys.clear();
+  state.running = true;
+  state.paused = false;
   lastFrame = performance.now();
   requestAnimationFrame(loop);
 }
 
-function gameOver(win) {
+function startRun(levelIndex = 1) {
+  state.assistEnabled = getAssistMode();
+  state.lives = state.assistEnabled ? 4 : 3;
+  state.score = 0;
+  state.levelStartScore = 0;
+  state.levelStartTime = performance.now();
+  updateLives(state.lives);
+  updateScore(state.score);
+  setupWeapons(state);
+  const nextLevel = Math.max(1, Math.min(LEVELS.length, Math.floor(levelIndex)));
+  startLevel(nextLevel);
+}
+
+function completeLevel() {
   state.running = false;
   state.paused = false;
-  const time = Math.floor(state.time);
-  const title = win
-    ? '<span class="cyan">MISSION COMPLETE</span>'
-    : '<span class="heart">GAME OVER</span>';
-  const message = win ? 'You reached the finish gate.' : 'You lost all lives.';
+  const levelTime = Math.floor(state.time);
+  const scoreDelta = state.score - (state.levelStartScore ?? 0);
+  const nextLevelIndex = state.levelIndex + 1;
+  const currentLevel = state.level;
+  applyLevelMechanics({});
+  clearLevelEntities();
+  updateScore(state.score);
+  updateLives(state.lives);
+  if (nextLevelIndex <= LEVELS.length) {
+    unlockLevel(nextLevelIndex);
+  }
+  const nextLevel = LEVELS[nextLevelIndex - 1] ?? null;
+  const header = `LEVEL ${state.levelIndex} COMPLETE`;
+  const nextButton = nextLevel
+    ? `<button id="next-level-btn" class="btn">Continue to L${nextLevelIndex}: ${nextLevel.name}</button>`
+    : `<button id="return-hangar" class="btn">Return to Hangar</button>`;
   showOverlay(`
-    <h1>${title}</h1>
-    <p>Score: <strong>${state.score}</strong> · Time: <strong>${time}</strong>s</p>
-    <p>${message} Press Start to try again.</p>
-    <a id="btn">Start</a>
+    <h1><span class="cyan">${header}</span></h1>
+    <p>${currentLevel?.name ?? 'Sector'} cleared in <strong>${levelTime}s</strong>.</p>
+    <p>Score gained: <strong>${Math.max(0, scoreDelta)}</strong> · Total Score: <strong>${state.score}</strong></p>
+    <div class="overlay-actions">
+      ${nextButton}
+      <button id="summary-select-level" class="btn btn-secondary">Select Level</button>
+    </div>
   `);
+  const select = document.getElementById('summary-select-level');
+  select?.addEventListener('click', () => {
+    renderStartOverlay();
+  });
+  if (nextLevel) {
+    const nextBtn = document.getElementById('next-level-btn');
+    nextBtn?.addEventListener('click', () => {
+      startLevel(nextLevelIndex);
+    });
+  } else {
+    const hangar = document.getElementById('return-hangar');
+    hangar?.addEventListener('click', () => {
+      renderStartOverlay();
+    });
+  }
+}
+
+function gameOver() {
+  state.running = false;
+  state.paused = false;
+  const levelTime = Math.floor(state.time);
+  const scoreDelta = state.score - (state.levelStartScore ?? 0);
+  const levelName = state.level?.name ?? 'Sector';
+  applyLevelMechanics({});
+  clearLevelEntities();
+  updateScore(state.score);
+  updateLives(state.lives);
+  showOverlay(`
+    <h1><span class="heart">SHIP DESTROYED</span></h1>
+    <p>Level ${state.levelIndex}: ${levelName} after <strong>${levelTime}s</strong>.</p>
+    <p>Score this run: <strong>${state.score}</strong> · Level gain: <strong>${Math.max(0, scoreDelta)}</strong></p>
+    <div class="overlay-actions">
+      <button id="retry-level" class="btn">Retry Level ${state.levelIndex}</button>
+      <button id="overlay-select-level" class="btn btn-secondary">Select Level</button>
+    </div>
+  `);
+  document.getElementById('retry-level')?.addEventListener('click', () => {
+    startRun(state.levelIndex);
+  });
+  document.getElementById('overlay-select-level')?.addEventListener('click', () => {
+    renderStartOverlay();
+  });
+}
+
+function renderStartOverlay({ resetHud = false } = {}) {
+  state.running = false;
+  state.paused = false;
+  if (resetHud) {
+    state.assistEnabled = getAssistMode();
+    state.lives = state.assistEnabled ? 4 : 3;
+    state.score = 0;
+  }
+  configureLevelContext(null);
+  clearLevelEntities();
+  state.level = null;
+  state.levelDur = 0;
+  state.nextWaveIndex = 0;
+  state.levelIndex = 1;
+  updateScore(state.score);
+  updateLives(state.lives);
+  const continueLabel = highestUnlockedLevel > 1
+    ? `Continue (Level ${highestUnlockedLevel})`
+    : 'Start Level 1';
+  const levelButtons = LEVELS.map((level, index) => {
+    const levelNumber = index + 1;
+    const locked = levelNumber > highestUnlockedLevel;
+    const lockedClass = locked ? ' level-select__btn--locked' : '';
+    const disabled = locked ? ' disabled aria-disabled="true"' : '';
+    return `<button class="level-select__btn${lockedClass}" data-level="${levelNumber}"${disabled}>L${levelNumber} · ${level.name}</button>`;
+  }).join('');
+  showOverlay(`
+    <h1>RETRO <span class="cyan">SPACE</span> <span class="heart">RUN</span></h1>
+    <p>WASD / Arrow keys to steer · Space to fire · P pause · F fullscreen · M mute · H Assist Mode</p>
+    <p>Pick a sector or continue your furthest run. Assist Mode toggles an extra life and softer spawns.</p>
+    <div class="overlay-actions">
+      <button id="continue-btn" class="btn">${continueLabel}</button>
+      <button id="toggle-level-select" class="btn btn-secondary" aria-expanded="false">Select Level</button>
+    </div>
+    <div id="level-select" class="level-select" hidden>
+      <p class="level-select__label">Unlocked Levels</p>
+      <div class="level-select__grid">${levelButtons}</div>
+    </div>
+  `);
+  const continueBtn = document.getElementById('continue-btn');
+  continueBtn?.addEventListener('click', () => {
+    startRun(highestUnlockedLevel);
+  });
+  const toggle = document.getElementById('toggle-level-select');
+  const panel = document.getElementById('level-select');
+  toggle?.addEventListener('click', () => {
+    if (!panel) {
+      return;
+    }
+    const isHidden = panel.hasAttribute('hidden');
+    if (isHidden) {
+      panel.removeAttribute('hidden');
+      toggle.setAttribute('aria-expanded', 'true');
+    } else {
+      panel.setAttribute('hidden', 'hidden');
+      toggle.setAttribute('aria-expanded', 'false');
+    }
+  });
+  panel?.querySelectorAll('[data-level]').forEach((btn) => {
+    const element = btn;
+    const levelNumber = Number.parseInt(element.getAttribute('data-level') ?? '', 10);
+    if (element.hasAttribute('disabled')) {
+      return;
+    }
+    element.addEventListener('click', () => {
+      startRun(levelNumber);
+    });
+  });
 }
 
 function handlePlayerHit() {
@@ -383,7 +667,7 @@ function handlePlayerHit() {
   state.bossMercyUntil = performance.now() + 600;
   player.invuln = state.assistEnabled ? 3000 : 2000;
   if (state.lives <= 0) {
-    gameOver(false);
+    gameOver();
     return true;
   }
   return false;
@@ -411,6 +695,7 @@ function loop(now) {
   ensureGuaranteedWeaponDrop(state);
   scheduleLevelWaves();
   updateScreenShake(dt);
+  updateWeather();
 
   if (state.time >= state.levelDur) {
     if (!state.bossSpawned) {
@@ -426,17 +711,27 @@ function loop(now) {
   if (state.screenShake.offsetX || state.screenShake.offsetY) {
     ctx.translate(state.screenShake.offsetX, state.screenShake.offsetY);
   }
+  const wind = Number.isFinite(state.weather?.windX) ? state.weather.windX : 0;
+  const squall = state.weather?.squall;
+  const squallDim = squall?.active ? squall.dimFactor ?? 0.6 : 1;
   for (const star of state.stars) {
+    star.x += wind * 0.04 * star.z * dt;
     star.y += (60 * star.z + state.speed * 0.05 * star.z) * dt;
+    if (star.x < -2) {
+      star.x = viewW + 2;
+    } else if (star.x > viewW + 2) {
+      star.x = -2;
+    }
     if (star.y > viewH) {
       star.y = -2;
       star.x = rand(0, viewW);
     }
-    ctx.globalAlpha = 0.4 * star.z;
+    ctx.globalAlpha = Math.max(0, 0.4 * star.z * squallDim);
     ctx.fillStyle = star.z > 1.1 ? starPalette.bright : starPalette.dim;
     ctx.fillRect(star.x, star.y, 2, 2);
   }
   ctx.globalAlpha = 1;
+  drawSquallOverlay(viewW, viewH);
 
   const player = state.player;
   updatePlayer(player, keys, dt, state.power.name === 'boost');
@@ -445,12 +740,12 @@ function loop(now) {
   const bulletTime = state.time * 1000;
 
   handlePlayerShooting(state, keys, now);
-  updateBullets(state.bullets, bulletTime, bulletBounds);
+  updateBullets(state.bullets, bulletTime, bulletBounds, { windX: wind });
   updateMuzzleFlashes(state, dt);
 
   updateEnemies(state, dt, now, player);
   updateBoss(state, dt, now, player, palette);
-  updateBullets(state.enemyBullets, bulletTime, bulletBounds);
+  updateBullets(state.enemyBullets, bulletTime, bulletBounds, { windX: wind });
 
   ensureGuaranteedPowerups(state, now);
   maybeSpawnPowerup(state, now);
@@ -468,7 +763,7 @@ function loop(now) {
       playZap();
       playZap();
       playPow();
-      gameOver(true);
+      completeLevel();
       ctx.restore();
       return;
     }
@@ -610,8 +905,4 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 
-function start() {
-  resetState();
-}
-
-setStartHandler(start);
+renderStartOverlay({ resetHud: true });
