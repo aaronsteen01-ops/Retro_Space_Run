@@ -4,7 +4,6 @@
 import { rand, TAU, coll, clamp } from './utils.js';
 import { playPow } from './audio.js';
 import { updatePower, getViewSize } from './ui.js';
-import { getDifficulty } from './difficulty.js';
 import { resolvePaletteSection } from './themes.js';
 
 const spawnState = {
@@ -43,8 +42,7 @@ export function resetPowerTimers() {
 }
 
 export function maybeSpawnPowerup(state, now) {
-  const difficulty = getDifficulty(state.levelIndex);
-  const interval = difficulty?.powerupIntervalMs ?? 12000;
+  const interval = state.level?.powerups?.intervalMs ?? 12000;
   const assistFactor = state.assistEnabled ? 2 / 3 : 1;
   const targetInterval = interval * assistFactor;
   if (now - spawnState.last < targetInterval) {
