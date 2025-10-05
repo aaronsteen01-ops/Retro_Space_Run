@@ -48,7 +48,7 @@ export function freeBullet(bullet) {
   bulletPool.push(bullet);
 }
 
-export function updateBullets(bullets, now, bounds) {
+export function updateBullets(bullets, now, bounds, { windX = 0 } = {}) {
   if (!Array.isArray(bullets) || !bullets.length) {
     return;
   }
@@ -58,7 +58,8 @@ export function updateBullets(bullets, now, bounds) {
     const lastUpdate = bullet.updatedAt ?? now;
     const dt = Math.max(0, (now - lastUpdate) / 1000);
     if (dt > 0) {
-      bullet.x += (bullet.vx ?? 0) * dt;
+      const drift = Number.isFinite(windX) ? windX : 0;
+      bullet.x += (bullet.vx ?? 0) * dt + drift * dt;
       bullet.y += (bullet.vy ?? 0) * dt;
     }
     bullet.updatedAt = now;

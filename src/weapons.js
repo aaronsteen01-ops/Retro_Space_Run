@@ -1,7 +1,7 @@
 /**
  * weapons.js — player and enemy projectile management for Retro Space Run.
  */
-import { coll, lerp } from './utils.js';
+import { coll, lerp, rand } from './utils.js';
 import { playPew, playPow, playUpgrade } from './audio.js';
 import { updateWeapon, updateScore, getViewSize } from './ui.js';
 import { resolvePaletteSection, DEFAULT_THEME_PALETTE } from './themes.js';
@@ -666,14 +666,14 @@ function colourWithAlpha(colour, alpha) {
   return `rgba(255, 255, 255, ${alpha})`;
 }
 
-function pushMuzzleFlash(state, projectile, levelIndex, width, height, colour) {
+function pushMuzzleFlash(state, projectile, levelIndex, width, height, colour, bulletVx, bulletVy) {
   if (!state.player) {
     return;
   }
   const length = Math.max(height * 0.9, 14 + levelIndex * 4);
   const spread = Math.max(width * 0.8, 6 + levelIndex * 1.5);
-  const vx = projectile.vx ?? 0;
-  const vy = projectile.vy ?? -1;
+  const vx = bulletVx ?? projectile.vx ?? 0;
+  const vy = bulletVy ?? projectile.vy ?? -1;
   const rotation = Math.atan2(vy, vx) + Math.PI / 2;
   state.muzzleFlashes.push({
     x: state.player.x + projectile.offsetX,
@@ -713,11 +713,15 @@ function spawnProjectile(state, projectile, levelIndex) {
   const height = baseHeight + levelIndex * 3;
   const radius = projectile.radius ?? Math.max(width, height) / 2;
   const colour = projectileColour(state, projectile.colourIndex ?? 0);
+  const squall = state.weather?.squall;
+  const spread = squall?.active ? squall.playerSpread ?? squall.spread ?? 0 : 0;
   const bullet = getBullet();
   bullet.x = state.player.x + projectile.offsetX;
   bullet.y = state.player.y + projectile.offsetY;
-  bullet.vx = projectile.vx;
-  bullet.vy = projectile.vy;
+  const vx = projectile.vx + (spread ? rand(-spread, spread) : 0);
+  const vy = projectile.vy;
+  bullet.vx = vx;
+  bullet.vy = vy;
   bullet.r = radius;
   bullet.damage = projectile.damage;
   bullet.colour = colour;
@@ -729,7 +733,7 @@ function spawnProjectile(state, projectile, levelIndex) {
   bullet.owner = 'player';
   bullet.maxAge = undefined;
   state.bullets.push(bullet);
-  pushMuzzleFlash(state, projectile, levelIndex, width, height, colour);
+  pushMuzzleFlash(state, projectile, levelIndex, width, height, colour, vx, vy);
 }
 
 export function handlePlayerShooting(state, keys, now) {

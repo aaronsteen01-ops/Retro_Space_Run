@@ -324,8 +324,8 @@ export function getActiveThemePalette() {
   return getThemePalette(activeThemeKey);
 }
 
-export function setTheme(key) {
-  setThemeInternal(key);
+export function setTheme(key, { persist = true } = {}) {
+  setThemeInternal(key, persist);
 }
 
 export function onThemeChange(handler, { immediate = true } = {}) {
