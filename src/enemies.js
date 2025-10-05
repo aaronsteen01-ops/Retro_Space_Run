@@ -27,6 +27,16 @@ const BEAM_SAFE_LANES = [-0.45, 0.45];
 
 const randInt = (min, max) => Math.floor(rand(min, max + 1));
 
+function enemySquallSpread(state, scale = 1) {
+  const squall = state.weather?.squall;
+  const spread = squall?.active ? squall.enemySpread ?? 0 : 0;
+  if (!spread) {
+    return 0;
+  }
+  const factor = Number.isFinite(scale) ? Math.max(0, scale) : 1;
+  return rand(-spread * factor, spread * factor);
+}
+
 function resolveSpawnCount(baseCount, assistEnabled) {
   if (!assistEnabled) {
     return baseCount;
@@ -196,8 +206,9 @@ function pushBossBullet(state, x, y, speed, angle, radius = 8) {
   const bullet = getBullet();
   bullet.x = x;
   bullet.y = y;
-  bullet.vx = Math.cos(angle) * speed;
-  bullet.vy = Math.sin(angle) * speed;
+  const angleOffset = angle + enemySquallSpread(state, 0.006);
+  bullet.vx = Math.cos(angleOffset) * speed;
+  bullet.vy = Math.sin(angleOffset) * speed;
   bullet.r = radius;
   bullet.bornAt = bornAt;
   bullet.updatedAt = bornAt;
@@ -550,7 +561,7 @@ export function updateEnemies(state, dt, now, player) {
         const bornAt = state.time * 1000;
         bullet.x = e.x;
         bullet.y = e.y + 10;
-        bullet.vx = (player.x - e.x) * 0.0025;
+        bullet.vx = (player.x - e.x) * 0.0025 + enemySquallSpread(state, 0.12);
         bullet.vy = 180;
         bullet.r = 6;
         bullet.bornAt = bornAt;
@@ -580,7 +591,7 @@ export function updateEnemies(state, dt, now, player) {
       e.cd -= dt * 1000;
       if (e.cd <= 0) {
         e.cd = rand(turretCdMin, turretCdMax);
-        const angle = Math.atan2(player.y - e.y, player.x - e.x);
+        const angle = Math.atan2(player.y - e.y, player.x - e.x) + enemySquallSpread(state, 0.005);
         const bullet = getBullet();
         const bornAt = state.time * 1000;
         bullet.x = e.x;

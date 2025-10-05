@@ -58,11 +58,23 @@
   }
   #msg h1{margin:.2rem 0 0.4rem; font-size:2.2rem}
   #msg p{margin:.2rem 0; opacity:.9}
-  #btn{
-    margin-top:.7rem; display:inline-block; padding:.45rem .8rem; border-radius:999px; cursor:pointer;
-    border:1px solid #00e5ffaa; color:var(--white); text-decoration:none; pointer-events:auto;
-    box-shadow:0 0 12px #00e5ff55 inset, 0 0 12px #00e5ff55;
+  .btn,#btn{
+    margin-top:.7rem; display:inline-flex; align-items:center; justify-content:center; padding:.45rem .8rem;
+    border-radius:999px; cursor:pointer; text-decoration:none; pointer-events:auto; border:1px solid #00e5ffaa;
+    color:var(--white); background:#ffffff0a; font-weight:600; letter-spacing:.04em;
+    box-shadow:0 0 12px #00e5ff33 inset, 0 0 12px #00e5ff44; transition:background .2s ease, box-shadow .2s ease;
   }
+  .btn:hover,#btn:hover{background:#00e5ff18; box-shadow:0 0 16px #00e5ff55 inset, 0 0 18px #00e5ff55;}
+  .btn.btn-secondary{background:#ffffff08; border-color:#00e5ff44; box-shadow:0 0 10px #00e5ff22 inset, 0 0 10px #00e5ff22;}
+  .btn.btn-secondary:hover{background:#00e5ff12;}
+  .overlay-actions{display:flex; flex-wrap:wrap; gap:.75rem; justify-content:center; margin-top:1rem;}
+  .level-select{margin-top:1rem; padding:.75rem; border-radius:12px; border:1px solid #00e5ff22; background:#0a0d1acc; box-shadow:0 0 12px #00e5ff11 inset;}
+  .level-select[hidden]{display:none;}
+  .level-select__label{margin:0 0 .6rem; text-transform:uppercase; letter-spacing:.1em; font-size:.78rem; opacity:.72;}
+  .level-select__grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:.55rem;}
+  .level-select__btn{padding:.45rem .65rem; border-radius:10px; border:1px solid #00e5ff44; background:#ffffff10; color:var(--white); font-weight:600; letter-spacing:.03em; cursor:pointer; transition:background .2s ease, box-shadow .2s ease;}
+  .level-select__btn:hover:not([disabled]){background:#00e5ff15; box-shadow:0 0 12px #00e5ff33 inset,0 0 14px #00e5ff55;}
+  .level-select__btn[disabled],.level-select__btn--locked{border-color:#ffffff22; color:#ffffff55; cursor:not-allowed; background:#ffffff08; box-shadow:none;}
   /* Scanline / vignette */
   #fx{
     position:fixed; inset:0; pointer-events:none; mix-blend-mode:screen;

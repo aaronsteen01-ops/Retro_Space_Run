@@ -29,12 +29,41 @@ export const DIFFICULTY = {
     powerupIntervalMs: 9000,
     bossHp: 360,
   },
-  // l2, l3... later
+  l2: {
+    spawn: {
+      asteroid: { density: 0.9, countRange: [6, 8], vyMin: 100, vyMax: 180 },
+      drone: { density: 1.2, count: 3, steerAccel: 46, vyMin: 80, vyMax: 130 },
+      strafer: {
+        density: 1.2,
+        count: 3,
+        fireCdMin: 820,
+        fireCdMax: 1320,
+        speedMin: 150,
+        speedMax: 220,
+        yMin: 0.25,
+        yMax: 0.6,
+      },
+      turret: {
+        density: 1.25,
+        count: 2,
+        fireCdMin: 780,
+        fireCdMax: 1260,
+        bulletSpeed: 210,
+        vyMin: 90,
+        vyMax: 140,
+      },
+    },
+    powerupIntervalMs: 8400,
+    bossHp: 420,
+  },
 };
 
 export function getDifficulty(levelIndex) {
   if (levelIndex === 1) {
     return DIFFICULTY.l1;
   }
-  return null;
+  if (levelIndex === 2) {
+    return DIFFICULTY.l2;
+  }
+  return DIFFICULTY.l2 ?? DIFFICULTY.l1;
 }
