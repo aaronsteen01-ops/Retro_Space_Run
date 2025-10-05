@@ -51,7 +51,8 @@ const hudWeapon = document.getElementById('weapon');
 let hudLevel = document.getElementById('level-chip');
 let hudLevelLabel = document.getElementById('level-chip-label');
 let hudLevelIcons = document.getElementById('level-chip-icons');
-const themeSelect = document.getElementById('theme-select');
+let themeSelect = document.getElementById('theme-select');
+let themeSelectBound = false;
 const assistToggle = document.getElementById('assist-toggle');
 const hudLivesChip = document.getElementById('hud-lives-chip');
 const hudShieldMeter = document.getElementById('shield-meter');
@@ -61,6 +62,7 @@ const hudPowerChip = document.getElementById('power-chip');
 const hudWeaponChip = document.getElementById('weapon-chip');
 const hudWeaponIcon = document.getElementById('weapon-icon');
 let autoFirePill = document.getElementById('auto-fire-pill');
+let autoFireToggleBound = false;
 let gamepadPill = document.getElementById('gamepad-pill');
 
 const THEME_STORAGE_KEY = 'retro-space-run.theme';
@@ -76,7 +78,9 @@ const mutatorPulseTimers = new WeakMap();
 injectHudStyles();
 setupHudLayout(hudRoot);
 refreshLevelChipRefs();
+bindThemeControl();
 bindDifficultySelect();
+bindAutoFireToggle();
 subscribeDifficultyMode((mode) => {
   syncDifficultySelect(mode);
 });
@@ -118,6 +122,53 @@ function bindDifficultySelect() {
   difficultySelect.addEventListener('change', handleDifficultySelectChange);
 }
 
+function handleThemeSelectChange(event) {
+  const value = event?.target?.value;
+  if (typeof value !== 'string') {
+    return;
+  }
+  setThemeInternal(value);
+}
+
+function bindThemeControl() {
+  const element = document.getElementById('theme-select');
+  if (themeSelect && themeSelect !== element && themeSelectBound) {
+    themeSelect.removeEventListener('change', handleThemeSelectChange);
+    themeSelectBound = false;
+  }
+  themeSelect = element;
+  if (!themeSelect) {
+    return null;
+  }
+  if (!themeSelectBound) {
+    themeSelect.addEventListener('change', handleThemeSelectChange);
+    themeSelectBound = true;
+  }
+  return themeSelect;
+}
+
+function bindAutoFireToggle() {
+  const element = document.getElementById('auto-fire-pill');
+  if (autoFirePill && autoFirePill !== element && autoFireToggleBound) {
+    autoFirePill.removeEventListener('click', handleAutoFireToggleClick);
+    autoFireToggleBound = false;
+  }
+  autoFirePill = element;
+  if (!autoFirePill || autoFireToggleBound) {
+    return autoFirePill;
+  }
+  autoFirePill.addEventListener('click', handleAutoFireToggleClick);
+  autoFireToggleBound = true;
+  return autoFirePill;
+}
+
+function handleAutoFireToggleClick(event) {
+  if (event?.preventDefault) {
+    event.preventDefault();
+  }
+  toggleAutoFire();
+}
+
 function refreshLevelChipRefs() {
   hudLevel = document.getElementById('level-chip');
   hudLevelLabel = document.getElementById('level-chip-label');
@@ -140,17 +191,20 @@ function injectHudStyles() {
   style.textContent = `
     #hud {
       position: fixed;
-      top: 14px;
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+      top: auto;
       left: 50%;
-      transform: translateX(-50%);
+      transform: translate(-50%, 0);
       display: flex;
       flex-direction: column;
+      align-items: center;
       gap: 0.55rem;
       max-width: min(92vw, 880px);
       font-weight: 600;
       letter-spacing: 0.03em;
       padding: 0;
       background: transparent;
+      z-index: 30;
     }
     #hud .hud-main,
     #hud .hud-secondary {
@@ -170,7 +224,7 @@ function injectHudStyles() {
     #hud .hud-secondary {
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: center;
       flex-wrap: wrap;
       gap: 0.45rem;
       padding: 0.3rem 0.6rem;
@@ -361,6 +415,9 @@ function injectHudStyles() {
       }
     }
     #hud button.pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
       padding: 0.25rem 0.75rem;
     }
     #hud .pill.pill--auto {
@@ -369,6 +426,11 @@ function injectHudStyles() {
       text-transform: uppercase;
       padding: 0.2rem 0.65rem;
       opacity: 0.82;
+    }
+    #hud .pill.pill--auto .pill__icon {
+      font-size: 0.9rem;
+      line-height: 1;
+      opacity: 0.8;
     }
     #hud .pill.pill--auto.is-on {
       box-shadow: 0 0 8px #00e5ff44 inset, 0 0 8px #ff3df744;
@@ -397,7 +459,7 @@ function injectHudStyles() {
     }
     @media (max-width: 720px) {
       #hud {
-        transform: translateX(-50%) scale(0.95);
+        transform: translate(-50%, 0) scale(0.95);
       }
       #hud .hud-section {
         gap: 0.45rem;
@@ -408,7 +470,7 @@ function injectHudStyles() {
     }
     @media (max-width: 520px) {
       #hud {
-        transform: translateX(-50%) scale(0.9);
+        transform: translate(-50%, 0) scale(0.9);
       }
     }
   `;
@@ -474,7 +536,15 @@ function setupHudLayout(root) {
       </span>
       <div class="hud-secondary-group">
         <button id="assist-toggle" class="pill" type="button" aria-pressed="false">Assist: Off</button>
-        <span id="auto-fire-pill" class="pill pill--auto" role="status" aria-live="polite">Auto: Off</span>
+        <button
+          id="auto-fire-pill"
+          class="pill pill--auto"
+          type="button"
+          aria-pressed="false"
+        >
+          <span class="pill__icon" aria-hidden="true">⌁</span>
+          <span class="pill__text">Auto: Off</span>
+        </button>
         <span
           id="gamepad-pill"
           class="pill pill--gamepad"
@@ -569,25 +639,30 @@ function readStoredAutoFire() {
 }
 
 function populateThemeControl() {
-  if (!themeSelect) {
+  const control = themeSelect?.isConnected ? themeSelect : bindThemeControl();
+  if (!control) {
     return;
   }
   const entries = getThemeKeys()
     .map((key) => ({ key, label: getThemeLabel(key) }))
     .sort((a, b) => a.label.localeCompare(b.label));
-  themeSelect.innerHTML = '';
+  control.innerHTML = '';
   for (const { key, label } of entries) {
     const option = document.createElement('option');
     option.value = key;
     option.textContent = label;
     option.setAttribute('aria-label', label);
-    themeSelect.appendChild(option);
+    control.appendChild(option);
   }
 }
 
 function syncThemeControl() {
-  if (themeSelect) {
-    themeSelect.value = activeThemeKey;
+  const control = themeSelect?.isConnected ? themeSelect : bindThemeControl();
+  if (!control) {
+    return;
+  }
+  if (control.value !== activeThemeKey) {
+    control.value = activeThemeKey;
   }
 }
 
@@ -616,15 +691,16 @@ function syncAssistToggle() {
 }
 
 function syncAutoFirePill() {
-  if (!autoFirePill) {
-    autoFirePill = document.getElementById('auto-fire-pill');
-    if (!autoFirePill) {
-      return;
-    }
+  const toggle = bindAutoFireToggle();
+  if (!toggle) {
+    return;
   }
-  autoFirePill.textContent = `Auto: ${autoFire ? 'On' : 'Off'}`;
-  autoFirePill.setAttribute('aria-label', `Auto-fire ${autoFire ? 'on' : 'off'}`);
-  autoFirePill.classList.toggle('is-on', autoFire);
+  const stateLabel = autoFire ? 'On' : 'Off';
+  toggle.innerHTML = `<span class="pill__icon" aria-hidden="true">⌁</span><span class="pill__text">Auto: ${stateLabel}</span>`;
+  toggle.setAttribute('aria-label', `Auto-fire ${stateLabel.toLowerCase()} (press T)`);
+  toggle.setAttribute('aria-pressed', autoFire ? 'true' : 'false');
+  toggle.classList.toggle('is-on', autoFire);
+  toggle.title = autoFire ? 'Auto-fire enabled (T to toggle)' : 'Auto-fire disabled (T to toggle)';
 }
 
 export function setGamepadIndicator(connected) {
@@ -681,12 +757,6 @@ syncThemeControl();
 emitThemeChange();
 syncAssistToggle();
 syncAutoFirePill();
-
-if (themeSelect) {
-  themeSelect.addEventListener('change', (event) => {
-    setThemeInternal(event.target.value);
-  });
-}
 
 if (assistToggle) {
   assistToggle.addEventListener('click', () => {
