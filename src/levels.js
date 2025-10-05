@@ -5,6 +5,11 @@ export const LEVELS = [
     duration: 90,
     theme: 'synth-horizon',
     overlays: { tint: 'rgba(0,0,0,0.0)' },
+    starfield: {
+      density: 0.9,
+      twinkle: { amplitude: 0.18, speed: 0.95 },
+      sizeRange: [1.2, 2.2],
+    },
     enemyWeights: { asteroid: 1.0, strafer: 0.8, drone: 0.4, turret: 0.4 },
     waves: [
       { at: 3.0, type: 'asteroid', count: 6, params: { vy: [60, 120] } },
@@ -20,6 +25,11 @@ export const LEVELS = [
     duration: 105,
     theme: 'luminous-depths',
     overlays: { tint: 'rgba(80,0,120,0.06)' },
+    starfield: {
+      density: 1.35,
+      twinkle: { amplitude: 0.32, speed: 1.6 },
+      sizeRange: [0.9, 1.6],
+    },
     enemyWeights: { asteroid: 0.6, strafer: 0.5, drone: 1.1, turret: 0.3 },
     waves: [
       { at: 4.0, type: 'drone', count: 2, params: { steerAccel: 32 } },

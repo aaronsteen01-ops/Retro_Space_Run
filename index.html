@@ -23,7 +23,14 @@
     padding:.3rem .6rem; border-radius:10px; backdrop-filter:blur(3px);
   }
   #hud .pill{display:inline-flex; align-items:center; gap:.4rem; margin-right:.6rem; padding:.15rem .7rem; border:1px solid #00e5ff66; border-radius:999px; font-size:.9rem}
-  #hud .pill--level{font-size:.78rem; letter-spacing:.08em; font-weight:700; text-transform:none; white-space:nowrap; max-width:22rem; overflow:hidden; text-overflow:ellipsis;}
+  #hud .pill--level{display:inline-flex; align-items:center; gap:.45rem; padding:.2rem .75rem; font-size:.82rem; letter-spacing:.08em; font-weight:700; text-transform:none; white-space:nowrap; max-width:22rem; overflow:hidden;}
+  #hud .pill--level .level-chip__label{display:block; max-width:16rem; overflow:hidden; text-overflow:ellipsis;}
+  #hud .level-chip__icons{display:inline-flex; align-items:center; gap:.3rem;}
+  #hud .level-chip__icons[hidden]{display:none;}
+  #hud .level-chip__icon{display:inline-flex; align-items:center; justify-content:center; width:1.2rem; height:1.2rem; border-radius:999px; font-size:.82rem; line-height:1; color:var(--cyn); text-shadow:0 0 8px var(--mag); box-shadow:0 0 8px #00e5ff33 inset, 0 0 10px #ff3df722; background:#ffffff12;}
+  #hud .level-chip__icon--wind-right{animation:levelChipWindRight 1.8s ease-in-out infinite;}
+  #hud .level-chip__icon--wind-left{animation:levelChipWindLeft 1.8s ease-in-out infinite;}
+  #hud .level-chip__icon--squall{animation:levelChipSquall 2.6s linear infinite;}
   #hud .hud-label{position:relative; display:inline-flex; align-items:center; font-size:.75rem; text-transform:uppercase; letter-spacing:.08em; opacity:.78; min-width:5.1rem; justify-content:flex-end;}
   #hud .hud-label::after{content:':'; margin-left:.35rem; opacity:.6; font-size:.8rem; letter-spacing:0;}
   #hud .hud-value{font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:.02em;}
@@ -90,13 +97,19 @@
   }
   .heart{color:var(--mag)}
   .cyan{color:var(--cyn)}
+  @keyframes levelChipWindRight{0%{transform:translateX(0)}50%{transform:translateX(4px)}100%{transform:translateX(0)}}
+  @keyframes levelChipWindLeft{0%{transform:translateX(0)}50%{transform:translateX(-4px)}100%{transform:translateX(0)}}
+  @keyframes levelChipSquall{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
 <div id="wrap"><canvas id="game" width="1280" height="720"></canvas></div>
 
 <div id="hud">
-  <span id="level-chip" class="pill pill--level" aria-live="polite">—</span>
+  <span id="level-chip" class="pill pill--level" aria-live="polite">
+    <span id="level-chip-label" class="level-chip__label">—</span>
+    <span id="level-chip-icons" class="level-chip__icons" aria-hidden="true" hidden></span>
+  </span>
   <span class="pill"><span class="hud-label">Lives</span><span id="lives" class="hud-value">3</span></span>
   <span class="pill"><span class="hud-label">Score</span><span id="score" class="hud-value">0</span></span>
   <span class="pill"><span class="hud-label">Time</span><span id="time" class="hud-value">0s</span></span>
