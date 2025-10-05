@@ -15,6 +15,12 @@ const shakeState = {
 const pendingExplosions = [];
 let lastStateRef = null;
 
+const DAMAGE_PULSE_DURATION = 420;
+const damagePulse = {
+  time: 0,
+  strength: 0,
+};
+
 const EXPLOSION_PRESETS = {
   small: [
     { key: 'enemyHitDefault', count: 22, spread: 2.8, life: 360 },
@@ -94,6 +100,18 @@ function updateScreenShake(dt) {
   }
 }
 
+function updateDamagePulse(dtMs) {
+  if (damagePulse.time <= 0) {
+    damagePulse.time = 0;
+    damagePulse.strength = 0;
+    return;
+  }
+  damagePulse.time = Math.max(0, damagePulse.time - dtMs);
+  if (damagePulse.time <= 0) {
+    damagePulse.strength = 0;
+  }
+}
+
 function flushExplosions(state) {
   if (!state || pendingExplosions.length === 0) {
     return;
@@ -113,6 +131,7 @@ export function updateEffects(state, dt) {
   const clampedDt = Math.max(0, Number(dt) || 0);
   lastStateRef = state || lastStateRef;
   updateScreenShake(clampedDt);
+  updateDamagePulse(clampedDt * 1000);
   flushExplosions(state);
 }
 
@@ -128,6 +147,8 @@ export function resetEffects() {
   shakeState.offsetY = 0;
   pendingExplosions.length = 0;
   lastStateRef = null;
+  damagePulse.time = 0;
+  damagePulse.strength = 0;
   hideToast();
 }
 
@@ -140,6 +161,38 @@ export function spawnExplosion(x, y, kind = 'small') {
   if (lastStateRef) {
     flushExplosions(lastStateRef);
   }
+}
+
+export function triggerDamagePulse(strength = 0.6) {
+  const clampedStrength = Math.max(0, Math.min(1.5, Number(strength) || 0));
+  damagePulse.time = DAMAGE_PULSE_DURATION;
+  damagePulse.strength = clampedStrength;
+}
+
+export function drawDamagePulse(ctx, width, height) {
+  if (!ctx || damagePulse.time <= 0 || damagePulse.strength <= 0) {
+    return;
+  }
+  const progress = 1 - damagePulse.time / DAMAGE_PULSE_DURATION;
+  const pulse = Math.sin(Math.min(1, Math.max(0, progress)) * Math.PI);
+  const alpha = Math.max(0, Math.min(1, pulse * damagePulse.strength));
+  if (alpha <= 0.01) {
+    return;
+  }
+  const cx = width / 2;
+  const cy = height / 2;
+  const inner = Math.min(width, height) * 0.28;
+  const outer = Math.max(width, height) * 0.75;
+  const gradient = ctx.createRadialGradient(cx, cy, inner, cx, cy, outer);
+  gradient.addColorStop(0, 'rgba(0,0,0,0)');
+  gradient.addColorStop(0.6, 'rgba(0,0,0,0)');
+  gradient.addColorStop(1, 'rgba(255,40,64,1)');
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+  ctx.restore();
 }
 
 export function showToast(text, duration = 1200) {

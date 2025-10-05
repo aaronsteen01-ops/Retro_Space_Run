@@ -10,6 +10,7 @@ const KEYBOARD_BINDINGS = {
   fullscreen: ['f'],
   assist: ['h'],
   autoFire: ['t'],
+  precision: ['shift'],
 };
 
 const ACTIONS = Object.freeze({
@@ -188,6 +189,7 @@ export function getState() {
     moveY: combineAxis(keyboardMoveY, gamepad.moveY),
     fire: keyboardFire || gamepad.fire,
     altFire: keyboardAltFire || gamepad.altFire,
+    precision: keyActive(KEYBOARD_BINDINGS.precision),
     gamepad: { connected: gamepad.connected || lastGamepadConnected },
   };
 }

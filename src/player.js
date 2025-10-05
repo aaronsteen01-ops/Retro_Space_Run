@@ -46,7 +46,16 @@ export function drawPlayer(ctx, player, input, palette, weaponFlash = null) {
   ctx.save();
   ctx.translate(player.x, player.y);
   const tilt = clamp(Number.isFinite(input?.moveX) ? input.moveX : 0, -1, 1);
+  const invulnActive = (player.invuln || 0) > 0;
+  const precisionActive = Boolean(input?.precision);
+  let spriteAlpha = 1;
+  if (invulnActive) {
+    const flickerInterval = 1000 / 6;
+    const phase = Math.floor(performance.now() / flickerInterval);
+    spriteAlpha = phase % 2 === 0 ? 1 : 0.35;
+  }
   ctx.rotate(tilt * 0.08);
+  ctx.globalAlpha = spriteAlpha;
 
   const engLen = 14 + (Math.sin(performance.now() * 0.02) + 1) * 6;
   const trail = ctx.createLinearGradient(0, 0, 0, 30);
@@ -81,7 +90,9 @@ export function drawPlayer(ctx, player, input, palette, weaponFlash = null) {
   ctx.fill();
 
   if (player.shield > 0) {
-    ctx.globalAlpha = 0.6 + 0.4 * Math.sin(performance.now() * 0.01);
+    ctx.save();
+    const shieldAlpha = 0.6 + 0.4 * Math.sin(performance.now() * 0.01);
+    ctx.globalAlpha = shieldAlpha * spriteAlpha;
     drawGlowCircle(
       ctx,
       0,
@@ -90,12 +101,13 @@ export function drawPlayer(ctx, player, input, palette, weaponFlash = null) {
       ship.shieldInner,
       ship.shieldOuter,
     );
+    ctx.restore();
   }
   if (weaponFlash && weaponFlash.t > 0 && weaponFlash.colour) {
     const alpha = Math.max(0, Math.min(1, weaponFlash.t / weaponFlash.life));
     if (alpha > 0) {
       ctx.save();
-      ctx.globalAlpha = 0.85 * alpha;
+      ctx.globalAlpha = 0.85 * alpha * spriteAlpha;
       ctx.shadowColor = weaponFlash.colour;
       ctx.shadowBlur = 18;
       ctx.fillStyle = weaponFlash.colour;
@@ -105,6 +117,30 @@ export function drawPlayer(ctx, player, input, palette, weaponFlash = null) {
       ctx.shadowBlur = 0;
       ctx.restore();
     }
+  }
+  if (invulnActive) {
+    ctx.save();
+    const ringPulse = 0.35 + 0.25 * (Math.sin(performance.now() * 0.006) + 1) / 2;
+    ctx.globalAlpha = ringPulse;
+    ctx.shadowColor = ship.glow;
+    ctx.shadowBlur = 16;
+    ctx.strokeStyle = ship.trim;
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.arc(0, 0, player.r + 10, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+  if (precisionActive) {
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = ship.trim || '#00e5ff';
+    ctx.beginPath();
+    ctx.arc(0, 0, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
   ctx.restore();
 }

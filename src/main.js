@@ -63,7 +63,16 @@ import { LEVELS } from './levels.js';
 import { getDifficulty } from './difficulty.js';
 import { updateBullets, freeBullet, drainBullets } from './bullets.js';
 import { getState as getInputState, onAction as onInputAction, clearInput, ACTIONS as INPUT_ACTIONS } from './input.js';
-import { shakeScreen, updateEffects, getScreenShakeOffset, resetEffects, spawnExplosion, showToast } from './effects.js';
+import {
+  shakeScreen,
+  updateEffects,
+  getScreenShakeOffset,
+  resetEffects,
+  spawnExplosion,
+  showToast,
+  triggerDamagePulse,
+  drawDamagePulse,
+} from './effects.js';
 
 let activePalette = getActiveThemePalette() ?? DEFAULT_THEME_PALETTE;
 
@@ -769,6 +778,7 @@ function handlePlayerHit() {
   }
   state.lives -= 1;
   updateLives(state.lives);
+  triggerDamagePulse(state.lives <= 1 ? 0.85 : 0.55);
   addParticle(state, player.x, player.y, particles.playerHit, 30, 3.2, 500);
   playZap();
   state.bossMercyUntil = performance.now() + 600;
@@ -1025,6 +1035,7 @@ function loop(now) {
     drawGate(state.finishGate, palette);
   }
   drawPlayer(ctx, player, inputState, palette, state.weaponPickupFlash);
+  drawDamagePulse(ctx, viewW, viewH);
 
   if (state.boss) {
     drawBossHealth(ctx, state.boss, palette);
