@@ -23,7 +23,7 @@ export function resetPlayer(state) {
   state.player = createPlayer();
 }
 
-export function updatePlayer(player, input, dt, hasBoost) {
+export function updatePlayer(player, input, dt, hasBoost, windX = 0) {
   const accel = hasBoost ? 560 : 380;
   const moveX = clamp(Number.isFinite(input?.moveX) ? input.moveX : 0, -1, 1);
   const moveY = clamp(Number.isFinite(input?.moveY) ? input.moveY : 0, -1, 1);
@@ -31,7 +31,8 @@ export function updatePlayer(player, input, dt, hasBoost) {
   const ay = moveY * accel * 0.8;
   player.vx = lerp(player.vx, ax, 0.08);
   player.vy = lerp(player.vy, ay, 0.08);
-  player.x += player.vx * dt;
+  const drift = clamp(Number.isFinite(windX) ? windX : 0, -80, 80);
+  player.x += (player.vx + drift) * dt;
   player.y += player.vy * dt;
 }
 
