@@ -635,12 +635,10 @@ function projectileColour(state, index = 0) {
   return colours[idx];
 }
 
-function colourWithAlpha(colour, alpha) {
-  if (typeof colour !== 'string') {
-    return `rgba(255, 255, 255, ${alpha})`;
-  }
-  if (colour.startsWith('#')) {
-    let hex = colour.slice(1);
+function colourWithAlpha(colour, alpha, fallbackColour = DEFAULT_BULLET_LEVELS[0]) {
+  const baseColour = typeof colour === 'string' && colour.trim().length ? colour : fallbackColour;
+  if (baseColour.startsWith('#')) {
+    let hex = baseColour.slice(1);
     if (hex.length === 3) {
       hex = hex
         .split('')
@@ -654,14 +652,17 @@ function colourWithAlpha(colour, alpha) {
       return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     }
   }
-  if (colour.startsWith('rgb(')) {
-    return colour.replace('rgb(', 'rgba(').replace(')', `, ${alpha})`);
+  if (baseColour.startsWith('rgb(')) {
+    return baseColour.replace('rgb(', 'rgba(').replace(')', `, ${alpha})`);
   }
-  if (colour.startsWith('rgba(')) {
-    return colour.replace(/rgba\(([^)]+)\)/, (_, body) => {
+  if (baseColour.startsWith('rgba(')) {
+    return baseColour.replace(/rgba\(([^)]+)\)/, (_, body) => {
       const parts = body.split(',').map((part) => part.trim());
       return `rgba(${parts.slice(0, 3).join(', ')}, ${alpha})`;
     });
+  }
+  if (baseColour !== fallbackColour) {
+    return colourWithAlpha(fallbackColour, alpha, '#ffffff');
   }
   return `rgba(255, 255, 255, ${alpha})`;
 }
@@ -755,8 +756,13 @@ export function handlePlayerShooting(state, keys, now) {
   }
 }
 
-export function drawPlayerBullets(ctx, bullets) {
-  const fallbackColour = DEFAULT_BULLET_LEVELS[0];
+export function drawPlayerBullets(ctx, bullets, palette) {
+  const bulletPalette = resolvePaletteSection(palette, 'bullets');
+  const playerLevels = Array.isArray(bulletPalette.playerLevels) && bulletPalette.playerLevels.length
+    ? bulletPalette.playerLevels
+    : DEFAULT_BULLET_LEVELS;
+  const fallbackColour = playerLevels[0] ?? DEFAULT_BULLET_LEVELS[0];
+  const highlightColour = bulletPalette.highlight ?? playerLevels[playerLevels.length - 1] ?? fallbackColour;
   for (const b of bullets) {
     ctx.save();
     ctx.translate(b.x, b.y);
@@ -764,19 +770,20 @@ export function drawPlayerBullets(ctx, bullets) {
     const level = b.level ?? 0;
     const w = b.w ?? 4;
     const h = b.h ?? 12;
-    ctx.shadowColor = colourWithAlpha(colour, 0.8);
+    ctx.shadowColor = colourWithAlpha(colour, 0.8, fallbackColour);
     ctx.shadowBlur = 8 + level * 4;
     const gradient = ctx.createLinearGradient(0, h / 2, 0, -h / 2);
-    gradient.addColorStop(0, colourWithAlpha(colour, 0));
-    gradient.addColorStop(0.25, colourWithAlpha(colour, 0.35 + level * 0.15));
-    gradient.addColorStop(0.55, 'rgba(255, 255, 255, 0.9)');
-    gradient.addColorStop(1, colourWithAlpha(colour, 1));
+    const innerAlpha = Math.max(0, Math.min(1, 0.35 + level * 0.15));
+    gradient.addColorStop(0, colourWithAlpha(colour, 0, fallbackColour));
+    gradient.addColorStop(0.25, colourWithAlpha(colour, innerAlpha, fallbackColour));
+    gradient.addColorStop(0.55, colourWithAlpha(highlightColour, 0.9, highlightColour));
+    gradient.addColorStop(1, colourWithAlpha(colour, 1, fallbackColour));
     ctx.fillStyle = gradient;
     ctx.beginPath();
     ctx.ellipse(0, 0, w / 2, h / 2, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.lineWidth = 0.6 + level * 0.4;
-    ctx.strokeStyle = colourWithAlpha(colour, 0.8);
+    ctx.strokeStyle = colourWithAlpha(colour, 0.8, fallbackColour);
     ctx.stroke();
     ctx.restore();
   }
@@ -799,8 +806,14 @@ export function updateMuzzleFlashes(state, dt) {
   }
 }
 
-export function drawMuzzleFlashes(ctx, flashes) {
-  const fallbackColour = DEFAULT_BULLET_LEVELS[2] ?? '#ffffff';
+export function drawMuzzleFlashes(ctx, flashes, palette) {
+  const bulletPalette = resolvePaletteSection(palette, 'bullets');
+  const playerLevels = Array.isArray(bulletPalette.playerLevels) && bulletPalette.playerLevels.length
+    ? bulletPalette.playerLevels
+    : DEFAULT_BULLET_LEVELS;
+  const fallbackColour = playerLevels[Math.min(playerLevels.length - 1, 2)] ?? DEFAULT_BULLET_LEVELS[2];
+  const muzzleCore = bulletPalette.muzzleCore ?? fallbackColour;
+  const muzzleEdge = bulletPalette.muzzleEdge ?? bulletPalette.highlight ?? fallbackColour;
   for (const flash of flashes) {
     const alpha = Math.max(0, Math.min(1, flash.t / flash.life));
     if (alpha <= 0) {
@@ -810,11 +823,11 @@ export function drawMuzzleFlashes(ctx, flashes) {
     ctx.translate(flash.x, flash.y);
     ctx.rotate(flash.rotation || 0);
     ctx.globalAlpha = alpha;
-    const colour = flash.colour || fallbackColour;
+    const colour = flash.colour || muzzleCore;
     const gradient = ctx.createLinearGradient(0, 0, 0, -flash.length);
-    gradient.addColorStop(0, colourWithAlpha(colour, 0));
-    gradient.addColorStop(0.2, colourWithAlpha(colour, 0.6));
-    gradient.addColorStop(1, colourWithAlpha('#ffffff', 0.95));
+    gradient.addColorStop(0, colourWithAlpha(colour, 0, fallbackColour));
+    gradient.addColorStop(0.2, colourWithAlpha(colour, 0.6, fallbackColour));
+    gradient.addColorStop(1, colourWithAlpha(muzzleEdge, 0.95, muzzleEdge));
     ctx.fillStyle = gradient;
     ctx.beginPath();
     ctx.moveTo(0, -flash.length);

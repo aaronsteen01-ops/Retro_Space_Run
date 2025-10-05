@@ -4,7 +4,7 @@
 import { rand, TAU, drawGlowCircle, addParticle, clamp } from './utils.js';
 import { getViewSize } from './ui.js';
 import { getDifficulty } from './difficulty.js';
-import { resolvePaletteSection } from './themes.js';
+import { resolvePaletteSection, DEFAULT_THEME_PALETTE } from './themes.js';
 import { playPow } from './audio.js';
 import { getBullet, drainBullets } from './bullets.js';
 
@@ -374,7 +374,8 @@ function drawBossBeam(ctx, boss, bossPalette) {
   if ((beam.safeLanes || []).length) {
     ctx.setLineDash([10, 12]);
     ctx.lineWidth = 1.5;
-    ctx.strokeStyle = bossPalette.phaseShiftTrim || '#ffffff';
+    const laneTrim = bossPalette.phaseShiftTrim ?? bossPalette.trim ?? DEFAULT_THEME_PALETTE.boss.trim;
+    ctx.strokeStyle = laneTrim;
     for (const lane of beam.safeLanes) {
       const laneCenter = lane * beam.width;
       ctx.strokeRect(laneCenter - safeWidth / 2, 0, safeWidth, beam.length);
