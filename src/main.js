@@ -129,6 +129,7 @@ import {
   getShipDisplayStats,
   getShipRequirement,
 } from './ships.js';
+import { evaluateAchievements, getAchievementProgress } from './achievements.js';
 
 let activePalette = getActiveThemePalette() ?? DEFAULT_THEME_PALETTE;
 
@@ -463,6 +464,18 @@ function createRunUpgradeState() {
   };
 }
 
+function createRunStats({ level = 1, shipKey = null } = {}) {
+  const initialLevel = Number.isFinite(level) ? Math.max(1, Math.floor(level)) : 1;
+  return {
+    bosses: 0,
+    kills: 0,
+    livesLost: 0,
+    score: 0,
+    highestLevel: initialLevel,
+    ship: shipKey,
+  };
+}
+
 function getLifeCap(stateLike) {
   return stateLike.assistEnabled ? ASSIST_LIFE_CAP : LIFE_CAP_BASE;
 }
@@ -721,7 +734,7 @@ const state = {
   levelIntroTimeout: null,
   runUpgrades: createRunUpgradeState(),
   themeFx: createThemeFxState(),
-  runStats: { bosses: 0 },
+  runStats: createRunStats({ level: 1, shipKey: initialShip?.key ?? defaultShipKey }),
   storyOutroShown: false,
 };
 
@@ -884,6 +897,9 @@ function applyPlayerDamage(damage) {
   if (overflow > 0) {
     const lifeLoss = Math.max(1, Math.ceil(overflow));
     state.lives = Math.max(0, state.lives - lifeLoss);
+    if (state.runStats && lifeLoss > 0) {
+      state.runStats.livesLost = (state.runStats.livesLost ?? 0) + lifeLoss;
+    }
     result.lostLife = lifeLoss > 0;
     emitLivesChanged();
     triggerDamagePulse(state.lives <= 1 ? 0.85 : 0.55);
@@ -1895,7 +1911,7 @@ function startRun(levelIndex = 1, options = {}) {
   emitPowerChanged('None');
   resetPlayer(state, state.ship);
   const initialStage = gameMode === GAME_MODES.ENDLESS ? 1 : levelIndex;
-  state.runStats = { bosses: 0, score: 0, highestLevel: initialStage, ship: selectedShip?.key ?? defaultShipKey };
+  state.runStats = createRunStats({ level: initialStage, shipKey: selectedShip?.key ?? defaultShipKey });
   const baseShield = Math.max(0, state.player?.baseShield ?? 0);
   state.shieldCapacity = baseShield;
   if (state.player) {
@@ -2076,7 +2092,7 @@ function renderUpgradeSelection({ nextLevelIndex, nextLevel, levelTime, scoreDel
   const menuBtn = document.getElementById('summary-menu');
   menuBtn?.addEventListener('click', () => {
     recordRunEnd({ score: state.score, bossesDefeated: state.runStats?.bosses ?? 0 });
-    state.runStats = { bosses: 0 };
+    state.runStats = createRunStats({ shipKey: state.ship?.key ?? defaultShipKey });
     renderStartOverlay();
   });
   let handled = false;
@@ -2107,6 +2123,39 @@ function renderUpgradeSelection({ nextLevelIndex, nextLevel, levelTime, scoreDel
   });
 }
 
+function buildAchievementSnapshot(levelKey) {
+  const resolvedLevel = typeof levelKey === 'string' && levelKey.trim().length > 0 ? levelKey.trim() : null;
+  return {
+    kills: state.runStats?.kills ?? 0,
+    bossesDefeated: state.runStats?.bosses ?? 0,
+    livesLost: state.runStats?.livesLost ?? 0,
+    score: state.score ?? 0,
+    level: resolvedLevel,
+  };
+}
+
+function announceAchievementUnlocks(unlocked = []) {
+  unlocked.forEach((achievement, index) => {
+    const name = achievement?.name ?? 'Achievement';
+    const message = `Achievement Unlocked: ${name}`;
+    if (typeof window !== 'undefined' && index > 0) {
+      window.setTimeout(() => {
+        showToast(message, 1400);
+      }, index * 200);
+    } else {
+      showToast(message, 1400);
+    }
+  });
+}
+
+function evaluateAchievementsForLevel(levelKey) {
+  const snapshot = buildAchievementSnapshot(levelKey);
+  const { unlocked } = evaluateAchievements(snapshot);
+  if (unlocked.length > 0) {
+    announceAchievementUnlocks(unlocked);
+  }
+}
+
 function completeLevel() {
   state.running = false;
   state.paused = false;
@@ -2114,21 +2163,23 @@ function completeLevel() {
   const scoreDelta = state.score - (state.levelStartScore ?? 0);
   const nextLevelIndex = state.levelIndex + 1;
   const currentLevel = state.level;
+  const levelId = currentLevel?.key ?? `L${state.levelIndex}`;
   applyLevelMutators({});
   clearLevelEntities();
   updateScore(state.score);
   GameEvents.emit('score:changed', state.score);
   emitLivesChanged();
   if (state.gameMode === GAME_MODES.ENDLESS) {
-    dlog('Level end', { id: currentLevel?.key ?? `L${state.levelIndex}`, reason: 'completed', time: levelTime, score: state.score });
+    dlog('Level end', { id: levelId, reason: 'completed', time: levelTime, score: state.score });
     GameEvents.emit('level:ended', {
-      id: currentLevel?.key ?? `L${state.levelIndex}`,
+      id: levelId,
       index: state.levelIndex,
       reason: 'completed',
       time: levelTime,
       score: state.score,
       nextLevel: null,
     });
+    evaluateAchievementsForLevel(levelId);
     if (!LEVELS.length) {
       gameOver();
       return;
@@ -2145,15 +2196,16 @@ function completeLevel() {
     unlockLevel(nextLevelIndex);
   }
   const nextLevel = LEVELS[nextLevelIndex - 1] ?? null;
-  dlog('Level end', { id: currentLevel?.key ?? `L${state.levelIndex}`, reason: 'completed', time: levelTime, score: state.score });
+  dlog('Level end', { id: levelId, reason: 'completed', time: levelTime, score: state.score });
   GameEvents.emit('level:ended', {
-    id: currentLevel?.key ?? `L${state.levelIndex}`,
+    id: levelId,
     index: state.levelIndex,
     reason: 'completed',
     time: levelTime,
     score: state.score,
     nextLevel: nextLevelIndex <= LEVELS.length ? nextLevelIndex : null,
   });
+  evaluateAchievementsForLevel(levelId);
   if (state.levelIndex === 3 && !isPaletteUnlocked('cosmic-abyss')) {
     unlockPalette('cosmic-abyss');
     populateThemeUnlocks();
@@ -2170,7 +2222,7 @@ function completeLevel() {
   const header = `LEVEL ${state.levelIndex} COMPLETE`;
   const restartLabel = `Restart Level ${state.levelIndex}`;
   recordRunEnd({ score: state.score, bossesDefeated: state.runStats?.bosses ?? 0 });
-  state.runStats = { bosses: 0 };
+  state.runStats = createRunStats({ shipKey: state.ship?.key ?? defaultShipKey });
   recordBestScore(state.score);
   showOverlay(`
     <h1><span class="cyan">${header}</span></h1>
@@ -2199,7 +2251,7 @@ function gameOver() {
   const scoreDelta = state.score - (state.levelStartScore ?? 0);
   const levelName = state.level?.name ?? 'Sector';
   recordRunEnd({ score: state.score, bossesDefeated: state.runStats?.bosses ?? 0 });
-  state.runStats = { bosses: 0 };
+  state.runStats = createRunStats({ shipKey: state.ship?.key ?? defaultShipKey });
   applyLevelMutators({});
   clearLevelEntities();
   updateScore(state.score);
@@ -2215,6 +2267,7 @@ function gameOver() {
     time: levelTime,
     score: state.score,
   });
+  evaluateAchievementsForLevel(levelId);
   if (state.gameMode === GAME_MODES.ENDLESS) {
     const survivalTime = Math.max(Math.floor(state.endless?.totalTime ?? 0), levelTime);
     const bests = recordEndlessResult({ score: state.score, time: survivalTime });
@@ -2415,6 +2468,47 @@ function renderGarageOverlay() {
   bindShipSelectionHandlers({ context: 'garage' });
 }
 
+function renderAchievementsOverlay() {
+  const progress = getAchievementProgress();
+  const total = progress.length;
+  const earned = progress.filter((entry) => entry.earned).length;
+  const listItems = progress
+    .map((entry) => {
+      const statusIcon = entry.earned ? '✓' : '✗';
+      const itemClass = entry.earned ? 'achievement-list__item achievement-list__item--earned' : 'achievement-list__item';
+      const statusClass = entry.earned
+        ? 'achievement-list__status achievement-list__status--earned'
+        : 'achievement-list__status';
+      const description = entry.description
+        ? `<span class="achievement-list__desc">${entry.description}</span>`
+        : '';
+      return `
+        <li class="${itemClass}">
+          <span class="${statusClass}" aria-hidden="true">${statusIcon}</span>
+          <span class="achievement-list__details">
+            <span class="achievement-list__name">${entry.name}</span>
+            ${description}
+          </span>
+        </li>
+      `;
+    })
+    .join('');
+  const listMarkup = total
+    ? `<ul class="achievement-list" role="list">${listItems}</ul>`
+    : '<p class="achievements-empty">No achievements logged yet.</p>';
+  showOverlay(`
+    <h1>Achievements</h1>
+    <p class="achievements-summary">Unlocked <strong>${earned}</strong> of <strong>${total}</strong>.</p>
+    ${listMarkup}
+    <div class="overlay-actions">
+      <button id="achievements-back" class="btn" autofocus>Back</button>
+    </div>
+  `);
+  document.getElementById('achievements-back')?.addEventListener('click', () => {
+    renderStartOverlay();
+  });
+}
+
 function renderStartOverlay({ resetHud = false } = {}) {
   atMenuScreen = true;
   optionsOverlayOpen = false;
@@ -2422,7 +2516,7 @@ function renderStartOverlay({ resetHud = false } = {}) {
   state.running = false;
   state.paused = false;
   populateThemeUnlocks();
-  state.runStats = { bosses: 0 };
+  state.runStats = createRunStats({ shipKey: state.ship?.key ?? initialShip?.key ?? defaultShipKey });
   state.endless.active = false;
   state.endless.totalTime = 0;
   if (resetHud) {
@@ -2471,6 +2565,11 @@ function renderStartOverlay({ resetHud = false } = {}) {
   const metaProgress = getMetaProgress();
   const selectedShipKey = getSelectedShipKey() || defaultShipKey;
   const metaSummary = `<p class="overlay-progress overlay-progress--meta">Runs: <strong>${formatNumber(metaProgress.totalRuns)}</strong> · Banked Score: <strong>${formatNumber(metaProgress.totalScore)}</strong> · Bosses Defeated: <strong>${formatNumber(metaProgress.bossesDefeated)}</strong></p>`;
+  const achievementsProgress = getAchievementProgress();
+  const earnedAchievements = achievementsProgress.filter((entry) => entry.earned).length;
+  const achievementsSummary = achievementsProgress.length
+    ? `<p class="overlay-progress">Achievements: <strong>${earnedAchievements}</strong> / <strong>${achievementsProgress.length}</strong></p>`
+    : '';
   const shipGrid = buildShipCards(metaProgress, selectedShipKey);
   const shipSection = `
     <div class="ship-select">
@@ -2489,6 +2588,7 @@ function renderStartOverlay({ resetHud = false } = {}) {
     ${progressSummary}
     ${endlessSummary}
     ${metaSummary}
+    ${achievementsSummary}
     ${shipSection}
     <div class="difficulty-select">
       <label class="difficulty-select__label" for="difficulty-select">Difficulty</label>
@@ -2504,6 +2604,7 @@ function renderStartOverlay({ resetHud = false } = {}) {
       <button id="toggle-level-select" class="btn btn-secondary" aria-expanded="false">Select Level</button>
       <button id="endless-btn" class="btn btn-secondary">Endless Survival</button>
       <button id="garage-btn" class="btn btn-secondary">Garage</button>
+      <button id="achievements-btn" class="btn btn-secondary">Achievements</button>
     </div>
     <div id="level-select" class="level-select" hidden>
       <p class="level-select__label">Unlocked Levels</p>
@@ -2539,6 +2640,9 @@ function renderStartOverlay({ resetHud = false } = {}) {
   });
   document.getElementById('garage-btn')?.addEventListener('click', () => {
     renderGarageOverlay();
+  });
+  document.getElementById('achievements-btn')?.addEventListener('click', () => {
+    renderAchievementsOverlay();
   });
   document.getElementById('endless-btn')?.addEventListener('click', () => {
     startRun(1, { gameMode: GAME_MODES.ENDLESS });
@@ -2952,6 +3056,9 @@ function loop(now) {
         if (enemy.hp <= 0) {
           spawnExplosion(enemy.x, enemy.y, 'small');
           state.enemies.splice(i, 1);
+          if (state.runStats) {
+            state.runStats.kills = (state.runStats.kills ?? 0) + 1;
+          }
           incrementCombo();
           addScore(25);
           playSfx('explode');
@@ -2984,6 +3091,9 @@ function loop(now) {
           const defeatedBoss = state.boss;
           const isMidBoss = defeatedBoss?.role === 'mid' || defeatedBoss?.variant === 'mid' || state.bossType === 'mid';
           spawnExplosion(defeatedBoss.x, defeatedBoss.y, 'boss');
+          if (state.runStats) {
+            state.runStats.kills = (state.runStats.kills ?? 0) + 1;
+          }
           shakeScreen(isMidBoss ? 4 : 6, isMidBoss ? 360 : 500);
           incrementCombo();
           if (isMidBoss) {

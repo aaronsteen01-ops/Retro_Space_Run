@@ -6,6 +6,7 @@ const DEFAULT_META = Object.freeze({
   preferredTheme: null,
   difficulty: 'normal',
   assist: false,
+  achievements: [],
 });
 
 let cachedMeta = null;
@@ -79,6 +80,18 @@ function sanitiseMetaPatch(patch) {
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'assist')) {
     normalised.assist = Boolean(patch.assist);
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'achievements')) {
+    const raw = patch.achievements;
+    if (Array.isArray(raw)) {
+      normalised.achievements = Array.from(
+        new Set(
+          raw
+            .map((id) => (typeof id === 'string' ? id.trim() : ''))
+            .filter((id) => id.length > 0),
+        ),
+      );
+    }
   }
   return normalised;
 }
