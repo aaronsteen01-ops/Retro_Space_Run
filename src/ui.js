@@ -2,6 +2,7 @@
  * ui.js — canvas sizing, HUD updates, overlay controls, and theme selection
  * management for Retro Space Run.
  */
+// CHANGELOG: Wired HUD widgets to GameEvents and refreshed difficulty control binding.
 import {
   DEFAULT_THEME_KEY,
   THEMES,
@@ -12,10 +13,11 @@ import {
 import {
   DIFFICULTY,
   getDifficultyMode as getStoredDifficultyMode,
-  setDifficultyMode as persistDifficultyMode,
+  setDifficulty,
   onDifficultyModeChange as subscribeDifficultyMode,
 } from './difficulty.js';
 import { getMetaValue, updateStoredMeta } from './storage.js';
+import { GameEvents } from './events.js';
 
 const HUD_STYLE_ID = 'hud-compact-style';
 
@@ -69,6 +71,7 @@ let autoFireToggleBound = false;
 let gamepadPill = document.getElementById('gamepad-pill');
 
 let comboBoostTimeout = null;
+let hudEventsBound = false;
 
 const THEME_STORAGE_KEY = 'retro-space-run.theme';
 const ASSIST_STORAGE_KEY = 'retro-space-run.assist';
@@ -86,6 +89,7 @@ refreshLevelChipRefs();
 bindThemeControl();
 bindDifficultySelect();
 bindAutoFireToggle();
+bindHudEventSubscriptions();
 subscribeDifficultyMode((mode) => {
   syncDifficultySelect(mode);
 });
@@ -111,7 +115,7 @@ function handleDifficultySelectChange(event) {
   if (typeof value !== 'string') {
     return;
   }
-  persistDifficultyMode(value);
+  setDifficulty(value);
 }
 
 function bindDifficultySelect() {
@@ -172,6 +176,29 @@ function handleAutoFireToggleClick(event) {
     event.preventDefault();
   }
   toggleAutoFire();
+}
+
+function bindHudEventSubscriptions() {
+  if (hudEventsBound) {
+    return;
+  }
+  GameEvents.on('lives:changed', setHUDLives);
+  GameEvents.on('score:changed', setHUDScore);
+  GameEvents.on('shield:changed', (payload) => {
+    const data = payload ?? {};
+    setHUDShield(data.value, data.max);
+  });
+  GameEvents.on('weapon:changed', setHUDWeapon);
+  GameEvents.on('powerup:changed', setHUDPowerup);
+  GameEvents.on('level:started', (payload = {}) => {
+    setHUDLives(payload.lives);
+    const shield = payload.shield ?? {};
+    setHUDShield(shield.value, shield.max);
+    setHUDScore(payload.score);
+    setHUDWeapon(payload.weapon ?? 'None');
+    setHUDPowerup(payload.powerup ?? 'None');
+  });
+  hudEventsBound = true;
 }
 
 function refreshLevelChipRefs() {
@@ -954,7 +981,7 @@ export function showPauseOverlay() {
   bindStartButton();
 }
 
-export function updateLives(value) {
+export function setHUDLives(value) {
   if (!hudLives) {
     return;
   }
@@ -967,8 +994,20 @@ export function updateLives(value) {
   }
 }
 
+export function updateLives(value) {
+  setHUDLives(value);
+}
+
+export function setHUDScore(value = 0) {
+  if (!hudScore) {
+    return;
+  }
+  const safeValue = Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+  hudScore.textContent = `${safeValue}`;
+}
+
 export function updateScore(value) {
-  hudScore.textContent = value;
+  setHUDScore(value);
 }
 
 export function updateComboMultiplier(multiplier = 1, { highlight = false } = {}) {
@@ -1013,7 +1052,7 @@ export function updateTime(value) {
   hudTime.textContent = `${seconds}s`;
 }
 
-export function updateShield(value = 0, maxValue = 1) {
+export function setHUDShield(value = 0, maxValue = 1) {
   if (!hudShieldMeter || !hudShieldFill) {
     return;
   }
@@ -1031,7 +1070,11 @@ export function updateShield(value = 0, maxValue = 1) {
   }
 }
 
-export function updatePower(label) {
+export function updateShield(value = 0, maxValue = 1) {
+  setHUDShield(value, maxValue);
+}
+
+export function setHUDPowerup(label) {
   if (!hudPower) {
     return;
   }
@@ -1042,6 +1085,10 @@ export function updatePower(label) {
     hudPowerChip.setAttribute('title', desc);
     hudPowerChip.setAttribute('aria-label', desc);
   }
+}
+
+export function updatePower(label) {
+  setHUDPowerup(label);
 }
 
 export function updateLevelChip({ levelIndex, name, mutators } = {}) {
@@ -1156,6 +1203,14 @@ export function updateWeapon(
     hudWeaponChip.setAttribute('title', descriptor);
     hudWeaponChip.setAttribute('aria-label', descriptor);
   }
+}
+
+export function setHUDWeapon(config) {
+  if (config && typeof config === 'object') {
+    updateWeapon(config.label ?? config.name ?? config, { icon: config.icon });
+    return;
+  }
+  updateWeapon(config);
 }
 
 export function currentOverlay() {
