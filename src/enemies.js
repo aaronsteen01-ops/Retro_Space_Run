@@ -25,6 +25,12 @@ const BEAM_LENGTH_RATIO = 0.85;
 const BEAM_WIDTH = 220;
 const BEAM_SAFE_WIDTH = 80;
 const BEAM_SAFE_LANES = [-0.45, 0.45];
+const MID_BOSS_BURST_CADENCE_MS = 2600;
+const MID_BOSS_SPREAD_CADENCE_MS = 1200;
+const MID_BOSS_BURST_COUNT = 14;
+const MID_BOSS_BURST_SPEED = 190;
+const MID_BOSS_SPREAD = 0.18;
+const MID_BOSS_SPREAD_SPEED = 240;
 
 const randInt = (min, max) => Math.floor(rand(min, max + 1));
 
@@ -429,6 +435,62 @@ function drawBossBeam(ctx, boss, bossPalette) {
   ctx.restore();
 }
 
+function updateMidBoss(state, boss, dt, nowMs, player, viewW, viewH, options = {}) {
+  const { fireFactor = 1 } = options;
+  const ps = boss.patternState;
+  if (!ps.midInitialised) {
+    ps.midInitialised = true;
+    ps.burstTimer = MID_BOSS_BURST_CADENCE_MS * 0.6;
+    ps.spreadTimer = MID_BOSS_SPREAD_CADENCE_MS * 0.75;
+    ps.rotation = Math.random() * TAU;
+  }
+  if (boss.entering) {
+    return;
+  }
+  const cadenceScale = clamp(fireFactor, 0, 1);
+  const roamSpeed = 150;
+  const leftBound = 120;
+  const rightBound = Math.max(leftBound + 40, viewW - 120);
+  boss.x += boss.sweepDir * roamSpeed * dt;
+  if (boss.x < leftBound) {
+    boss.x = leftBound;
+    boss.sweepDir = 1;
+  } else if (boss.x > rightBound) {
+    boss.x = rightBound;
+    boss.sweepDir = -1;
+  }
+  const baseY = viewH * 0.24;
+  const floatRange = viewH * 0.04;
+  const driftPhase = (ps.rotation || 0) * 0.35;
+  boss.y = clamp(baseY + Math.sin(nowMs * 0.0021 + driftPhase) * floatRange, viewH * 0.18, viewH * 0.32);
+  if (cadenceScale <= 0) {
+    return;
+  }
+  ps.burstTimer -= dt * 1000 * cadenceScale;
+  if (ps.burstTimer <= 0) {
+    ps.burstTimer = MID_BOSS_BURST_CADENCE_MS;
+    ps.rotation = (ps.rotation ?? 0) + Math.PI / 9;
+    for (let i = 0; i < MID_BOSS_BURST_COUNT; i++) {
+      const angle = (TAU / MID_BOSS_BURST_COUNT) * i + (ps.rotation ?? 0);
+      pushBossBullet(state, boss.x, boss.y + 12, MID_BOSS_BURST_SPEED, angle, 8);
+    }
+    playPow();
+  }
+  ps.spreadTimer -= dt * 1000 * cadenceScale;
+  if (ps.spreadTimer <= 0) {
+    ps.spreadTimer = MID_BOSS_SPREAD_CADENCE_MS;
+    const targetX = player?.x ?? viewW / 2;
+    const targetY = player?.y ?? viewH / 2;
+    const aim = Math.atan2(targetY - boss.y, targetX - boss.x);
+    const offsets = [-MID_BOSS_SPREAD, 0, MID_BOSS_SPREAD];
+    offsets.forEach((offset, idx) => {
+      const angle = aim + offset;
+      const lateral = (idx - 1) * 18;
+      pushBossBullet(state, boss.x + lateral, boss.y + 28, MID_BOSS_SPREAD_SPEED, angle, 8);
+    });
+  }
+}
+
 function updatePhase1Pattern(state, boss, dt, player, options = {}) {
   const { fireFactor = 1 } = options;
   const ps = boss.patternState;
@@ -662,6 +724,18 @@ export function spawnBoss(state, bossConfig = {}) {
     .map((v) => Number(v))
     .filter((v) => Number.isFinite(v));
   const resolvedMax = bossConfig.maxPhase ?? Math.max(1, thresholds.length + 1);
+  const role = bossConfig.role ?? 'final';
+  const variant = bossConfig.variant ?? role;
+  const introDuration = Number.isFinite(bossConfig.introDuration)
+    ? Math.max(0, bossConfig.introDuration)
+    : 2200;
+  const rawMessage = typeof bossConfig.introMessage === 'string' ? bossConfig.introMessage.trim() : '';
+  const introMessage = rawMessage.length ? rawMessage : 'WARNING — CORE GUARDIAN';
+  const introColour = bossConfig.introColour ?? null;
+  const introGlow = bossConfig.introGlow ?? null;
+  const bannerColour = bossConfig.bannerColour ?? null;
+  const healthLabel = bossConfig.healthLabel ?? null;
+  const warningTimer = Math.max(0, bossConfig.warningTimer ?? 0);
   const boss = {
     type: 'boss',
     kind: bossConfig.kind ?? 'standard',
@@ -682,17 +756,63 @@ export function spawnBoss(state, bossConfig = {}) {
     patternState: {},
     sweepDir: 1,
     entering: true,
-    introTimer: 2200,
+    introTimer: introDuration,
+    introDuration,
+    introMessage,
+    introColour,
+    introGlow,
+    bannerColour,
+    healthLabel,
     phaseFlashTimer: 0,
     specialCueTimer: 0,
-    warningTimer: 0,
+    warningTimer,
     glowPulse: 0,
     warningPulse: 0,
     rewardDropped: false,
     beam: null,
+    role,
+    variant,
   };
   drainBullets(state.enemyBullets);
   state.boss = boss;
+  state.bossType = role;
+  return boss;
+}
+
+export function spawnMidBoss(state, bossConfig = {}) {
+  const config = {
+    ...bossConfig,
+    role: 'mid',
+    variant: 'mid',
+    phaseThresholds: [],
+    phases: [],
+    maxPhase: 1,
+    introDuration: bossConfig?.introDuration ?? 1800,
+  };
+  if (!Number.isFinite(config.hp)) {
+    config.hp = 240;
+  }
+  if (!config.introMessage) {
+    config.introMessage = 'INTRUDER ALERT';
+  }
+  if (!config.introColour) {
+    config.introColour = '#ff5a6e';
+  }
+  if (!config.bannerColour) {
+    config.bannerColour = 'rgba(255, 245, 245, 0.88)';
+  }
+  if (!config.healthLabel) {
+    config.healthLabel = 'Intruder Integrity';
+  }
+  const boss = spawnBoss(state, config);
+  boss.maxPhase = 1;
+  boss.phaseThresholds = [];
+  boss.currentPhase = 1;
+  boss.phase = 1;
+  boss.telegraphPhase = 1;
+  boss.patternState = {};
+  boss.warningTimer = Math.max(boss.warningTimer, 1200);
+  boss.sweepDir = Math.random() < 0.5 ? -1 : 1;
   return boss;
 }
 
@@ -739,6 +859,12 @@ export function updateBoss(state, dt, now, player, palette) {
   }
   if (!telegraphing) {
     boss.telegraphPhase = boss.currentPhase || 1;
+  }
+
+  if (boss.role === 'mid' || boss.variant === 'mid') {
+    boss.telegraphPhase = 1;
+    updateMidBoss(state, boss, dt, nowMs, player, viewW, viewH, { fireFactor });
+    return;
   }
 
   const enterPhase = (targetPhase) => {
@@ -824,9 +950,9 @@ export function drawBoss(ctx, boss, palette) {
   if (!boss) {
     return;
   }
+  const { w, h } = getViewSize();
   const bossPalette = resolvePaletteSection(palette, 'boss');
   if (boss.warningTimer > 0) {
-    const { w, h } = getViewSize();
     const intensity = clamp(boss.warningTimer / 2000, 0, 1);
     const pulse = 0.65 + 0.35 * Math.sin(boss.warningPulse || 0);
     ctx.save();
@@ -846,6 +972,26 @@ export function drawBoss(ctx, boss, palette) {
     ctx.fillStyle = fill;
     ctx.globalAlpha = pulse;
     ctx.fillText('WARNING', w / 2, y);
+    ctx.restore();
+  }
+  if (boss.introTimer > 0 && (boss.role === 'mid' || boss.variant === 'mid')) {
+    const introDuration = Math.max(1, boss.introDuration ?? 1800);
+    const remaining = clamp(boss.introTimer / introDuration, 0, 1);
+    const pulse = 0.4 + 0.6 * Math.sin((1 - remaining) * Math.PI);
+    const bandHeight = 68;
+    const centerY = h * 0.18;
+    ctx.save();
+    ctx.fillStyle = boss.bannerColour ?? 'rgba(255, 245, 245, 0.88)';
+    ctx.globalAlpha = Math.max(0.2, Math.min(0.95, pulse));
+    ctx.fillRect(0, centerY - bandHeight / 2, w, bandHeight);
+    ctx.globalAlpha = 1;
+    ctx.font = 'bold 44px "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = boss.introColour ?? bossPalette.introText;
+    ctx.shadowColor = boss.introGlow ?? boss.introColour ?? bossPalette.introGlow;
+    ctx.shadowBlur = 24;
+    const message = boss.introMessage ?? 'INTRUDER ALERT';
+    ctx.fillText(message, w / 2, centerY + 8);
     ctx.restore();
   }
   if (boss.beam) {
@@ -962,15 +1108,16 @@ export function drawBoss(ctx, boss, palette) {
     ctx.fillStyle = bossPalette.phase3Trim;
     ctx.fillRect(-46, 30, 92, 6);
   }
-  if (boss.introTimer > 0) {
+  if (boss.introTimer > 0 && !(boss.role === 'mid' || boss.variant === 'mid')) {
     ctx.save();
     ctx.translate(0, -80);
     ctx.font = '18px "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillStyle = bossPalette.introText;
-    ctx.shadowColor = bossPalette.introGlow;
+    ctx.fillStyle = boss.introColour ?? bossPalette.introText;
+    ctx.shadowColor = boss.introGlow ?? bossPalette.introGlow;
     ctx.shadowBlur = 12;
-    ctx.fillText('WARNING — CORE GUARDIAN', 0, 0);
+    const message = boss.introMessage ?? 'WARNING — CORE GUARDIAN';
+    ctx.fillText(message, 0, 0);
     ctx.restore();
   }
   ctx.restore();
@@ -1076,12 +1223,16 @@ export function drawBossHealth(ctx, boss, palette) {
   ctx.font = 'bold 14px "Segoe UI", sans-serif';
   ctx.textAlign = 'center';
   ctx.fillStyle = bossPalette.healthText;
-  const phaseLabel = clamp(boss.currentPhase ?? 1, 1, boss.maxPhase ?? MAX_BOSS_PHASE);
-  ctx.fillText(
-    `Boss Integrity ${Math.ceil(ratio * 100)}% · Phase ${phaseLabel}`,
-    viewW / 2,
-    y - 8,
-  );
+  const phaseValue = clamp(boss.currentPhase ?? 1, 1, boss.maxPhase ?? MAX_BOSS_PHASE);
+  const percent = Math.ceil(ratio * 100);
+  const isMidBoss = boss.role === 'mid' || boss.variant === 'mid';
+  const baseLabel = boss.healthLabel
+    ?? (isMidBoss ? 'Intruder Integrity' : 'Boss Integrity');
+  let caption = `${baseLabel} ${percent}%`;
+  if (!isMidBoss && (boss.maxPhase ?? MAX_BOSS_PHASE) > 1) {
+    caption += ` · Phase ${phaseValue}`;
+  }
+  ctx.fillText(caption, viewW / 2, y - 8);
   ctx.restore();
 }
 

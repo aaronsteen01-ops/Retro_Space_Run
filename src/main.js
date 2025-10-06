@@ -2,7 +2,7 @@
  * main.js — bootstraps Retro Space Run, orchestrating modules and the core game loop.
  */
 // CHANGELOG: Introduced GameEvents integration, damage handling, and spawn scheduler wiring.
-import { rand, coll, addParticle } from './utils.js';
+import { rand, coll, addParticle, clamp } from './utils.js';
 import {
   ctx,
   showOverlay,
@@ -46,6 +46,7 @@ import {
   updateEnemies,
   drawEnemies,
   spawnBoss,
+  spawnMidBoss,
   updateBoss,
   drawBoss,
   drawBossHealth,
@@ -54,6 +55,7 @@ import {
 import {
   resetPowerTimers,
   maybeSpawnPowerup,
+  dropPowerup,
   ensureGuaranteedPowerups,
   updatePowerups,
   drawPowerups,
@@ -68,6 +70,7 @@ import {
   updateWeaponDrops,
   drawWeaponDrops,
   maybeDropWeaponToken,
+  spawnWeaponToken,
   ensureGuaranteedWeaponDrop,
   updateMuzzleFlashes,
   drawMuzzleFlashes,
@@ -167,6 +170,58 @@ function applyEnemyWeightMultipliers(weights = {}, multipliers = {}) {
     clone[type] = Math.max(0, base * multiplier);
   }
   return clone;
+}
+
+function getMidBossConfig(level) {
+  if (!level?.boss) {
+    return null;
+  }
+  return level.boss.midBoss ?? null;
+}
+
+function getFinalBossConfig(level) {
+  if (!level?.boss) {
+    return null;
+  }
+  if (level.boss.finalBoss) {
+    return level.boss.finalBoss;
+  }
+  return level.boss.kind ? level.boss : null;
+}
+
+function resolveMidBossTrigger(level, duration) {
+  const config = getMidBossConfig(level);
+  if (!config) {
+    return null;
+  }
+  if (Number.isFinite(config.triggerTime)) {
+    return Math.max(0, config.triggerTime);
+  }
+  const ratio = Number.isFinite(config.triggerRatio) ? clamp(config.triggerRatio, 0.1, 0.95) : 0.6;
+  const baseDuration = Number.isFinite(duration) ? duration : level?.duration ?? 0;
+  return baseDuration * ratio;
+}
+
+function maybeSpawnMidBossFight() {
+  const level = state.level;
+  const config = getMidBossConfig(level);
+  if (!config) {
+    return;
+  }
+  if (state.midBossSpawned || state.midBossDefeated || state.boss || state.bossSpawned) {
+    return;
+  }
+  const triggerAt = resolveMidBossTrigger(level, state.levelDur);
+  if (!Number.isFinite(triggerAt)) {
+    return;
+  }
+  if (state.time >= triggerAt) {
+    spawnMidBoss(state, config);
+    state.midBossSpawned = true;
+    state.bossType = 'mid';
+    GameEvents.emit('boss:spawned', { type: 'mid', config });
+    showToast('INTRUDER ALERT', 900);
+  }
 }
 
 function clampMultiplier(value, fallback = 1, min = 0.1, max = 5) {
@@ -359,7 +414,11 @@ const state = {
   stars: [],
   finishGate: null,
   boss: null,
+  bossType: null,
   bossSpawned: false,
+  midBossSpawned: false,
+  midBossDefeated: false,
+  midBossDefeatedAt: 0,
   bossDefeatedAt: 0,
   bossMercyUntil: 0,
   lastShot: 0,
@@ -931,7 +990,11 @@ function clearLevelEntities() {
   state.particles.length = 0;
   state.finishGate = null;
   state.boss = null;
+  state.bossType = null;
   state.bossSpawned = false;
+  state.midBossSpawned = false;
+  state.midBossDefeated = false;
+  state.midBossDefeatedAt = 0;
   state.bossDefeatedAt = 0;
   state.bossMercyUntil = 0;
   state.weaponDropSecured = false;
@@ -1414,6 +1477,14 @@ function startLevel(levelIndex) {
   state.levelIndex = levelIndex;
   state.level = targetLevel;
   state.levelDur = targetLevel?.duration ?? 0;
+  state.boss = null;
+  state.bossType = null;
+  state.bossSpawned = false;
+  state.midBossSpawned = false;
+  state.midBossDefeated = false;
+  state.midBossDefeatedAt = 0;
+  state.bossDefeatedAt = 0;
+  state.bossMercyUntil = 0;
   state.nextWaveIndex = 0;
   state.time = 0;
   state.levelStartScore = state.score;
@@ -2048,6 +2119,7 @@ function loop(now) {
   state.time += dt;
   updateTime(Math.floor(state.time));
   ensureGuaranteedWeaponDrop(state);
+  maybeSpawnMidBossFight();
   scheduleLevelWaves();
   tickSpawner(dt);
   updateEffects(state, dt);
@@ -2064,10 +2136,18 @@ function loop(now) {
   }
 
   if (state.time >= state.levelDur) {
-    if (!state.bossSpawned) {
-      spawnBoss(state, state.level?.boss);
+    const midConfig = getMidBossConfig(state.level);
+    const finalBossConfig = getFinalBossConfig(state.level);
+    const midCleared = !midConfig || state.midBossDefeated;
+    if (!state.bossSpawned && !state.boss && midCleared && finalBossConfig) {
+      spawnBoss(state, finalBossConfig);
       state.bossSpawned = true;
-    } else if (!state.boss && !state.finishGate && now - state.bossDefeatedAt > 600) {
+    } else if (
+      state.bossSpawned &&
+      !state.boss &&
+      !state.finishGate &&
+      now - state.bossDefeatedAt > 600
+    ) {
       ensureFinishGate();
     }
   }
@@ -2275,26 +2355,47 @@ function loop(now) {
         }
         addParticle(state, state.boss.x, state.boss.y, particles.bossHit, 18, 3.4, 320);
         playHit();
-          if (state.boss.hp <= 0) {
-            const defeatedBoss = state.boss;
-            spawnExplosion(defeatedBoss.x, defeatedBoss.y, 'boss');
-            shakeScreen(6, 500);
+        if (state.boss.hp <= 0) {
+          const defeatedBoss = state.boss;
+          const isMidBoss = defeatedBoss?.role === 'mid' || defeatedBoss?.variant === 'mid' || state.bossType === 'mid';
+          spawnExplosion(defeatedBoss.x, defeatedBoss.y, 'boss');
+          shakeScreen(isMidBoss ? 4 : 6, isMidBoss ? 360 : 500);
+          incrementCombo();
+          if (isMidBoss) {
+            showToast('INTRUDER NEUTRALISED', 1000);
+            playPow();
+            addScore(250);
+          } else {
             showToast('BOSS DEFEATED', 1200);
             playBossDown();
-            incrementCombo();
             addScore(600);
-            if (!defeatedBoss.rewardDropped) {
-              defeatedBoss.rewardDropped = true;
+          }
+          if (!defeatedBoss.rewardDropped) {
+            defeatedBoss.rewardDropped = true;
+            if (isMidBoss) {
+              if (Math.random() < 0.5) {
+                dropPowerup(state, { x: defeatedBoss.x, y: defeatedBoss.y, vy: 80 });
+              } else {
+                spawnWeaponToken(state, defeatedBoss.x, defeatedBoss.y);
+              }
+            } else {
               maybeDropWeaponToken(state, { x: defeatedBoss.x, y: defeatedBoss.y });
             }
-            state.boss = null;
-            state.bossDefeatedAt = now;
-            state.bossMercyUntil = 0;
-            GameEvents.emit('enemy:destroyed', {
-              type: 'boss',
-              position: { x: defeatedBoss.x, y: defeatedBoss.y },
-            });
           }
+          state.boss = null;
+          state.bossType = null;
+          if (isMidBoss) {
+            state.midBossDefeated = true;
+            state.midBossDefeatedAt = now;
+          } else {
+            state.bossDefeatedAt = now;
+          }
+          state.bossMercyUntil = 0;
+          GameEvents.emit('enemy:destroyed', {
+            type: isMidBoss ? 'midBoss' : 'boss',
+            position: { x: defeatedBoss.x, y: defeatedBoss.y },
+          });
+        }
         break;
       }
     }

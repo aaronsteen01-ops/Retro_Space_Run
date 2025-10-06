@@ -19,7 +19,17 @@ export const LEVELS = [
       { at: 8.5, type: 'strafer', count: 2, params: { fireCd: [1200, 1800] } },
       { at: 20.0, type: 'drone', count: 1, params: { steerAccel: 28 } },
     ],
-    boss: { kind: 'overlord', hp: 360, phases: [0.7, 0.4] },
+    boss: {
+      midBoss: {
+        kind: 'intruder-scout',
+        hp: 220,
+        triggerRatio: 0.6,
+        introMessage: 'INTRUDER ALERT',
+        introColour: '#ff6a6e',
+        bannerColour: '#ffefef',
+      },
+      finalBoss: { kind: 'overlord', hp: 360, phases: [0.7, 0.4] },
+    },
     mutators: { windX: 0, squalls: false },
   },
   {
@@ -40,7 +50,17 @@ export const LEVELS = [
       { at: 12.0, type: 'asteroid', count: 5, params: { vy: [70, 120] } },
       { at: 24.0, type: 'strafer', count: 1, params: { fireCd: [1200, 1600] } },
     ],
-    boss: { kind: 'warden', hp: 440, phases: [0.8, 0.5] },
+    boss: {
+      midBoss: {
+        kind: 'intruder-vigil',
+        hp: 260,
+        triggerRatio: 0.6,
+        introMessage: 'INTRUDER ALERT',
+        introColour: '#ff668f',
+        bannerColour: '#ffe5f2',
+      },
+      finalBoss: { kind: 'warden', hp: 440, phases: [0.8, 0.5] },
+    },
     mutators: { windX: 25, squalls: true },
   },
   {
@@ -62,7 +82,17 @@ export const LEVELS = [
       { at: 16.0, type: 'turret', count: 1, params: { bulletSpeed: 260 } },
       { at: 28.0, type: 'strafer', count: 3, params: { speedMin: 150, speedMax: 220 } },
     ],
-    boss: { kind: 'overdrive', hp: 520, phases: [0.75, 0.45] },
+    boss: {
+      midBoss: {
+        kind: 'intruder-blaze',
+        hp: 300,
+        triggerRatio: 0.6,
+        introMessage: 'INTRUDER ALERT',
+        introColour: '#ff7354',
+        bannerColour: '#ffe4d8',
+      },
+      finalBoss: { kind: 'overdrive', hp: 520, phases: [0.75, 0.45] },
+    },
     mutators: { windX: -18, squalls: false },
   },
 ];
