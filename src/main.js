@@ -119,6 +119,7 @@ import {
   unlockPalette,
   getUnlockedShips,
 } from './meta.js';
+import { getStoryBeat } from './story.js';
 import {
   SHIP_CATALOGUE,
   getShipByKey,
@@ -141,6 +142,17 @@ const COMBO_STEP = 0.1;
 const COMBO_MAX_MULTIPLIER = 3;
 const PASSIVE_SCORE_RATE = 30;
 
+const STORY_OVERLAY_DURATION = 1800;
+
+const overlayElement = typeof document !== 'undefined' ? document.getElementById('overlay') : null;
+
+const storyOverlayState = {
+  active: false,
+  timeout: null,
+  keyHandler: null,
+  clickHandler: null,
+};
+
 function isDebugEnabled() {
   if (typeof window !== 'undefined') {
     return Boolean(window.__rsrDebug);
@@ -151,6 +163,81 @@ function isDebugEnabled() {
 function dlog(...args) {
   if (isDebugEnabled()) {
     console.log('[RSR]', ...args);
+  }
+}
+
+function dismissStoryOverlay({ hide = false } = {}) {
+  if (storyOverlayState.timeout) {
+    if (typeof window !== 'undefined') {
+      window.clearTimeout(storyOverlayState.timeout);
+    }
+    storyOverlayState.timeout = null;
+  }
+  if (overlayElement && storyOverlayState.clickHandler) {
+    overlayElement.removeEventListener('click', storyOverlayState.clickHandler);
+  }
+  if (typeof window !== 'undefined' && storyOverlayState.keyHandler) {
+    window.removeEventListener('keydown', storyOverlayState.keyHandler, true);
+  }
+  storyOverlayState.clickHandler = null;
+  storyOverlayState.keyHandler = null;
+  if (hide && storyOverlayState.active) {
+    hideOverlay();
+  }
+  storyOverlayState.active = false;
+}
+
+function showStoryOverlay(beat) {
+  if (!beat || !overlayElement) {
+    return;
+  }
+  dismissStoryOverlay({ hide: true });
+  const lines = Array.isArray(beat.textLines)
+    ? beat.textLines
+        .filter((line) => typeof line === 'string' && line.trim().length)
+        .map((line) => `<p class="story-card__line">${line}</p>`)
+        .join('')
+    : '';
+  const hint = '<p class="story-card__hint">Press Space or click to skip</p>';
+  const headingTag = beat.title ? `<h2>${beat.title}</h2>` : '';
+  showOverlay(`
+    <article class="story-card" role="status" aria-live="polite">
+      ${headingTag}
+      <div class="story-card__body">${lines}</div>
+      ${hint}
+    </article>
+  `);
+  storyOverlayState.active = true;
+
+  const finish = () => {
+    if (!storyOverlayState.active) {
+      return;
+    }
+    const shouldHide = overlayElement?.querySelector('.story-card');
+    dismissStoryOverlay();
+    if (shouldHide) {
+      hideOverlay();
+    }
+  };
+
+  storyOverlayState.clickHandler = (event) => {
+    event?.preventDefault?.();
+    finish();
+  };
+  storyOverlayState.keyHandler = (event) => {
+    if (!event) {
+      return;
+    }
+    const code = event.code || event.key;
+    if (code === 'Space' || code === 'Spacebar' || event.key === ' ') {
+      event.preventDefault();
+      finish();
+    }
+  };
+  overlayElement.addEventListener('click', storyOverlayState.clickHandler);
+  if (typeof window !== 'undefined') {
+    window.addEventListener('keydown', storyOverlayState.keyHandler, true);
+    storyOverlayState.timeout = window.setTimeout(finish, STORY_OVERLAY_DURATION);
   }
 }
 
@@ -462,6 +549,7 @@ const state = {
   runUpgrades: createRunUpgradeState(),
   themeFx: createThemeFxState(),
   runStats: { bosses: 0 },
+  storyOutroShown: false,
 };
 
 configureSpawner(state);
@@ -1022,6 +1110,7 @@ function clearLevelEntities() {
   state.midBossDefeatedAt = 0;
   state.bossDefeatedAt = 0;
   state.bossMercyUntil = 0;
+  state.storyOutroShown = false;
   state.weaponDropSecured = false;
   state.powerupsGrantedL1 = 0;
   state.lastGuaranteedPowerup = null;
@@ -1216,6 +1305,7 @@ function levelIntro(level) {
     clearTimeout(state.levelIntroTimeout);
     state.levelIntroTimeout = null;
   }
+  dismissStoryOverlay({ hide: true });
   const themeKey = state.levelContext?.themeKey ?? level?.theme ?? DEFAULT_THEME_KEY;
   if (themeKey) {
     setTheme(themeKey, { persist: false });
@@ -1267,10 +1357,16 @@ function levelIntro(level) {
       </div>
     </div>
   `);
+  const storyKey = typeof level?.key === 'string' ? level.key : null;
+  const storyIntro = storyKey ? getStoryBeat(storyKey, 'intro') : null;
+  const introDuration = storyIntro ? 1200 : 1600;
   state.levelIntroTimeout = window.setTimeout(() => {
     hideOverlay();
     state.levelIntroTimeout = null;
-  }, 1600);
+    if (storyIntro) {
+      showStoryOverlay(storyIntro);
+    }
+  }, introDuration);
 }
 
 function pickReplacementType(originalType, weights) {
@@ -2626,6 +2722,14 @@ function loop(now) {
             state.bossDefeatedAt = now;
             if (state.runStats) {
               state.runStats.bosses = (state.runStats.bosses ?? 0) + 1;
+            }
+            if (!state.storyOutroShown) {
+              const outroKey = typeof state.level?.key === 'string' ? state.level.key : null;
+              const outroBeat = outroKey ? getStoryBeat(outroKey, 'outro') : null;
+              if (outroBeat) {
+                showStoryOverlay(outroBeat);
+                state.storyOutroShown = true;
+              }
             }
           }
           state.bossMercyUntil = 0;
