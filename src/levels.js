@@ -1,9 +1,12 @@
+import { getThemeBehaviour } from './themes.js';
+
 export const LEVELS = [
   {
     key: 'L1',
     name: 'Debris Drift',
     duration: 90,
     theme: 'synth-horizon',
+    themeBehaviour: getThemeBehaviour('synth-horizon'),
     overlays: { tint: 'rgba(0,0,0,0.0)' },
     starfield: {
       density: 0.9,
@@ -24,6 +27,7 @@ export const LEVELS = [
     name: 'Ion Squalls',
     duration: 105,
     theme: 'luminous-depths',
+    themeBehaviour: getThemeBehaviour('luminous-depths'),
     overlays: { tint: 'rgba(80,0,120,0.06)' },
     starfield: {
       density: 1.35,
@@ -38,5 +42,27 @@ export const LEVELS = [
     ],
     boss: { kind: 'warden', hp: 440, phases: [0.8, 0.5] },
     mutators: { windX: 25, squalls: true },
+  },
+  {
+    key: 'L3',
+    name: 'Ember Breaker',
+    duration: 110,
+    theme: 'ember-overdrive',
+    themeBehaviour: getThemeBehaviour('ember-overdrive'),
+    overlays: { tint: 'rgba(120,40,0,0.08)' },
+    starfield: {
+      density: 1.1,
+      twinkle: { amplitude: 0.28, speed: 1.35 },
+      sizeRange: [1.1, 2.1],
+    },
+    enemyWeights: { asteroid: 0.8, strafer: 1.1, drone: 0.9, turret: 0.6 },
+    waves: [
+      { at: 3.5, type: 'asteroid', count: 5, params: { vy: [90, 150] } },
+      { at: 9.0, type: 'strafer', count: 2, params: { fireCd: [900, 1400] } },
+      { at: 16.0, type: 'turret', count: 1, params: { bulletSpeed: 260 } },
+      { at: 28.0, type: 'strafer', count: 3, params: { speedMin: 150, speedMax: 220 } },
+    ],
+    boss: { kind: 'overdrive', hp: 520, phases: [0.75, 0.45] },
+    mutators: { windX: -18, squalls: false },
   },
 ];

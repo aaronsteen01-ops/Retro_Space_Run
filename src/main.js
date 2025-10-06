@@ -79,6 +79,8 @@ import {
   resolvePaletteSection,
   getThemeKeys,
   getThemeLabel,
+  getThemeBehaviour,
+  applyThemeBehaviourToPalette,
 } from './themes.js';
 import { LEVELS } from './levels.js';
 import {
@@ -130,6 +132,48 @@ function dlog(...args) {
   if (isDebugEnabled()) {
     console.log('[RSR]', ...args);
   }
+}
+
+function createThemeFxState() {
+  return {
+    overlay: null,
+    overlayTime: 0,
+    enemySpeedMultiplier: 1,
+    powerupIntervalMultiplier: 1,
+    powerupDurationMultiplier: 1,
+  };
+}
+
+function cloneEnemyWeights(weights = {}) {
+  const clone = {};
+  for (const [type, value] of Object.entries(weights)) {
+    if (Number.isFinite(value)) {
+      clone[type] = value;
+    }
+  }
+  return clone;
+}
+
+function applyEnemyWeightMultipliers(weights = {}, multipliers = {}) {
+  if (!multipliers) {
+    return weights;
+  }
+  const clone = { ...weights };
+  for (const [type, multiplier] of Object.entries(multipliers)) {
+    if (!Number.isFinite(multiplier)) {
+      continue;
+    }
+    const base = Number.isFinite(clone[type]) ? clone[type] : 1;
+    clone[type] = Math.max(0, base * multiplier);
+  }
+  return clone;
+}
+
+function clampMultiplier(value, fallback = 1, min = 0.1, max = 5) {
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(max, value));
 }
 
 function defaultStarfieldConfig() {
@@ -327,14 +371,16 @@ const state = {
   lastGuaranteedPowerup: null,
   weapon: null,
   theme: activePalette,
+  renderPalette: activePalette,
   assistEnabled: getAssistMode(),
   settings: {
     autoFire: getAutoFire(),
   },
-  levelContext: { enemyWeights: {}, mutators: {}, themeKey: null },
+  levelContext: { enemyWeights: {}, mutators: {}, themeKey: null, themeBehaviour: null },
   weather: { windX: 0, windDrift: 0, squall: null },
   levelIntroTimeout: null,
   runUpgrades: createRunUpgradeState(),
+  themeFx: createThemeFxState(),
 };
 
 configureSpawner(state);
@@ -525,7 +571,7 @@ onDifficultyModeChange((mode) => {
 
 onThemeChange((_, palette) => {
   activePalette = palette ?? DEFAULT_THEME_PALETTE;
-  state.theme = activePalette;
+  refreshActivePalette();
 });
 
 onAssistChange((enabled) => {
@@ -893,6 +939,9 @@ function clearLevelEntities() {
   state.lastGuaranteedPowerup = null;
   state.weaponPickupFlash = null;
   state.lastShot = 0;
+  if (state.themeFx) {
+    state.themeFx.overlayTime = 0;
+  }
   state.power = { name: null, until: 0 };
   state.restartPromptVisible = false;
   resetPowerState(state);
@@ -973,11 +1022,16 @@ function promptLevelRestart() {
 }
 
 function configureLevelContext(level) {
+  const themeKey = level?.theme ?? DEFAULT_THEME_KEY;
+  const baseWeights = cloneEnemyWeights(level?.enemyWeights ?? {});
+  const behaviour = level?.themeBehaviour ?? getThemeBehaviour(themeKey);
   state.levelContext = {
-    enemyWeights: level?.enemyWeights ?? {},
+    enemyWeights: baseWeights,
     mutators: level?.mutators ?? {},
-    themeKey: level?.theme ?? null,
+    themeKey,
+    themeBehaviour: behaviour,
   };
+  applyThemeBehaviourState(behaviour, { baseWeights });
   applyLevelMutators(state.levelContext.mutators);
 }
 
@@ -1030,6 +1084,41 @@ function resolveMutatorDescriptors(mutators = {}) {
   return descriptors;
 }
 
+function refreshActivePalette() {
+  const behaviour = state.levelContext?.themeBehaviour ?? null;
+  const palette = applyThemeBehaviourToPalette(activePalette ?? DEFAULT_THEME_PALETTE, behaviour);
+  state.renderPalette = palette;
+  state.theme = palette;
+}
+
+function applyThemeBehaviourState(behaviour, { baseWeights } = {}) {
+  const spawnModifiers = behaviour?.spawnModifiers ?? {};
+  const weightMultipliers = spawnModifiers.enemyWeightMultipliers ?? null;
+  if (baseWeights) {
+    state.levelContext.enemyWeights = applyEnemyWeightMultipliers(baseWeights, weightMultipliers);
+  } else if (state.levelContext?.enemyWeights) {
+    state.levelContext.enemyWeights = applyEnemyWeightMultipliers(
+      cloneEnemyWeights(state.levelContext.enemyWeights),
+      weightMultipliers,
+    );
+  }
+  const speedMultiplier = clampMultiplier(spawnModifiers.enemySpeedMultiplier, 1);
+  const intervalMultiplier = clampMultiplier(spawnModifiers.powerupIntervalMultiplier, 1);
+  const durationMultiplier = clampMultiplier(spawnModifiers.powerupDurationMultiplier, 1);
+  if (!state.themeFx) {
+    state.themeFx = createThemeFxState();
+  }
+  state.themeFx.enemySpeedMultiplier = speedMultiplier;
+  state.themeFx.powerupIntervalMultiplier = intervalMultiplier;
+  state.themeFx.powerupDurationMultiplier = durationMultiplier;
+  const overlay = behaviour?.overlay ?? null;
+  state.themeFx.overlay = overlay
+    ? { ...overlay, colours: overlay.colours ? { ...overlay.colours } : {} }
+    : null;
+  state.themeFx.overlayTime = 0;
+  refreshActivePalette();
+}
+
 function levelIntro(level) {
   if (state.levelIntroTimeout) {
     clearTimeout(state.levelIntroTimeout);
@@ -1039,7 +1128,7 @@ function levelIntro(level) {
   if (themeKey) {
     setTheme(themeKey, { persist: false });
   }
-  const palette = getActiveThemePalette() ?? DEFAULT_THEME_PALETTE;
+  const palette = state.renderPalette ?? getActiveThemePalette() ?? DEFAULT_THEME_PALETTE;
   state.theme = palette;
   const overlayTint = normaliseOverlayTint(level?.overlays?.tint);
   state.levelOverlay = overlayTint && overlayTint.alpha > 0 ? overlayTint : null;
@@ -1047,12 +1136,30 @@ function levelIntro(level) {
   state.starfield = mergeStarfieldConfig(starfieldOverrides);
   clearLevelEntities();
   const mutatorDescriptors = resolveMutatorDescriptors(level?.mutators);
+  const behaviour = state.levelContext?.themeBehaviour ?? getThemeBehaviour(themeKey);
+  const themeLabel = themeKey ? getThemeLabel(themeKey) : null;
+  const themeIcon = behaviour?.icon ?? '';
+  const themeSummary = behaviour?.summary ?? '';
   updateLevelChip({
     levelIndex: state.levelIndex,
     name: level?.name ?? null,
     mutators: mutatorDescriptors,
+    theme: themeLabel ? { icon: themeIcon, label: themeLabel } : null,
   });
   const overlayName = level?.name ?? `Level ${state.levelIndex}`;
+  const themeMarkup = themeLabel
+    ? [
+        `<p class="level-card__theme" aria-label="Sector theme: ${themeLabel}${themeSummary ? `. ${themeSummary}` : ''}">`,
+        themeIcon ? `<span class="level-card__theme-icon" aria-hidden="true">${themeIcon}</span>` : '',
+        `<span class="level-card__theme-label">${themeLabel}</span>`,
+        themeSummary
+          ? `<span class="level-card__theme-divider">—</span><span class="level-card__theme-summary">${themeSummary}</span>`
+          : '',
+        '</p>',
+      ]
+        .filter(Boolean)
+        .join('')
+    : '';
   const mutatorMarkup = mutatorDescriptors.length
     ? mutatorDescriptors
         .map((entry) => `<span class="level-card__mutator" title="${entry.label}" aria-label="${entry.label}">${entry.icon}</span>`)
@@ -1062,6 +1169,7 @@ function levelIntro(level) {
     <div class="level-card" role="status" aria-live="polite">
       <p class="level-card__label">Level ${state.levelIndex}</p>
       <h1>${overlayName}</h1>
+      ${themeMarkup}
       <div class="level-card__mutators" role="presentation">
         ${mutatorMarkup}
       </div>
@@ -1179,6 +1287,89 @@ function drawSquallOverlay(viewW, viewH, palette) {
   ctx.fillRect(0, viewH * 0.15, viewW, 4);
   ctx.fillRect(0, viewH * 0.35, viewW, 3);
   ctx.fillRect(0, viewH * 0.55, viewW, 4);
+  ctx.restore();
+}
+
+function drawThemeOverlay(viewW, viewH, dt) {
+  const overlayConfig = state.themeFx?.overlay;
+  if (!overlayConfig) {
+    return;
+  }
+  const fx = state.themeFx;
+  const speed = Number.isFinite(overlayConfig.speed) ? overlayConfig.speed : 0.25;
+  fx.overlayTime = (fx.overlayTime ?? 0) + dt * speed;
+  const time = fx.overlayTime;
+  const intensity = Number.isFinite(overlayConfig.intensity)
+    ? Math.max(0, overlayConfig.intensity)
+    : 0.3;
+  ctx.save();
+  if (overlayConfig.kind === 'fog') {
+    const layers = Math.max(2, Math.floor(overlayConfig.layers ?? 3));
+    const colours = overlayConfig.colours ?? {};
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < layers; i++) {
+      const progress = (i + 1) / (layers + 1);
+      const bandHeight = viewH * 0.5;
+      const offset = Math.sin(time * (0.8 + i * 0.22) + i) * 40;
+      const y = viewH * progress + offset;
+      const gradient = ctx.createLinearGradient(0, y - bandHeight / 2, 0, y + bandHeight / 2);
+      gradient.addColorStop(0, colours.far ?? 'rgba(36, 245, 217, 0.08)');
+      gradient.addColorStop(0.55, colours.near ?? 'rgba(22, 128, 255, 0.16)');
+      gradient.addColorStop(1, 'transparent');
+      ctx.globalAlpha = Math.max(0, Math.min(1, intensity * (0.7 - i * 0.12)));
+      ctx.fillStyle = gradient;
+      ctx.fillRect(-viewW * 0.1, y - bandHeight / 2, viewW * 1.2, bandHeight);
+      if (colours.highlight) {
+        ctx.globalAlpha = Math.max(0, Math.min(1, intensity * 0.35));
+        ctx.fillStyle = colours.highlight;
+        ctx.fillRect(-viewW * 0.1, y - 6, viewW * 1.2, 12);
+      }
+    }
+  } else if (overlayConfig.kind === 'heat') {
+    const colours = overlayConfig.colours ?? {};
+    const waves = Math.max(3, Math.floor(overlayConfig.waves ?? 4));
+    ctx.globalCompositeOperation = 'screen';
+    ctx.filter = 'blur(6px)';
+    for (let i = 0; i < waves; i++) {
+      const progress = (i + 0.5) / waves;
+      const bandHeight = (viewH / waves) * 1.1;
+      const offset = Math.sin(time * (1 + i * 0.18) + progress * Math.PI) * 30;
+      const y = viewH * progress + offset;
+      const gradient = ctx.createLinearGradient(0, y - bandHeight / 2, 0, y + bandHeight / 2);
+      gradient.addColorStop(0, 'transparent');
+      gradient.addColorStop(0.4, colours.warm ?? 'rgba(255, 189, 45, 0.18)');
+      gradient.addColorStop(0.7, colours.hot ?? 'rgba(255, 123, 57, 0.24)');
+      gradient.addColorStop(1, 'transparent');
+      ctx.globalAlpha = Math.max(0, Math.min(1, intensity * (0.9 - i * 0.1)));
+      ctx.fillStyle = gradient;
+      ctx.fillRect(-viewW * 0.05, y - bandHeight / 2, viewW * 1.1, bandHeight);
+    }
+    ctx.filter = 'none';
+    if (colours.highlight) {
+      ctx.globalAlpha = Math.max(0, Math.min(1, intensity * 0.35));
+      ctx.fillStyle = colours.highlight;
+      ctx.fillRect(0, 0, viewW, viewH);
+    }
+  } else if (overlayConfig.kind === 'laser') {
+    const colours = overlayConfig.colours ?? {};
+    const spacing = Number.isFinite(overlayConfig.spacing) ? overlayConfig.spacing : 240;
+    const bandWidth = spacing * 0.45;
+    ctx.globalCompositeOperation = 'lighter';
+    const count = Math.ceil((viewW + bandWidth * 2) / spacing) + 3;
+    const offset = ((time % 1) * spacing) - spacing;
+    for (let i = -2; i < count; i++) {
+      const x = i * spacing + offset;
+      const gradient = ctx.createLinearGradient(x - bandWidth, 0, x + bandWidth, viewH);
+      gradient.addColorStop(0, 'transparent');
+      gradient.addColorStop(0.45, colours.primary ?? 'rgba(0, 229, 255, 0.22)');
+      gradient.addColorStop(0.5, colours.secondary ?? 'rgba(255, 61, 247, 0.16)');
+      gradient.addColorStop(0.55, colours.primary ?? 'rgba(0, 229, 255, 0.22)');
+      gradient.addColorStop(1, 'transparent');
+      ctx.globalAlpha = Math.max(0, Math.min(1, intensity));
+      ctx.fillStyle = gradient;
+      ctx.fillRect(x - bandWidth, -viewH * 0.1, bandWidth * 2, viewH * 1.2);
+    }
+  }
   ctx.restore();
 }
 
@@ -1845,7 +2036,7 @@ function loop(now) {
   syncGamepadIndicator(inputState.gamepad?.connected);
   const { w: viewW, h: viewH } = getViewSize();
   const bulletBounds = { minX: -40, maxX: viewW + 40, minY: -40, maxY: viewH + 40 };
-  const palette = activePalette ?? DEFAULT_THEME_PALETTE;
+  const palette = state.renderPalette ?? activePalette ?? DEFAULT_THEME_PALETTE;
   const starPalette = resolvePaletteSection(palette, 'stars');
   const weatherPalette = resolvePaletteSection(palette, 'weather') ?? {};
   const windPalette = weatherPalette.wind ?? {};
@@ -1994,6 +2185,7 @@ function loop(now) {
     ctx.restore();
   }
   ctx.globalAlpha = 1;
+  drawThemeOverlay(viewW, viewH, dt);
   drawSquallOverlay(viewW, viewH, palette);
 
   const player = state.player;
