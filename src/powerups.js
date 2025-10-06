@@ -133,7 +133,10 @@ export function applyPower(state, kind, now) {
       state.lastShot = 0;
       break;
     case 'boost':
-      state.player.speed = 360;
+      if (state.player) {
+        const baseSpeed = Math.max(120, state.player.baseSpeed ?? state.player.speed ?? 260);
+        state.player.speed = baseSpeed * 1.4;
+      }
       break;
     default:
       break;
@@ -142,16 +145,27 @@ export function applyPower(state, kind, now) {
 
 export function clearExpiredPowers(state, now) {
   if (state.power.name && now > state.power.until) {
-    if (state.power.name === 'boost') {
-      state.player.speed = 260;
+    const baseSpeed = Math.max(120, state.player?.baseSpeed ?? 260);
+    const baseShield = Math.max(0, state.player?.baseShield ?? 0);
+    if (state.power.name === 'boost' && state.player) {
+      state.player.speed = baseSpeed;
     }
-    if (state.power.name === 'shield' || (state.player?.shield ?? 0) > 0) {
+    if (state.power.name === 'shield') {
       if (state.player) {
-        state.player.shield = 0;
+        state.player.shield = baseShield;
       }
-      state.shieldCapacity = 0;
-      updateShield(0, 1);
-      GameEvents.emit('shield:changed', { value: 0, max: 1 });
+      state.shieldCapacity = baseShield;
+      const maxShield = Math.max(baseShield, 1);
+      updateShield(baseShield, maxShield);
+      GameEvents.emit('shield:changed', { value: baseShield, max: maxShield });
+    } else if ((state.player?.shield ?? 0) > baseShield) {
+      if (state.player) {
+        state.player.shield = baseShield;
+      }
+      state.shieldCapacity = baseShield;
+      const maxShield = Math.max(baseShield, 1);
+      updateShield(baseShield, maxShield);
+      GameEvents.emit('shield:changed', { value: baseShield, max: maxShield });
     }
     state.power.name = null;
     state.power.until = 0;
@@ -219,11 +233,14 @@ export function resetPowerState(state) {
   state.power.until = 0;
   updatePower('None');
   GameEvents.emit('powerup:changed', 'None');
-  state.shieldCapacity = 0;
-  updateShield(0, 1);
-  GameEvents.emit('shield:changed', { value: 0, max: 1 });
+  const baseShield = Math.max(0, state.player?.baseShield ?? 0);
+  state.shieldCapacity = baseShield;
+  const maxShield = Math.max(baseShield, 1);
+  updateShield(baseShield, maxShield);
+  GameEvents.emit('shield:changed', { value: baseShield, max: maxShield });
   if (state.player) {
-    state.player.shield = 0;
-    state.player.speed = 260;
+    state.player.shield = baseShield;
+    const baseSpeed = Math.max(120, state.player.baseSpeed ?? state.player.speed ?? 260);
+    state.player.speed = baseSpeed;
   }
 }

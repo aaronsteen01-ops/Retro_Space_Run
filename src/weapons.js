@@ -720,11 +720,16 @@ function spawnProjectile(state, projectile, levelIndex) {
   const radius = projectile.radius ?? Math.max(width, height) / 2;
   const colour = projectileColour(state, projectile.colourIndex ?? 0);
   const squall = state.weather?.squall;
-  const spread = squall?.active ? squall.playerSpread ?? squall.spread ?? 0 : 0;
+  const squallSpread = squall?.active ? squall.playerSpread ?? squall.spread ?? 0 : 0;
+  const spreadMultiplier = Number.isFinite(state.player?.projectileSpread)
+    ? Math.max(0.4, state.player.projectileSpread)
+    : 1;
   const bullet = getBullet();
-  bullet.x = state.player.x + projectile.offsetX;
+  const offsetX = projectile.offsetX * spreadMultiplier;
+  bullet.x = state.player.x + offsetX;
   bullet.y = state.player.y + projectile.offsetY;
-  const vx = projectile.vx + (spread ? rand(-spread, spread) : 0);
+  const velocityX = (projectile.vx ?? 0) * spreadMultiplier;
+  const vx = velocityX + (squallSpread ? rand(-squallSpread, squallSpread) : 0);
   const vy = projectile.vy;
   bullet.vx = vx;
   bullet.vy = vy;
@@ -752,7 +757,10 @@ export function handlePlayerShooting(state, input, now) {
   const levelIndex = def ? clampLevel(def, state.weapon.level) : 0;
   const rapid = state.power.name === 'rapid';
   const fireRateMultiplier = state.runUpgrades?.fireRateMultiplier ?? 1;
-  const delay = Math.max(70, level.delay * (rapid ? 0.6 : 1) * fireRateMultiplier);
+  const shipFireRate = Number.isFinite(state.player?.fireRate)
+    ? Math.max(0.4, state.player.fireRate)
+    : 1;
+  const delay = Math.max(70, level.delay * (rapid ? 0.6 : 1) * fireRateMultiplier * shipFireRate);
   if (input?.fire && now - state.lastShot > delay) {
     state.lastShot = now;
     for (const projectile of level.projectiles) {

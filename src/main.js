@@ -28,6 +28,7 @@ import {
   getActiveThemeKey,
   setGamepadIndicator,
   pulseMutatorIcon,
+  refreshThemeOptions,
 } from './ui.js';
 import {
   playZap,
@@ -109,6 +110,22 @@ import {
 import { getMetaValue, updateStoredMeta } from './storage.js';
 import { GameEvents } from './events.js';
 import { configureSpawner, startLevelSpawns, stopLevelSpawns, tickSpawner } from './spawner.js';
+import {
+  recordRunEnd,
+  getSelectedShipKey,
+  setSelectedShip,
+  getMetaProgress,
+  isPaletteUnlocked,
+  unlockPalette,
+  getUnlockedShips,
+} from './meta.js';
+import {
+  SHIP_CATALOGUE,
+  getShipByKey,
+  getDefaultShipKey,
+  getShipDisplayStats,
+  getShipRequirement,
+} from './ships.js';
 
 let activePalette = getActiveThemePalette() ?? DEFAULT_THEME_PALETTE;
 
@@ -359,6 +376,9 @@ function getShieldCapacity(stateLike) {
 
 let highestUnlockedLevel = clampLevelIndex(readHighestUnlockedLevel());
 let bestScore = Math.max(0, Number.parseInt(getMetaValue('bestScore', 0), 10) || 0);
+const defaultShipKey = getDefaultShipKey();
+const initialShipKey = getSelectedShipKey() || defaultShipKey;
+const initialShip = getShipByKey(initialShipKey) ?? getShipByKey(defaultShipKey);
 
 function unlockLevel(levelIndex) {
   const capped = clampLevelIndex(levelIndex);
@@ -398,6 +418,7 @@ const state = {
   difficultyMode: getDifficultyMode(),
   difficulty: getDifficultyMultipliers(),
   player: null,
+  ship: initialShip,
   bullets: [],
   enemies: [],
   enemyBullets: [],
@@ -440,6 +461,7 @@ const state = {
   levelIntroTimeout: null,
   runUpgrades: createRunUpgradeState(),
   themeFx: createThemeFxState(),
+  runStats: { bosses: 0 },
 };
 
 configureSpawner(state);
@@ -523,6 +545,9 @@ function addScore(basePoints, { allowFraction = false } = {}) {
   const awarded = Math.max(0, Math.round(numericBase * multiplier));
   if (awarded > 0) {
     state.score += awarded;
+    if (state.runStats) {
+      state.runStats.score = (state.runStats.score ?? 0) + awarded;
+    }
     updateScore(state.score);
     GameEvents.emit('score:changed', state.score);
     dlog('Score award', awarded, '→', state.score);
@@ -1011,12 +1036,14 @@ function clearLevelEntities() {
   resetPowerTimers();
   resetEffects();
   spawnStars();
-  resetPlayer(state);
+  resetPlayer(state, state.ship);
+  const baseShield = Math.max(0, state.player?.baseShield ?? 0);
+  state.shieldCapacity = baseShield;
   if (state.player) {
-    state.player.shield = 0;
+    state.player.shield = baseShield;
+    state.player.speed = Math.max(120, state.player.baseSpeed ?? state.player.speed ?? 260);
   }
-  state.shieldCapacity = 0;
-  emitShieldChanged(0, 1);
+  emitShieldChanged(baseShield, Math.max(baseShield, 1));
   emitPowerChanged('None');
   updateTime(0);
 }
@@ -1035,11 +1062,13 @@ function resetGame(levelIndex = state.levelIndex) {
   GameEvents.emit('score:changed', state.score);
   emitLivesChanged();
   state.power = { name: null, until: 0 };
-  state.shieldCapacity = 0;
+  const baseShield = Math.max(0, state.player?.baseShield ?? 0);
+  state.shieldCapacity = baseShield;
   if (state.player) {
-    state.player.shield = 0;
+    state.player.shield = baseShield;
+    state.player.speed = Math.max(120, state.player.baseSpeed ?? state.player.speed ?? 260);
   }
-  emitShieldChanged(0, 1);
+  emitShieldChanged(baseShield, Math.max(baseShield, 1));
   if (startWeapon) {
     state.weapon = { ...startWeapon };
   } else {
@@ -1477,6 +1506,9 @@ function startLevel(levelIndex) {
   state.levelIndex = levelIndex;
   state.level = targetLevel;
   state.levelDur = targetLevel?.duration ?? 0;
+  if (state.runStats) {
+    state.runStats.highestLevel = Math.max(state.runStats.highestLevel ?? 0, levelIndex);
+  }
   state.boss = null;
   state.bossType = null;
   state.bossSpawned = false;
@@ -1530,6 +1562,9 @@ function startRun(levelIndex = 1) {
   state.difficultyMode = getDifficultyMode();
   state.difficulty = getDifficultyMultipliers(state.difficultyMode);
   state.assistEnabled = getAssistMode();
+  const selectedShipKey = getSelectedShipKey() || defaultShipKey;
+  const selectedShip = getShipByKey(selectedShipKey) ?? getShipByKey(defaultShipKey);
+  state.ship = selectedShip;
   state.runUpgrades = createRunUpgradeState();
   state.lives = state.assistEnabled ? 4 : 3;
   state.score = 0;
@@ -1537,13 +1572,20 @@ function startRun(levelIndex = 1) {
   state.levelStartTime = performance.now();
   state.passiveScoreCarry = 0;
   state.power = { name: null, until: 0 };
-  state.shieldCapacity = 0;
-  emitShieldChanged(0, 1);
   resetCombo();
   emitLivesChanged();
   updateScore(state.score);
   GameEvents.emit('score:changed', state.score);
   emitPowerChanged('None');
+  resetPlayer(state, state.ship);
+  state.runStats = { bosses: 0, score: 0, highestLevel: levelIndex, ship: selectedShip?.key ?? defaultShipKey };
+  const baseShield = Math.max(0, state.player?.baseShield ?? 0);
+  state.shieldCapacity = baseShield;
+  if (state.player) {
+    state.player.shield = baseShield;
+    state.player.speed = Math.max(120, state.player.baseSpeed ?? state.player.speed ?? 260);
+  }
+  emitShieldChanged(baseShield, Math.max(baseShield, 1));
   setupWeapons(state);
   emitWeaponChanged();
   const nextLevel = Math.max(1, Math.min(LEVELS.length, Math.floor(levelIndex)));
@@ -1707,6 +1749,8 @@ function renderUpgradeSelection({ nextLevelIndex, nextLevel, levelTime, scoreDel
   });
   const menuBtn = document.getElementById('summary-menu');
   menuBtn?.addEventListener('click', () => {
+    recordRunEnd({ score: state.score, bossesDefeated: state.runStats?.bosses ?? 0 });
+    state.runStats = { bosses: 0 };
     renderStartOverlay();
   });
   let handled = false;
@@ -1762,6 +1806,10 @@ function completeLevel() {
     score: state.score,
     nextLevel: nextLevelIndex <= LEVELS.length ? nextLevelIndex : null,
   });
+  if (state.levelIndex === 3 && !isPaletteUnlocked('cosmic-abyss')) {
+    unlockPalette('cosmic-abyss');
+    populateThemeUnlocks();
+  }
   if (nextLevel) {
     renderUpgradeSelection({
       nextLevelIndex,
@@ -1773,6 +1821,8 @@ function completeLevel() {
   }
   const header = `LEVEL ${state.levelIndex} COMPLETE`;
   const restartLabel = `Restart Level ${state.levelIndex}`;
+  recordRunEnd({ score: state.score, bossesDefeated: state.runStats?.bosses ?? 0 });
+  state.runStats = { bosses: 0 };
   recordBestScore(state.score);
   showOverlay(`
     <h1><span class="cyan">${header}</span></h1>
@@ -1800,6 +1850,8 @@ function gameOver() {
   const levelTime = Math.floor(state.time);
   const scoreDelta = state.score - (state.levelStartScore ?? 0);
   const levelName = state.level?.name ?? 'Sector';
+  recordRunEnd({ score: state.score, bossesDefeated: state.runStats?.bosses ?? 0 });
+  state.runStats = { bosses: 0 };
   applyLevelMutators({});
   clearLevelEntities();
   updateScore(state.score);
@@ -1831,12 +1883,176 @@ function gameOver() {
   });
 }
 
+function formatNumber(value) {
+  const numeric = Number.isFinite(value) ? value : Number.parseInt(value ?? 0, 10);
+  if (!Number.isFinite(numeric)) {
+    return '0';
+  }
+  return numeric.toLocaleString();
+}
+
+function getShipUnlockInfo(ship, progress) {
+  const unlockedShips = Array.isArray(progress?.shipsUnlocked) ? progress.shipsUnlocked : [];
+  const unlocked = unlockedShips.includes(ship.key);
+  const info = {
+    unlocked,
+    requirement: null,
+    progressText: null,
+  };
+  if (unlocked || !ship.unlock || ship.unlock.type === 'default') {
+    return info;
+  }
+  if (ship.unlock.type === 'bosses') {
+    const target = Math.max(1, Number.isFinite(ship.unlock.count) ? ship.unlock.count : 0);
+    const current = Math.max(0, Number.isFinite(progress?.bossesDefeated) ? progress.bossesDefeated : 0);
+    info.requirement = ship.unlock.description ?? `Defeat ${target} bosses to unlock.`;
+    info.progressText = `${Math.min(current, target)} / ${target} bosses defeated`;
+    return info;
+  }
+  if (ship.unlock.type === 'score') {
+    const target = Math.max(0, Number.isFinite(ship.unlock.score) ? ship.unlock.score : 0);
+    const current = Math.max(0, Number.isFinite(progress?.totalScore) ? progress.totalScore : 0);
+    info.requirement = ship.unlock.description ?? `Accumulate ${formatNumber(target)} total score.`;
+    info.progressText = `${formatNumber(Math.min(current, target))} / ${formatNumber(target)} score banked`;
+    return info;
+  }
+  info.requirement = getShipRequirement(ship);
+  return info;
+}
+
+function buildShipCard(ship, progress, selectedKey, { interactive = true } = {}) {
+  const info = getShipUnlockInfo(ship, progress);
+  const stats = getShipDisplayStats(ship);
+  const statsMarkup = stats
+    .map((entry) => `<li class="ship-card__stat"><span class="ship-card__stat-label">${entry.label}</span><span class="ship-card__stat-value">${entry.value}</span></li>`)
+    .join('');
+  const statusLabel = ship.key === selectedKey
+    ? 'Selected'
+    : info.unlocked
+      ? 'Unlocked'
+      : 'Locked';
+  const statusClass = ship.key === selectedKey
+    ? 'ship-card__status--selected'
+    : info.unlocked
+      ? 'ship-card__status--unlocked'
+      : 'ship-card__status--locked';
+  const statusMarkup = `<span class="ship-card__status ${statusClass}">${statusLabel}</span>`;
+  const header = `<div class="ship-card__header"><span class="ship-card__name">${ship.name}</span>${ship.role ? `<span class="ship-card__role">${ship.role}</span>` : ''}</div>`;
+  const difficulty = ship.difficulty ? `<span class="ship-card__badge">${ship.difficulty}</span>` : '';
+  const description = `<p class="ship-card__desc">${ship.description}</p>`;
+  const statsBlock = `<ul class="ship-card__stats">${statsMarkup}</ul>`;
+  const requirement = !info.unlocked && info.requirement
+    ? `<p class="ship-card__lock">${info.requirement}</p>`
+    : '';
+  const progressLine = !info.unlocked && info.progressText
+    ? `<p class="ship-card__progress">${info.progressText}</p>`
+    : '';
+  const classes = ['ship-card'];
+  if (!info.unlocked) {
+    classes.push('ship-card--locked');
+  }
+  if (ship.key === selectedKey) {
+    classes.push('is-selected');
+  }
+  const content = `
+    ${statusMarkup}
+    ${header}
+    ${difficulty}
+    ${description}
+    ${statsBlock}
+    ${requirement}
+    ${progressLine}
+  `;
+  if (info.unlocked && interactive) {
+    return `<button type="button" class="${classes.join(' ')}" data-ship-option="${ship.key}" aria-pressed="${ship.key === selectedKey ? 'true' : 'false'}">${content}</button>`;
+  }
+  const attrs = [`class="${classes.join(' ')}"`, `data-ship-option="${ship.key}"`];
+  if (!info.unlocked) {
+    attrs.push('data-locked="true"', 'aria-disabled="true"');
+  }
+  return `<div ${attrs.join(' ')}>${content}</div>`;
+}
+
+function buildShipCards(progress, selectedKey, { interactive = true } = {}) {
+  return SHIP_CATALOGUE.map((ship) => buildShipCard(ship, progress, selectedKey, { interactive })).join('');
+}
+
+function bindShipSelectionHandlers({ context = 'start' } = {}) {
+  const cards = Array.from(document.querySelectorAll('[data-ship-option]'));
+  cards.forEach((card) => {
+    const key = card.getAttribute('data-ship-option');
+    if (!key || card.hasAttribute('data-locked')) {
+      return;
+    }
+    card.addEventListener('click', () => {
+      const previous = getSelectedShipKey() || defaultShipKey;
+      if (previous === key) {
+        return;
+      }
+      setSelectedShip(key);
+      if (context === 'garage') {
+        renderGarageOverlay();
+      } else {
+        renderStartOverlay();
+      }
+    });
+  });
+}
+
+function populateThemeUnlocks() {
+  if (typeof refreshThemeOptions === 'function') {
+    refreshThemeOptions();
+  }
+}
+
+function renderGarageOverlay() {
+  populateThemeUnlocks();
+  const progress = getMetaProgress();
+  const selectedKey = getSelectedShipKey() || defaultShipKey;
+  const shipGrid = buildShipCards(progress, selectedKey);
+  const runs = formatNumber(progress.totalRuns);
+  const score = formatNumber(progress.totalScore);
+  const bosses = formatNumber(progress.bossesDefeated);
+  const cosmicUnlocked = isPaletteUnlocked('cosmic-abyss');
+  const cosmicStatus = cosmicUnlocked ? 'Unlocked' : 'Locked';
+  const cosmicHint = cosmicUnlocked
+    ? 'Abyssal hues ready for deployment.'
+    : `Clear Level 3 to unlock. Highest unlocked level: L${highestUnlockedLevel}`;
+  showOverlay(`
+    <h1>GARAGE</h1>
+    <p class="garage-summary">Runs: <strong>${runs}</strong> · Banked Score: <strong>${score}</strong> · Bosses Defeated: <strong>${bosses}</strong></p>
+    <div class="garage-section">
+      <h2 class="garage-section__title">Ships</h2>
+      <div class="ship-select__grid ship-select__grid--garage">${shipGrid}</div>
+    </div>
+    <div class="garage-section">
+      <h2 class="garage-section__title">Unlockables</h2>
+      <div class="garage-upgrades">
+        <div class="garage-upgrade${cosmicUnlocked ? ' garage-upgrade--unlocked' : ''}">
+          <div class="garage-upgrade__title">Cosmic Abyss Palette</div>
+          <div class="garage-upgrade__status">${cosmicStatus}</div>
+          <p class="garage-upgrade__hint">${cosmicHint}</p>
+        </div>
+      </div>
+    </div>
+    <div class="overlay-actions">
+      <button id="garage-back" class="btn">Back</button>
+    </div>
+  `);
+  document.getElementById('garage-back')?.addEventListener('click', () => {
+    renderStartOverlay();
+  });
+  bindShipSelectionHandlers({ context: 'garage' });
+}
+
 function renderStartOverlay({ resetHud = false } = {}) {
   atMenuScreen = true;
   optionsOverlayOpen = false;
   optionsOverlayCloseHandler = null;
   state.running = false;
   state.paused = false;
+  populateThemeUnlocks();
+  state.runStats = { bosses: 0 };
   if (resetHud) {
     state.assistEnabled = getAssistMode();
     state.lives = state.assistEnabled ? 4 : 3;
@@ -1870,6 +2086,17 @@ function renderStartOverlay({ resetHud = false } = {}) {
   const progressSummary = (hasProgress || bestScore > 0)
     ? `<p class="overlay-progress">Best Score: <strong>${bestScore}</strong> · Highest Level: <strong>L${highestUnlockedLevel}</strong></p>`
     : '';
+  const metaProgress = getMetaProgress();
+  const selectedShipKey = getSelectedShipKey() || defaultShipKey;
+  const metaSummary = `<p class="overlay-progress overlay-progress--meta">Runs: <strong>${formatNumber(metaProgress.totalRuns)}</strong> · Banked Score: <strong>${formatNumber(metaProgress.totalScore)}</strong> · Bosses Defeated: <strong>${formatNumber(metaProgress.bossesDefeated)}</strong></p>`;
+  const shipGrid = buildShipCards(metaProgress, selectedShipKey);
+  const shipSection = `
+    <div class="ship-select">
+      <p class="ship-select__label">Hangar</p>
+      <div class="ship-select__grid">${shipGrid}</div>
+      <p class="ship-select__hint">Unlock new ships by defeating bosses, banking score, and clearing deeper sectors.</p>
+    </div>
+  `;
   const primaryAction = hasProgress
     ? `<button id="continue-btn" class="btn" autofocus>Continue</button>`
     : `<button id="start-btn" class="btn" autofocus>Start Level 1</button>`;
@@ -1878,6 +2105,8 @@ function renderStartOverlay({ resetHud = false } = {}) {
     <p>WASD / Arrow keys to steer · Space to fire · P pause · R restart level · F fullscreen · M mute · H Assist Mode</p>
     <p>Pick a sector or continue your furthest run. Assist Mode toggles an extra life and softer spawns.</p>
     ${progressSummary}
+    ${metaSummary}
+    ${shipSection}
     <div class="difficulty-select">
       <label class="difficulty-select__label" for="difficulty-select">Difficulty</label>
       <select id="difficulty-select" class="difficulty-select__control">
@@ -1890,6 +2119,7 @@ function renderStartOverlay({ resetHud = false } = {}) {
     <div class="overlay-actions">
       ${primaryAction}
       <button id="toggle-level-select" class="btn btn-secondary" aria-expanded="false">Select Level</button>
+      <button id="garage-btn" class="btn btn-secondary">Garage</button>
     </div>
     <div id="level-select" class="level-select" hidden>
       <p class="level-select__label">Unlocked Levels</p>
@@ -1923,6 +2153,10 @@ function renderStartOverlay({ resetHud = false } = {}) {
       startRun(levelNumber);
     });
   });
+  document.getElementById('garage-btn')?.addEventListener('click', () => {
+    renderGarageOverlay();
+  });
+  bindShipSelectionHandlers({ context: 'start' });
 }
 
 function renderOptionsOverlay({ context = 'game', onClose } = {}) {
@@ -1948,6 +2182,7 @@ function renderOptionsOverlay({ context = 'game', onClose } = {}) {
   optionsOverlayCloseHandler = closeHandler;
   const activeTheme = getActiveThemeKey();
   const themeButtons = getThemeKeys()
+    .filter((key) => key !== 'cosmic-abyss' || isPaletteUnlocked('cosmic-abyss'))
     .map((key) => {
       const label = getThemeLabel(key);
       const isActive = key === activeTheme;
@@ -2389,6 +2624,9 @@ function loop(now) {
             state.midBossDefeatedAt = now;
           } else {
             state.bossDefeatedAt = now;
+            if (state.runStats) {
+              state.runStats.bosses = (state.runStats.bosses ?? 0) + 1;
+            }
           }
           state.bossMercyUntil = 0;
           GameEvents.emit('enemy:destroyed', {
