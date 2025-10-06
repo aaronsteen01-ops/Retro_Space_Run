@@ -11,6 +11,8 @@ const DEFAULT_PROGRESS = Object.freeze({
   shipsUnlocked: ['pioneer'],
   upgradesUnlocked: [],
   lastSelectedShip: 'pioneer',
+  bestEndlessScore: 0,
+  bestEndlessTime: 0,
 });
 
 let cachedProgress = null;
@@ -74,6 +76,12 @@ function normaliseProgress(raw = {}) {
   if (Number.isFinite(raw.bossesDefeated) && raw.bossesDefeated >= 0) {
     result.bossesDefeated = Math.floor(raw.bossesDefeated);
   }
+  if (Number.isFinite(raw.bestEndlessScore) && raw.bestEndlessScore >= 0) {
+    result.bestEndlessScore = Math.floor(raw.bestEndlessScore);
+  }
+  if (Number.isFinite(raw.bestEndlessTime) && raw.bestEndlessTime >= 0) {
+    result.bestEndlessTime = Math.floor(raw.bestEndlessTime);
+  }
   result.shipsUnlocked = uniqueArray(raw.shipsUnlocked);
   if (!result.shipsUnlocked.includes('pioneer')) {
     result.shipsUnlocked.unshift('pioneer');
@@ -96,6 +104,8 @@ function cloneProgress(progress) {
     shipsUnlocked: progress.shipsUnlocked.slice(),
     upgradesUnlocked: progress.upgradesUnlocked.slice(),
     lastSelectedShip: progress.lastSelectedShip,
+    bestEndlessScore: progress.bestEndlessScore,
+    bestEndlessTime: progress.bestEndlessTime,
   };
 }
 
@@ -143,6 +153,29 @@ export function recordRunEnd({ score = 0, bossesDefeated = 0 } = {}) {
     next.bossesDefeated += bossCount;
     return next;
   });
+}
+
+export function getEndlessPersonalBests() {
+  const progress = readStoredProgress();
+  return {
+    score: Number.isFinite(progress.bestEndlessScore) ? progress.bestEndlessScore : 0,
+    time: Number.isFinite(progress.bestEndlessTime) ? progress.bestEndlessTime : 0,
+  };
+}
+
+export function recordEndlessResult({ score = 0, time = 0 } = {}) {
+  const numericScore = Number.isFinite(score) ? Math.max(0, Math.floor(score)) : 0;
+  const numericTime = Number.isFinite(time) ? Math.max(0, Math.floor(time)) : 0;
+  const updated = updateMetaProgress((progress) => {
+    const next = cloneProgress(progress);
+    next.bestEndlessScore = Math.max(progress.bestEndlessScore ?? 0, numericScore);
+    next.bestEndlessTime = Math.max(progress.bestEndlessTime ?? 0, numericTime);
+    return next;
+  });
+  return {
+    score: Number.isFinite(updated.bestEndlessScore) ? updated.bestEndlessScore : 0,
+    time: Number.isFinite(updated.bestEndlessTime) ? updated.bestEndlessTime : 0,
+  };
 }
 
 export function unlockShip(key) {
