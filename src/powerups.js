@@ -31,7 +31,7 @@ function spawnPowerupEntity(state, type, x, opts = {}) {
   state.powerups.push({
     type,
     x: clamp(x ?? rand(minX, maxX), minX, maxX),
-    y: -30,
+    y: opts.y ?? -30,
     vy: opts.vy ?? 110,
     r: 12,
     t: 9000,
@@ -56,6 +56,21 @@ export function maybeSpawnPowerup(state, now) {
   spawnState.last = now;
   const type = pickPowerupType();
   spawnPowerupEntity(state, type);
+}
+
+export function dropPowerup(state, options = {}) {
+  const { type, x, y, vy, guaranteed = true } = options ?? {};
+  const chosenType = type ?? pickPowerupType();
+  const { w } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const dropX = x ?? state.player?.x ?? viewW / 2;
+  spawnPowerupEntity(state, chosenType, dropX, {
+    y: y ?? (state.player ? state.player.y - 20 : undefined),
+    vy: vy ?? 90,
+    guaranteed,
+  });
+  spawnState.last = performance.now();
+  return chosenType;
 }
 
 export function ensureGuaranteedPowerups(state, now) {

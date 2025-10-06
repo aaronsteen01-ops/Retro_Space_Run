@@ -945,6 +945,13 @@ export function maybeDropWeaponToken(state, enemy) {
   pushWeaponDrop(state, weapon, enemy.x, enemy.y);
 }
 
+export function spawnWeaponToken(state, x, y, weaponName) {
+  ensureWeaponState(state);
+  const weapon = weaponName ?? pickWeaponKey();
+  pushWeaponDrop(state, weapon, x, y);
+  return weapon;
+}
+
 export function updateWeaponDrops(state, dt) {
   const { h } = getViewSize();
   const viewH = Math.max(h, 1);
