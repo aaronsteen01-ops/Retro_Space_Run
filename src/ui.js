@@ -18,6 +18,7 @@ import {
 } from './difficulty.js';
 import { getMetaValue, updateStoredMeta } from './storage.js';
 import { GameEvents } from './events.js';
+import { isPaletteUnlocked } from './meta.js';
 
 const HUD_STYLE_ID = 'hud-compact-style';
 
@@ -97,6 +98,13 @@ subscribeDifficultyMode((mode) => {
 let DPR = window.devicePixelRatio || 1;
 let VIEW_W = window.innerWidth || canvas.clientWidth || canvas.width || 0;
 let VIEW_H = window.innerHeight || canvas.clientHeight || canvas.height || 0;
+
+function isThemeAvailable(key) {
+  if (key === 'cosmic-abyss') {
+    return isPaletteUnlocked('cosmic-abyss');
+  }
+  return true;
+}
 
 function syncDifficultySelect(mode = getStoredDifficultyMode()) {
   if (!difficultySelect) {
@@ -726,6 +734,7 @@ function populateThemeControl() {
     return;
   }
   const entries = getThemeKeys()
+    .filter((key) => isThemeAvailable(key))
     .map((key) => ({ key, label: getThemeLabel(key) }))
     .sort((a, b) => a.label.localeCompare(b.label));
   control.innerHTML = '';
@@ -1229,6 +1238,11 @@ export function getActiveThemeKey() {
 
 export function getActiveThemePalette() {
   return getThemePalette(activeThemeKey);
+}
+
+export function refreshThemeOptions() {
+  populateThemeControl();
+  syncThemeControl();
 }
 
 export function setTheme(key, { persist = true } = {}) {

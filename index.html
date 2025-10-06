@@ -78,7 +78,31 @@
   .btn.btn-secondary:hover{background:#00e5ff12;}
   .overlay-actions{display:flex; flex-wrap:wrap; gap:.75rem; justify-content:center; margin-top:1rem;}
   .overlay-progress{margin:0.6rem 0 0; font-size:.9rem; letter-spacing:.05em;}
+  .overlay-progress--meta{margin-top:.3rem; font-size:.82rem; opacity:.8;}
   .overlay-hint{margin:1.2rem 0 0; font-size:.78rem; opacity:.72; letter-spacing:.08em;}
+  .ship-select{margin:1.4rem 0 1.2rem; padding:1rem; border-radius:14px; border:1px solid #00e5ff22; background:#0a0d1acc; box-shadow:0 0 12px #00e5ff11 inset;}
+  .ship-select__label{margin:0; text-transform:uppercase; letter-spacing:.12em; font-size:.78rem; opacity:.78; text-align:center;}
+  .ship-select__grid{margin-top:.6rem; display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:.75rem;}
+  .ship-select__grid--garage{grid-template-columns:repeat(auto-fit,minmax(240px,1fr));}
+  .ship-select__hint{margin:.75rem 0 0; font-size:.74rem; letter-spacing:.08em; opacity:.72; text-align:center;}
+  .ship-card{position:relative; display:flex; flex-direction:column; gap:.45rem; padding:.9rem 1rem; border:1px solid #00e5ff33; border-radius:14px; background:#0a0d1acc; text-align:left; color:var(--white); cursor:pointer; transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease;}
+  .ship-card:hover:not(.ship-card--locked){transform:translateY(-2px); border-color:#00e5ff88; box-shadow:0 0 16px #00e5ff33 inset,0 0 12px #ff3df733;}
+  .ship-card.is-selected{border-color:#ff3df7aa; box-shadow:0 0 18px #ff3df733 inset,0 0 14px #00e5ff55;}
+  .ship-card--locked{border-color:#ffffff22; cursor:not-allowed; opacity:.72; box-shadow:none;}
+  .ship-card__status{position:absolute; top:.55rem; right:.65rem; padding:.2rem .6rem; border-radius:999px; font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; background:#ffffff12;}
+  .ship-card__status--selected{color:#ff3df7; box-shadow:0 0 10px #ff3df744 inset,0 0 8px #ff3df755;}
+  .ship-card__status--unlocked{color:#3df5ff;}
+  .ship-card__status--locked{color:#ffffff66;}
+  .ship-card__header{display:flex; flex-direction:column; gap:.1rem;}
+  .ship-card__name{font-size:1.05rem; letter-spacing:.1em; text-transform:uppercase;}
+  .ship-card__role{font-size:.78rem; letter-spacing:.1em; opacity:.75; text-transform:uppercase;}
+  .ship-card__badge{align-self:flex-start; padding:.2rem .6rem; border-radius:999px; border:1px solid #00e5ff44; font-size:.7rem; letter-spacing:.12em; text-transform:uppercase;}
+  .ship-card__desc{margin:.35rem 0; font-size:.84rem; line-height:1.45; opacity:.85;}
+  .ship-card__stats{list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:.55rem;}
+  .ship-card__stat{font-size:.72rem; letter-spacing:.08em; text-transform:uppercase; opacity:.78;}
+  .ship-card__stat-value{display:block; font-size:.88rem; letter-spacing:.05em; color:#ffffff;}
+  .ship-card__lock{margin:.2rem 0 0; font-size:.72rem; letter-spacing:.08em; color:#ffb3ff;}
+  .ship-card__progress{margin:0; font-size:.7rem; letter-spacing:.08em; color:#a6f4ff;}
   .upgrade-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:1rem; margin-top:1.2rem;}
   .upgrade-card{display:flex; flex-direction:column; align-items:flex-start; gap:.55rem; padding:1rem; border:1px solid #00e5ff33; border-radius:14px; background:#0a0d1acc; box-shadow:0 0 12px #00e5ff1c inset; color:var(--white); text-align:left; cursor:pointer; transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease; font:inherit; width:100%;}
   .upgrade-card:hover{transform:translateY(-2px); box-shadow:0 0 18px #00e5ff44 inset,0 0 14px #00e5ff44; border-color:#00e5ff66;}
@@ -106,6 +130,16 @@
   .options-section:first-of-type{margin-top:1.2rem;}
   .options-section__label{margin:0; text-transform:uppercase; letter-spacing:.1em; font-size:.78rem; opacity:.78;}
   .options-theme{display:flex; flex-wrap:wrap; gap:.5rem; justify-content:center;}
+  .garage-summary{margin:.6rem 0 1.1rem; font-size:.9rem; letter-spacing:.05em;}
+  .garage-section{margin-top:1.4rem;}
+  .garage-section__title{margin:0 0 .6rem; font-size:.85rem; letter-spacing:.12em; text-transform:uppercase; opacity:.78;}
+  .garage-upgrades{display:flex; flex-direction:column; gap:.6rem;}
+  .garage-upgrade{padding:.75rem 1rem; border-radius:12px; border:1px solid #00e5ff33; background:#0a0d1acc; box-shadow:0 0 12px #00e5ff11 inset;}
+  .garage-upgrade--unlocked{border-color:#ff3df777; box-shadow:0 0 14px #ff3df733 inset;}
+  .garage-upgrade__title{margin:0; font-size:.85rem; letter-spacing:.1em; text-transform:uppercase;}
+  .garage-upgrade__status{margin:.2rem 0 0; font-size:.72rem; letter-spacing:.1em; text-transform:uppercase; color:#3df5ff;}
+  .garage-upgrade--unlocked .garage-upgrade__status{color:#ff3df7;}
+  .garage-upgrade__hint{margin:.3rem 0 0; font-size:.75rem; letter-spacing:.06em; opacity:.78;}
   #options-volume{width:240px;}
   /* Scanline / vignette */
   #fx{
