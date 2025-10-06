@@ -60,21 +60,34 @@ function resolveSpawnCount(baseCount, assistEnabled) {
   return Math.max(1, scaled);
 }
 
+function enemySpeedMod(state) {
+  const mod = state?.themeFx?.enemySpeedMultiplier;
+  if (!Number.isFinite(mod)) {
+    return 1;
+  }
+  return Math.max(0.2, Math.min(3, mod));
+}
+
 function spawnAsteroids(state, count, params) {
   const { w } = getViewSize();
   const viewW = Math.max(w, 1);
   const asteroidMax = Math.max(viewW - 40, 40);
   const {
-    vxMin = -50,
-    vxMax = 50,
-    vyMin = 80,
-    vyMax = 160,
+    vxMin: vxMinRaw = -50,
+    vxMax: vxMaxRaw = 50,
+    vyMin: vyMinRaw = 80,
+    vyMax: vyMaxRaw = 160,
     radiusMin = 12,
     radiusMax = 24,
     spawnYOffsetMin = 0,
     spawnYOffsetMax = 200,
     hp = 2,
   } = params;
+  const speedMod = enemySpeedMod(state);
+  const vxMin = vxMinRaw * speedMod;
+  const vxMax = vxMaxRaw * speedMod;
+  const vyMin = vyMinRaw * speedMod;
+  const vyMax = vyMaxRaw * speedMod;
   for (let i = 0; i < count; i++) {
     state.enemies.push({
       type: 'asteroid',
@@ -93,8 +106,8 @@ function spawnStrafers(state, count, params) {
   const viewW = Math.max(w, 1);
   const viewH = Math.max(h, 1);
   const {
-    speedMin = 120,
-    speedMax = 180,
+    speedMin: speedMinRaw = 120,
+    speedMax: speedMaxRaw = 180,
     fireCdMin: fireCdMinRaw,
     fireCdMax: fireCdMaxRaw,
     fireCdMsMin,
@@ -110,6 +123,9 @@ function spawnStrafers(state, count, params) {
   const dir = direction ?? (Math.random() < 0.5 ? -1 : 1);
   const yMinVal = yMin <= 1 ? viewH * yMin : yMin;
   const yMaxVal = yMax <= 1 ? viewH * yMax : yMax;
+  const speedMod = enemySpeedMod(state);
+  const speedMin = speedMinRaw * speedMod;
+  const speedMax = speedMaxRaw * speedMod;
   for (let i = 0; i < count; i++) {
     state.enemies.push({
       type: 'strafer',
@@ -131,14 +147,17 @@ function spawnDrones(state, count, params) {
   const viewW = Math.max(w, 1);
   const droneMax = Math.max(viewW - 40, 40);
   const {
-    vyMin = 60,
-    vyMax = 100,
+    vyMin: vyMinRaw = 60,
+    vyMax: vyMaxRaw = 100,
     accel: accelRaw,
     steerAccel,
     hp = 2,
     startY = -40,
   } = params;
-  const accel = accelRaw ?? steerAccel ?? 60;
+  const speedMod = enemySpeedMod(state);
+  const vyMin = vyMinRaw * speedMod;
+  const vyMax = vyMaxRaw * speedMod;
+  const accel = (accelRaw ?? steerAccel ?? 60) * speedMod;
   for (let i = 0; i < count; i++) {
     state.enemies.push({
       type: 'drone',
@@ -158,18 +177,22 @@ function spawnTurrets(state, count, params) {
   const viewW = Math.max(w, 1);
   const turretMax = Math.max(viewW - 80, 80);
   const {
-    vyMin = 70,
-    vyMax = 110,
+    vyMin: vyMinRaw = 70,
+    vyMax: vyMaxRaw = 110,
     fireCdMin: fireCdMinRaw,
     fireCdMax: fireCdMaxRaw,
     fireCdMsMin,
     fireCdMsMax,
-    bulletSpeed = 220,
+    bulletSpeed: bulletSpeedRaw = 220,
     hp = 4,
     radius = 16,
   } = params;
   const fireCdMin = fireCdMinRaw ?? fireCdMsMin ?? 600;
   const fireCdMax = fireCdMaxRaw ?? fireCdMsMax ?? 1200;
+  const speedMod = enemySpeedMod(state);
+  const vyMin = vyMinRaw * speedMod;
+  const vyMax = vyMaxRaw * speedMod;
+  const bulletSpeed = bulletSpeedRaw * speedMod;
   for (let i = 0; i < count; i++) {
     state.enemies.push({
       type: 'turret',
@@ -544,6 +567,7 @@ export function updateEnemies(state, dt, now, player) {
   const defaultTurretCdMax = 1200;
   const defaultTurretBulletSpeed = 220;
   const speedFactor = getDifficultyFactor(state, 'speed', 1);
+  const themeSpeed = enemySpeedMod(state);
   for (let i = state.enemies.length - 1; i >= 0; i--) {
     const e = state.enemies[i];
     if (e.type === 'asteroid') {
@@ -567,8 +591,8 @@ export function updateEnemies(state, dt, now, player) {
         bullet.x = e.x;
         bullet.y = e.y + 10;
         const baseVx = (player.x - e.x) * 0.0025 + enemySquallSpread(state, 0.12);
-        bullet.vx = baseVx * speedFactor;
-        bullet.vy = 180 * speedFactor;
+        bullet.vx = baseVx * speedFactor * themeSpeed;
+        bullet.vy = 180 * speedFactor * themeSpeed;
         bullet.r = 6;
         bullet.bornAt = bornAt;
         bullet.updatedAt = bornAt;
@@ -604,7 +628,8 @@ export function updateEnemies(state, dt, now, player) {
         const bornAt = state.time * 1000;
         bullet.x = e.x;
         bullet.y = e.y;
-        const projectileSpeed = (Number.isFinite(e.bulletSpeed) ? e.bulletSpeed : defaultTurretBulletSpeed) * speedFactor;
+        const projectileSpeed =
+          (Number.isFinite(e.bulletSpeed) ? e.bulletSpeed : defaultTurretBulletSpeed) * speedFactor * themeSpeed;
         bullet.vx = Math.cos(angle) * projectileSpeed;
         bullet.vy = Math.sin(angle) * projectileSpeed;
         bullet.r = 6;
