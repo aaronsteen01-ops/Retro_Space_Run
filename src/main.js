@@ -118,6 +118,8 @@ import {
   isPaletteUnlocked,
   unlockPalette,
   getUnlockedShips,
+  getEndlessPersonalBests,
+  recordEndlessResult,
 } from './meta.js';
 import { getStoryBeat } from './story.js';
 import {
@@ -143,6 +145,15 @@ const COMBO_MAX_MULTIPLIER = 3;
 const PASSIVE_SCORE_RATE = 30;
 
 const STORY_OVERLAY_DURATION = 1800;
+
+const GAME_MODES = Object.freeze({
+  CAMPAIGN: 'campaign',
+  ENDLESS: 'endless',
+});
+
+const ENDLESS_SCALE_STEP = 0.1;
+const ENDLESS_BOSS_WAVE_MIN = 4;
+const ENDLESS_BOSS_WAVE_MAX = 5;
 
 const overlayElement = typeof document !== 'undefined' ? document.getElementById('overlay') : null;
 
@@ -463,6 +474,9 @@ function getShieldCapacity(stateLike) {
 
 let highestUnlockedLevel = clampLevelIndex(readHighestUnlockedLevel());
 let bestScore = Math.max(0, Number.parseInt(getMetaValue('bestScore', 0), 10) || 0);
+const initialEndlessBests = getEndlessPersonalBests();
+let bestEndlessScore = Math.max(0, Number.isFinite(initialEndlessBests.score) ? initialEndlessBests.score : 0);
+let bestEndlessTime = Math.max(0, Number.isFinite(initialEndlessBests.time) ? initialEndlessBests.time : 0);
 const defaultShipKey = getDefaultShipKey();
 const initialShipKey = getSelectedShipKey() || defaultShipKey;
 const initialShip = getShipByKey(initialShipKey) ?? getShipByKey(defaultShipKey);
@@ -486,9 +500,154 @@ function recordBestScore(score) {
   }
 }
 
+function computeDifficultyMultipliers(mode = state.difficultyMode) {
+  const base = { ...getDifficultyMultipliers(mode) };
+  if (state.gameMode === GAME_MODES.ENDLESS) {
+    const scale = Number.isFinite(state.endless?.difficultyScale)
+      ? Math.max(0.5, state.endless.difficultyScale)
+      : 1;
+    return {
+      density: (base.density ?? 1) * scale,
+      speed: (base.speed ?? 1) * scale,
+      hp: (base.hp ?? 1) * scale,
+    };
+  }
+  return base;
+}
+
+function applyDifficultyMode(mode = state.difficultyMode) {
+  const nextMode = mode ?? state.difficultyMode;
+  state.difficultyMode = nextMode;
+  state.difficulty = computeDifficultyMultipliers(nextMode);
+}
+
+function buildEndlessThemeOrder() {
+  const keys = getThemeKeys();
+  if (!Array.isArray(keys) || keys.length === 0) {
+    return [DEFAULT_THEME_KEY];
+  }
+  return keys.slice();
+}
+
+function rollEndlessBossWave() {
+  return Math.floor(Math.random() * (ENDLESS_BOSS_WAVE_MAX - ENDLESS_BOSS_WAVE_MIN + 1)) + ENDLESS_BOSS_WAVE_MIN;
+}
+
+function resetEndlessState() {
+  const order = buildEndlessThemeOrder();
+  const endless = state.endless ?? {};
+  endless.active = true;
+  endless.loop = 0;
+  endless.stage = 1;
+  endless.levelPointer = 0;
+  endless.themeOrder = order;
+  endless.themeIndex = 0;
+  endless.currentTheme = order[0] ?? DEFAULT_THEME_KEY;
+  endless.difficultyScale = 1;
+  endless.waveCounter = 0;
+  endless.nextBossWave = rollEndlessBossWave();
+  endless.totalTime = 0;
+  endless.randomBossActive = false;
+  state.endless = endless;
+  applyDifficultyMode(state.difficultyMode);
+}
+
+function getEndlessBaseLevel() {
+  const levelsCount = LEVELS.length;
+  if (levelsCount === 0) {
+    return DEFAULT_LEVEL;
+  }
+  const pointer = state.endless?.levelPointer ?? 0;
+  const index = ((pointer % levelsCount) + levelsCount) % levelsCount;
+  return LEVELS[index] ?? DEFAULT_LEVEL;
+}
+
+function createEndlessLevelOverride() {
+  const baseLevel = getEndlessBaseLevel();
+  const endless = state.endless ?? {};
+  if (!Array.isArray(endless.themeOrder) || endless.themeOrder.length === 0) {
+    endless.themeOrder = buildEndlessThemeOrder();
+    endless.themeIndex = 0;
+  }
+  const order = endless.themeOrder;
+  const themeIndex = Number.isFinite(endless.themeIndex) ? endless.themeIndex : 0;
+  const themeKey = order.length ? order[(themeIndex % order.length + order.length) % order.length] : baseLevel?.theme ?? DEFAULT_THEME_KEY;
+  endless.themeIndex = order.length ? (themeIndex + 1) % order.length : 0;
+  endless.currentTheme = themeKey;
+  const behaviour = getThemeBehaviour(themeKey);
+  return {
+    ...baseLevel,
+    theme: themeKey,
+    themeBehaviour: behaviour,
+  };
+}
+
+function advanceEndlessProgression() {
+  const endless = state.endless ?? {};
+  const levelsCount = LEVELS.length;
+  endless.waveCounter = 0;
+  endless.randomBossActive = false;
+  endless.nextBossWave = rollEndlessBossWave();
+  if (levelsCount > 0) {
+    endless.levelPointer = (Number.isFinite(endless.levelPointer) ? endless.levelPointer : 0) + 1;
+    if (endless.levelPointer >= levelsCount) {
+      endless.levelPointer = 0;
+      endless.loop = (endless.loop ?? 0) + 1;
+      endless.difficultyScale = 1 + endless.loop * ENDLESS_SCALE_STEP;
+      applyDifficultyMode(state.difficultyMode);
+      showToast('Threat level rising!', 1200);
+    }
+  }
+  endless.stage = (endless.stage ?? 1) + 1;
+  state.endless = endless;
+}
+
+function cloneBossConfig(config = {}) {
+  return JSON.parse(JSON.stringify(config));
+}
+
+function pickRandomEndlessBossConfig() {
+  const pool = LEVELS.map((level) => getFinalBossConfig(level)).filter(Boolean);
+  if (!pool.length) {
+    return null;
+  }
+  const index = Math.floor(Math.random() * pool.length);
+  return cloneBossConfig(pool[index]);
+}
+
+function spawnRandomEndlessBoss() {
+  if (state.gameMode !== GAME_MODES.ENDLESS) {
+    return;
+  }
+  if (state.boss || state.bossSpawned || state.endless?.randomBossActive) {
+    return;
+  }
+  const config = pickRandomEndlessBossConfig();
+  if (!config) {
+    return;
+  }
+  const bossConfig = {
+    ...config,
+    role: 'endless',
+    introMessage: config.introMessage ?? 'ENDLESS PROTOCOL',
+    introColour: config.introColour ?? '#ff9dfd',
+    bannerColour: config.bannerColour ?? 'rgba(255, 230, 255, 0.9)',
+    healthLabel: config.healthLabel ?? 'Flagship Integrity',
+  };
+  spawnBoss(state, bossConfig);
+  state.bossSpawned = true;
+  state.bossType = 'endless';
+  state.endless.randomBossActive = true;
+  state.endless.waveCounter = 0;
+  state.endless.nextBossWave = rollEndlessBossWave();
+  showToast('ENEMY FLAGSHIP DETECTED', 1100);
+  GameEvents.emit('boss:spawned', { type: 'endless', config: bossConfig });
+}
+
 const state = {
   running: false,
   paused: false,
+  gameMode: GAME_MODES.CAMPAIGN,
   levelDur: DEFAULT_LEVEL?.duration ?? 0,
   levelIndex: 1,
   level: DEFAULT_LEVEL,
@@ -520,6 +679,20 @@ const state = {
   restartPromptVisible: false,
   starfield: mergeStarfieldConfig(),
   stars: [],
+  endless: {
+    active: false,
+    loop: 0,
+    stage: 1,
+    levelPointer: 0,
+    themeIndex: 0,
+    themeOrder: [],
+    currentTheme: DEFAULT_THEME_KEY,
+    difficultyScale: 1,
+    waveCounter: 0,
+    nextBossWave: ENDLESS_BOSS_WAVE_MIN,
+    totalTime: 0,
+    randomBossActive: false,
+  },
   finishGate: null,
   boss: null,
   bossType: null,
@@ -732,10 +905,9 @@ function applyPlayerDamage(damage) {
 }
 
 onDifficultyModeChange((mode) => {
-  state.difficultyMode = mode;
-  state.difficulty = getDifficultyMultipliers(mode);
+  applyDifficultyMode(mode);
   if (state.running && state.level) {
-    const config = getDifficultyConfig(mode, state.level?.key ?? state.level);
+    const config = getDifficultyConfig(state.difficultyMode, state.level?.key ?? state.level);
     startLevelSpawns(config);
     dlog('Difficulty mode updated', mode, config);
   }
@@ -756,6 +928,19 @@ onAutoFireChange((enabled) => {
 
 onInputAction(INPUT_ACTIONS.ASSIST, () => {
   toggleAssistMode();
+});
+
+GameEvents.on('wave:spawned', () => {
+  if (state.gameMode !== GAME_MODES.ENDLESS || !state.endless?.active) {
+    return;
+  }
+  if (state.boss || state.bossSpawned) {
+    return;
+  }
+  state.endless.waveCounter = (state.endless.waveCounter ?? 0) + 1;
+  if (state.endless.waveCounter >= state.endless.nextBossWave) {
+    spawnRandomEndlessBoss();
+  }
 });
 
 onInputAction(INPUT_ACTIONS.AUTO_FIRE, () => {
@@ -1138,6 +1323,10 @@ function clearLevelEntities() {
 }
 
 function resetGame(levelIndex = state.levelIndex) {
+  if (state.gameMode === GAME_MODES.ENDLESS) {
+    startRun(1, { gameMode: GAME_MODES.ENDLESS });
+    return;
+  }
   const fallbackIndex = Number.isFinite(levelIndex) ? levelIndex : state.levelIndex;
   const targetLevelIndex = Math.max(1, Math.min(LEVELS.length, Math.floor(fallbackIndex || 1)));
   const startScore = Number.isFinite(state.levelStartScore) ? state.levelStartScore : state.score;
@@ -1175,6 +1364,30 @@ function resetGame(levelIndex = state.levelIndex) {
 
 function promptLevelRestart() {
   if (!state.level) {
+    return;
+  }
+  if (state.gameMode === GAME_MODES.ENDLESS) {
+    state.restartPromptVisible = true;
+    showOverlay(`
+      <h1>Restart Endless Run?</h1>
+      <p>Restart from the beginning with base threat level?</p>
+      <div class="overlay-actions">
+        <button id="confirm-restart" class="btn" autofocus>Restart Endless</button>
+        <button id="cancel-restart" class="btn btn-secondary">Resume</button>
+      </div>
+    `);
+    const confirmBtn = document.getElementById('confirm-restart');
+    confirmBtn?.addEventListener('click', () => {
+      state.restartPromptVisible = false;
+      startRun(1, { gameMode: GAME_MODES.ENDLESS });
+    });
+    const cancelBtn = document.getElementById('cancel-restart');
+    cancelBtn?.addEventListener('click', () => {
+      state.restartPromptVisible = false;
+      hideOverlay();
+      state.paused = false;
+      clearInput();
+    });
     return;
   }
   const levelName = state.level?.name;
@@ -1594,16 +1807,17 @@ function scheduleLevelWaves() {
   }
 }
 
-function startLevel(levelIndex) {
-  const targetLevel = LEVELS[levelIndex - 1] ?? DEFAULT_LEVEL;
+function startLevel(levelIndex, options = {}) {
+  const { levelOverride = null, stageNumber = null } = options;
+  const targetLevel = levelOverride ?? LEVELS[levelIndex - 1] ?? DEFAULT_LEVEL;
   if (!targetLevel) {
     return;
   }
-  state.levelIndex = levelIndex;
+  state.levelIndex = Number.isFinite(stageNumber) ? stageNumber : levelIndex;
   state.level = targetLevel;
   state.levelDur = targetLevel?.duration ?? 0;
   if (state.runStats) {
-    state.runStats.highestLevel = Math.max(state.runStats.highestLevel ?? 0, levelIndex);
+    state.runStats.highestLevel = Math.max(state.runStats.highestLevel ?? 0, state.levelIndex);
   }
   state.boss = null;
   state.bossType = null;
@@ -1621,6 +1835,10 @@ function startLevel(levelIndex) {
   state.levelStartWeapon = state.weapon ? { ...state.weapon } : null;
   state.passiveScoreCarry = 0;
   resetCombo();
+  if (state.gameMode === GAME_MODES.ENDLESS) {
+    state.endless.waveCounter = 0;
+    state.endless.randomBossActive = false;
+  }
   configureLevelContext(targetLevel);
   levelIntro(targetLevel);
   updateScore(state.score);
@@ -1637,7 +1855,7 @@ function startLevel(levelIndex) {
   dlog('Level start', { level: targetLevel?.key ?? levelIndex, config: spawnConfig });
   GameEvents.emit('level:started', {
     id: targetLevel?.key ?? `L${levelIndex}`,
-    index: levelIndex,
+    index: state.levelIndex,
     name: targetLevel?.name ?? null,
     difficulty: state.difficultyMode,
     config: spawnConfig,
@@ -1651,12 +1869,14 @@ function startLevel(levelIndex) {
   requestAnimationFrame(loop);
 }
 
-function startRun(levelIndex = 1) {
+function startRun(levelIndex = 1, options = {}) {
+  const { gameMode = GAME_MODES.CAMPAIGN } = options;
   atMenuScreen = false;
   optionsOverlayOpen = false;
   optionsOverlayCloseHandler = null;
+  state.gameMode = gameMode;
   state.difficultyMode = getDifficultyMode();
-  state.difficulty = getDifficultyMultipliers(state.difficultyMode);
+  applyDifficultyMode(state.difficultyMode);
   state.assistEnabled = getAssistMode();
   const selectedShipKey = getSelectedShipKey() || defaultShipKey;
   const selectedShip = getShipByKey(selectedShipKey) ?? getShipByKey(defaultShipKey);
@@ -1674,7 +1894,8 @@ function startRun(levelIndex = 1) {
   GameEvents.emit('score:changed', state.score);
   emitPowerChanged('None');
   resetPlayer(state, state.ship);
-  state.runStats = { bosses: 0, score: 0, highestLevel: levelIndex, ship: selectedShip?.key ?? defaultShipKey };
+  const initialStage = gameMode === GAME_MODES.ENDLESS ? 1 : levelIndex;
+  state.runStats = { bosses: 0, score: 0, highestLevel: initialStage, ship: selectedShip?.key ?? defaultShipKey };
   const baseShield = Math.max(0, state.player?.baseShield ?? 0);
   state.shieldCapacity = baseShield;
   if (state.player) {
@@ -1684,8 +1905,17 @@ function startRun(levelIndex = 1) {
   emitShieldChanged(baseShield, Math.max(baseShield, 1));
   setupWeapons(state);
   emitWeaponChanged();
-  const nextLevel = Math.max(1, Math.min(LEVELS.length, Math.floor(levelIndex)));
-  startLevel(nextLevel);
+  state.endless.totalTime = 0;
+  if (gameMode === GAME_MODES.ENDLESS) {
+    resetEndlessState();
+    state.runStats.highestLevel = state.endless.stage;
+    const override = createEndlessLevelOverride();
+    startLevel(1, { levelOverride: override, stageNumber: state.endless.stage });
+  } else {
+    state.endless.active = false;
+    const nextLevel = Math.max(1, Math.min(LEVELS.length, Math.floor(levelIndex)));
+    startLevel(nextLevel);
+  }
 }
 
 function buildUpgradePoolForState() {
@@ -1889,6 +2119,28 @@ function completeLevel() {
   updateScore(state.score);
   GameEvents.emit('score:changed', state.score);
   emitLivesChanged();
+  if (state.gameMode === GAME_MODES.ENDLESS) {
+    dlog('Level end', { id: currentLevel?.key ?? `L${state.levelIndex}`, reason: 'completed', time: levelTime, score: state.score });
+    GameEvents.emit('level:ended', {
+      id: currentLevel?.key ?? `L${state.levelIndex}`,
+      index: state.levelIndex,
+      reason: 'completed',
+      time: levelTime,
+      score: state.score,
+      nextLevel: null,
+    });
+    if (!LEVELS.length) {
+      gameOver();
+      return;
+    }
+    advanceEndlessProgression();
+    const levelsCount = LEVELS.length;
+    const pointer = ((state.endless.levelPointer % levelsCount) + levelsCount) % levelsCount;
+    const stageNumber = state.endless.stage;
+    const override = createEndlessLevelOverride();
+    startLevel(pointer + 1, { levelOverride: override, stageNumber });
+    return;
+  }
   if (nextLevelIndex <= LEVELS.length) {
     unlockLevel(nextLevelIndex);
   }
@@ -1954,26 +2206,48 @@ function gameOver() {
   GameEvents.emit('score:changed', state.score);
   emitLivesChanged();
   recordBestScore(state.score);
-  dlog('Level end', { id: state.level?.key ?? `L${state.levelIndex}`, reason: 'player-dead', time: levelTime, score: state.score });
+  const levelId = state.level?.key ?? `L${state.levelIndex}`;
+  dlog('Level end', { id: levelId, reason: 'player-dead', time: levelTime, score: state.score });
   GameEvents.emit('level:ended', {
-    id: state.level?.key ?? `L${state.levelIndex}`,
+    id: levelId,
     index: state.levelIndex,
     reason: 'player-dead',
     time: levelTime,
     score: state.score,
   });
-  showOverlay(`
-    <h1><span class="heart">SHIP DESTROYED</span></h1>
-    <p>Level ${state.levelIndex}: ${levelName} after <strong>${levelTime}s</strong>.</p>
-    <p>Score this run: <strong>${state.score}</strong> · Level gain: <strong>${Math.max(0, scoreDelta)}</strong></p>
-    <div class="overlay-actions">
-      <button id="restart-level" class="btn" autofocus>Restart Level ${state.levelIndex}</button>
-      <button id="overlay-menu" class="btn btn-secondary">Menu</button>
-    </div>
-  `);
-  document.getElementById('restart-level')?.addEventListener('click', () => {
-    startRun(state.levelIndex);
-  });
+  if (state.gameMode === GAME_MODES.ENDLESS) {
+    const survivalTime = Math.max(Math.floor(state.endless?.totalTime ?? 0), levelTime);
+    const bests = recordEndlessResult({ score: state.score, time: survivalTime });
+    bestEndlessScore = Math.max(0, bests.score ?? bestEndlessScore);
+    bestEndlessTime = Math.max(0, bests.time ?? bestEndlessTime);
+    state.endless.active = false;
+    showOverlay(`
+      <h1><span class="cyan">ENDLESS RUN TERMINATED</span></h1>
+      <p>Final Score: <strong>${formatNumber(state.score)}</strong></p>
+      <p>Longest Time Survived: <strong>${formatNumber(survivalTime)}s</strong></p>
+      <p>Personal Best — Score: <strong>${formatNumber(bestEndlessScore)}</strong> · Time: <strong>${formatNumber(bestEndlessTime)}s</strong></p>
+      <div class="overlay-actions">
+        <button id="restart-level" class="btn" autofocus>Retry Endless</button>
+        <button id="overlay-menu" class="btn btn-secondary">Menu</button>
+      </div>
+    `);
+    document.getElementById('restart-level')?.addEventListener('click', () => {
+      startRun(1, { gameMode: GAME_MODES.ENDLESS });
+    });
+  } else {
+    showOverlay(`
+      <h1><span class="heart">SHIP DESTROYED</span></h1>
+      <p>Level ${state.levelIndex}: ${levelName} after <strong>${levelTime}s</strong>.</p>
+      <p>Score this run: <strong>${state.score}</strong> · Level gain: <strong>${Math.max(0, scoreDelta)}</strong></p>
+      <div class="overlay-actions">
+        <button id="restart-level" class="btn" autofocus>Restart Level ${state.levelIndex}</button>
+        <button id="overlay-menu" class="btn btn-secondary">Menu</button>
+      </div>
+    `);
+    document.getElementById('restart-level')?.addEventListener('click', () => {
+      startRun(state.levelIndex);
+    });
+  }
   document.getElementById('overlay-menu')?.addEventListener('click', () => {
     renderStartOverlay({ resetHud: true });
   });
@@ -2149,6 +2423,8 @@ function renderStartOverlay({ resetHud = false } = {}) {
   state.paused = false;
   populateThemeUnlocks();
   state.runStats = { bosses: 0 };
+  state.endless.active = false;
+  state.endless.totalTime = 0;
   if (resetHud) {
     state.assistEnabled = getAssistMode();
     state.lives = state.assistEnabled ? 4 : 3;
@@ -2171,6 +2447,13 @@ function renderStartOverlay({ resetHud = false } = {}) {
   if (Number.isFinite(storedBest) && storedBest >= 0) {
     bestScore = Math.max(bestScore, storedBest);
   }
+  const storedEndless = getEndlessPersonalBests();
+  if (Number.isFinite(storedEndless.score) && storedEndless.score >= 0) {
+    bestEndlessScore = Math.max(bestEndlessScore, storedEndless.score);
+  }
+  if (Number.isFinite(storedEndless.time) && storedEndless.time >= 0) {
+    bestEndlessTime = Math.max(bestEndlessTime, storedEndless.time);
+  }
   const hasProgress = highestUnlockedLevel > 1;
   const unlockedLevels = LEVELS.slice(0, highestUnlockedLevel);
   const levelButtons = unlockedLevels
@@ -2181,6 +2464,9 @@ function renderStartOverlay({ resetHud = false } = {}) {
     .join('');
   const progressSummary = (hasProgress || bestScore > 0)
     ? `<p class="overlay-progress">Best Score: <strong>${bestScore}</strong> · Highest Level: <strong>L${highestUnlockedLevel}</strong></p>`
+    : '';
+  const endlessSummary = (bestEndlessScore > 0 || bestEndlessTime > 0)
+    ? `<p class="overlay-progress">Endless Best — Score: <strong>${formatNumber(bestEndlessScore)}</strong> · Time: <strong>${formatNumber(bestEndlessTime)}s</strong></p>`
     : '';
   const metaProgress = getMetaProgress();
   const selectedShipKey = getSelectedShipKey() || defaultShipKey;
@@ -2201,6 +2487,7 @@ function renderStartOverlay({ resetHud = false } = {}) {
     <p>WASD / Arrow keys to steer · Space to fire · P pause · R restart level · F fullscreen · M mute · H Assist Mode</p>
     <p>Pick a sector or continue your furthest run. Assist Mode toggles an extra life and softer spawns.</p>
     ${progressSummary}
+    ${endlessSummary}
     ${metaSummary}
     ${shipSection}
     <div class="difficulty-select">
@@ -2215,6 +2502,7 @@ function renderStartOverlay({ resetHud = false } = {}) {
     <div class="overlay-actions">
       ${primaryAction}
       <button id="toggle-level-select" class="btn btn-secondary" aria-expanded="false">Select Level</button>
+      <button id="endless-btn" class="btn btn-secondary">Endless Survival</button>
       <button id="garage-btn" class="btn btn-secondary">Garage</button>
     </div>
     <div id="level-select" class="level-select" hidden>
@@ -2251,6 +2539,9 @@ function renderStartOverlay({ resetHud = false } = {}) {
   });
   document.getElementById('garage-btn')?.addEventListener('click', () => {
     renderGarageOverlay();
+  });
+  document.getElementById('endless-btn')?.addEventListener('click', () => {
+    startRun(1, { gameMode: GAME_MODES.ENDLESS });
   });
   bindShipSelectionHandlers({ context: 'start' });
 }
@@ -2448,6 +2739,9 @@ function loop(now) {
   }
 
   state.time += dt;
+  if (state.gameMode === GAME_MODES.ENDLESS && state.endless?.active) {
+    state.endless.totalTime = (state.endless.totalTime ?? 0) + dt;
+  }
   updateTime(Math.floor(state.time));
   ensureGuaranteedWeaponDrop(state);
   maybeSpawnMidBossFight();
@@ -2715,6 +3009,12 @@ function loop(now) {
           }
           state.boss = null;
           state.bossType = null;
+          if (state.gameMode === GAME_MODES.ENDLESS && defeatedBoss?.role === 'endless') {
+            state.bossSpawned = false;
+            state.endless.randomBossActive = false;
+            state.endless.waveCounter = 0;
+            state.endless.nextBossWave = rollEndlessBossWave();
+          }
           if (isMidBoss) {
             state.midBossDefeated = true;
             state.midBossDefeatedAt = now;
