@@ -1,12 +1,14 @@
 /**
  * weapons.js — player and enemy projectile management for Retro Space Run.
  */
+// CHANGELOG: Broadcast weapon changes via GameEvents for HUD synchronisation.
 import { coll, lerp, rand } from './utils.js';
 import { playPew, playPow, playUpgrade } from './audio.js';
 import { updateWeapon, updateScore, updateShield, updatePower, getViewSize } from './ui.js';
 import { resolvePaletteSection, DEFAULT_THEME_PALETTE } from './themes.js';
 import { getBullet } from './bullets.js';
 import { showToast } from './effects.js';
+import { GameEvents } from './events.js';
 
 const DEFAULT_BULLET_LEVELS = DEFAULT_THEME_PALETTE.bullets.playerLevels;
 const SHIELD_BASE_DURATION = 8000;
@@ -607,9 +609,14 @@ function getWeaponPictogram(id) {
 
 export function updateWeaponHud(state) {
   const weapon = state?.weapon ?? null;
-  updateWeapon(weaponHudLabel(weapon), {
-    icon: weapon ? getWeaponPictogram(weapon.name) : undefined,
+  const label = weaponHudLabel(weapon);
+  const icon = weapon ? getWeaponPictogram(weapon.name) : undefined;
+  updateWeapon(label, {
+    icon,
   });
+  GameEvents.emit('weapon:changed', weapon
+    ? { name: getWeaponDisplayName(weapon.name) ?? label, label, icon }
+    : 'None');
 }
 
 export function setupWeapons(state) {
@@ -889,7 +896,9 @@ function upgradeWeapon(state, weaponName) {
       }
       state.shieldCapacity = fullCapacity;
       updateShield(newCharge, fullCapacity);
+      GameEvents.emit('shield:changed', { value: newCharge, max: fullCapacity });
       updatePower('SHIELD');
+      GameEvents.emit('powerup:changed', 'SHIELD');
       showToast('+50% SHIELD', 1000);
     } else {
       if (typeof state.addScore === 'function') {
@@ -897,6 +906,7 @@ function upgradeWeapon(state, weaponName) {
       } else {
         state.score = (state.score ?? 0) + 500;
         updateScore(state.score);
+        GameEvents.emit('score:changed', state.score);
       }
       showToast('+500 SCORE', 900);
     }

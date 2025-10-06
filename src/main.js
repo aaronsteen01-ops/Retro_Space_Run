@@ -1,6 +1,7 @@
 /**
  * main.js — bootstraps Retro Space Run, orchestrating modules and the core game loop.
  */
+// CHANGELOG: Introduced GameEvents integration, damage handling, and spawn scheduler wiring.
 import { rand, coll, addParticle } from './utils.js';
 import {
   ctx,
@@ -84,8 +85,9 @@ import {
   DIFFICULTY,
   getDifficultyMode,
   getDifficultyMultipliers,
+  getDifficultyConfig,
   onDifficultyModeChange,
-  setDifficultyMode,
+  setDifficulty,
 } from './difficulty.js';
 import { updateBullets, freeBullet, drainBullets } from './bullets.js';
 import { getState as getInputState, onAction as onInputAction, clearInput, ACTIONS as INPUT_ACTIONS } from './input.js';
@@ -100,6 +102,8 @@ import {
   drawDamagePulse,
 } from './effects.js';
 import { getMetaValue, updateStoredMeta } from './storage.js';
+import { GameEvents } from './events.js';
+import { configureSpawner, startLevelSpawns, stopLevelSpawns, tickSpawner } from './spawner.js';
 
 let activePalette = getActiveThemePalette() ?? DEFAULT_THEME_PALETTE;
 
@@ -114,6 +118,19 @@ const COMBO_MAX_VALUE = 20;
 const COMBO_STEP = 0.1;
 const COMBO_MAX_MULTIPLIER = 3;
 const PASSIVE_SCORE_RATE = 30;
+
+function isDebugEnabled() {
+  if (typeof window !== 'undefined') {
+    return Boolean(window.__rsrDebug);
+  }
+  return false;
+}
+
+function dlog(...args) {
+  if (isDebugEnabled()) {
+    console.log('[RSR]', ...args);
+  }
+}
 
 function defaultStarfieldConfig() {
   return {
@@ -320,6 +337,13 @@ const state = {
   runUpgrades: createRunUpgradeState(),
 };
 
+configureSpawner(state);
+GameEvents.emit('difficulty:changed', {
+  mode: state.difficultyMode,
+  config: getDifficultyConfig(state.difficultyMode, DEFAULT_LEVEL?.key ?? DEFAULT_LEVEL ?? 'L1'),
+});
+dlog('Difficulty boot', state.difficultyMode);
+
 function getComboState() {
   if (!state.combo) {
     state.combo = { value: 0, decayTimer: 0, multiplier: 1 };
@@ -386,6 +410,8 @@ function addScore(basePoints, { allowFraction = false } = {}) {
       state.passiveScoreCarry -= whole;
       state.score += whole;
       updateScore(state.score);
+      GameEvents.emit('score:changed', state.score);
+      dlog('Score increment', whole, '→', state.score);
     }
     return whole;
   }
@@ -393,15 +419,108 @@ function addScore(basePoints, { allowFraction = false } = {}) {
   if (awarded > 0) {
     state.score += awarded;
     updateScore(state.score);
+    GameEvents.emit('score:changed', state.score);
+    dlog('Score award', awarded, '→', state.score);
   }
   return awarded;
 }
 
 state.addScore = addScore;
 
+function emitLivesChanged() {
+  updateLives(state.lives);
+  GameEvents.emit('lives:changed', state.lives);
+  dlog('Lives', state.lives);
+}
+
+function emitShieldChanged(value = 0, maxValue = 1) {
+  const resolvedMax = Number.isFinite(maxValue) && maxValue > 0 ? maxValue : getShieldCapacity(state) || SHIELD_BASE_DURATION;
+  updateShield(value, resolvedMax);
+  GameEvents.emit('shield:changed', { value, max: resolvedMax });
+  dlog('Shield', value, '/', resolvedMax);
+}
+
+function emitPowerChanged(label) {
+  const clean = typeof label === 'string' && label.trim().length ? label.trim() : 'None';
+  const display = clean === 'None' ? 'None' : clean.toUpperCase();
+  updatePower(display);
+  GameEvents.emit('powerup:changed', display);
+  dlog('Power-up', display);
+}
+
+function emitWeaponChanged() {
+  updateWeaponHud(state);
+  const weapon = state.weapon;
+  if (weapon && typeof weapon === 'object') {
+    dlog('Weapon', weapon.name ?? weapon.label ?? 'Weapon', 'Lv', weapon.level ?? 0);
+  } else {
+    dlog('Weapon', 'None');
+  }
+}
+
+function applyPlayerDamage(damage) {
+  const player = state.player;
+  if (!player || !Number.isFinite(damage) || damage <= 0) {
+    return { defeated: false, absorbed: 0, overflow: 0, lostLife: false };
+  }
+  const amount = Math.max(0, damage);
+  const capacity = state.shieldCapacity || getShieldCapacity(state);
+  const shieldBefore = Math.max(0, player.shield ?? 0);
+  const absorbed = Math.min(shieldBefore, amount);
+  let overflow = Math.max(0, amount - absorbed);
+  if (absorbed > 0) {
+    player.shield = Math.max(0, shieldBefore - absorbed);
+    if (player.shield <= 0) {
+      player.shield = 0;
+      state.shieldCapacity = 0;
+      if (state.power.name === 'shield') {
+        state.power.name = null;
+        state.power.until = 0;
+        emitPowerChanged('None');
+      }
+    }
+  }
+  if (overflow > 0 && player.invuln > 0) {
+    overflow = 0;
+  }
+  emitShieldChanged(player.shield, capacity || SHIELD_BASE_DURATION);
+  const result = {
+    defeated: false,
+    absorbed,
+    overflow,
+    lostLife: false,
+  };
+  if (overflow > 0) {
+    const lifeLoss = Math.max(1, Math.ceil(overflow));
+    state.lives = Math.max(0, state.lives - lifeLoss);
+    result.lostLife = lifeLoss > 0;
+    emitLivesChanged();
+    triggerDamagePulse(state.lives <= 1 ? 0.85 : 0.55);
+    if (state.lives <= 0) {
+      result.defeated = true;
+    } else {
+      player.invuln = state.assistEnabled ? 3000 : 2000;
+    }
+  }
+  GameEvents.emit('player:hit', {
+    damage: amount,
+    absorbed,
+    overflow,
+    lives: state.lives,
+    shield: player.shield,
+  });
+  dlog('Player hit', { damage: amount, absorbed, overflow, lives: state.lives, shield: player.shield });
+  return result;
+}
+
 onDifficultyModeChange((mode) => {
   state.difficultyMode = mode;
   state.difficulty = getDifficultyMultipliers(mode);
+  if (state.running && state.level) {
+    const config = getDifficultyConfig(mode, state.level?.key ?? state.level);
+    startLevelSpawns(config);
+    dlog('Difficulty mode updated', mode, config);
+  }
 });
 
 onThemeChange((_, palette) => {
@@ -754,6 +873,7 @@ function updateWeather() {
 }
 
 function clearLevelEntities() {
+  stopLevelSpawns();
   resetCombo();
   state.passiveScoreCarry = 0;
   drainBullets(state.bullets);
@@ -784,8 +904,8 @@ function clearLevelEntities() {
     state.player.shield = 0;
   }
   state.shieldCapacity = 0;
-  updateShield(0, 1);
-  updatePower('None');
+  emitShieldChanged(0, 1);
+  emitPowerChanged('None');
   updateTime(0);
 }
 
@@ -800,18 +920,21 @@ function resetGame(levelIndex = state.levelIndex) {
   state.passiveScoreCarry = 0;
   resetCombo();
   updateScore(state.score);
-  updateLives(state.lives);
+  GameEvents.emit('score:changed', state.score);
+  emitLivesChanged();
   state.power = { name: null, until: 0 };
   state.shieldCapacity = 0;
   if (state.player) {
     state.player.shield = 0;
   }
-  updateShield(0, 1);
+  emitShieldChanged(0, 1);
   if (startWeapon) {
     state.weapon = { ...startWeapon };
   } else {
     setupWeapons(state);
   }
+  emitWeaponChanged();
+  emitPowerChanged('None');
   state.restartPromptVisible = false;
   state.running = false;
   state.paused = false;
@@ -1111,11 +1234,29 @@ function startLevel(levelIndex) {
   configureLevelContext(targetLevel);
   levelIntro(targetLevel);
   updateScore(state.score);
-  updateLives(state.lives);
-  updateWeaponHud(state);
+  GameEvents.emit('score:changed', state.score);
+  emitLivesChanged();
+  emitWeaponChanged();
+  emitPowerChanged(state.power?.name);
+  emitShieldChanged(state.player?.shield ?? 0, state.shieldCapacity || getShieldCapacity(state) || SHIELD_BASE_DURATION);
   clearInput();
   state.running = true;
   state.paused = false;
+  const spawnConfig = getDifficultyConfig(state.difficultyMode, targetLevel?.key ?? targetLevel);
+  startLevelSpawns(spawnConfig);
+  dlog('Level start', { level: targetLevel?.key ?? levelIndex, config: spawnConfig });
+  GameEvents.emit('level:started', {
+    id: targetLevel?.key ?? `L${levelIndex}`,
+    index: levelIndex,
+    name: targetLevel?.name ?? null,
+    difficulty: state.difficultyMode,
+    config: spawnConfig,
+    lives: state.lives,
+    shield: { value: state.player?.shield ?? 0, max: state.shieldCapacity || getShieldCapacity(state) || SHIELD_BASE_DURATION },
+    score: state.score,
+    weapon: state.weapon ? { name: state.weapon.name ?? 'Weapon', icon: state.weapon.icon ?? state.weapon.symbol ?? null } : 'None',
+    powerup: state.power?.name ? state.power.name.toUpperCase() : 'None',
+  });
   lastFrame = performance.now();
   requestAnimationFrame(loop);
 }
@@ -1135,11 +1276,14 @@ function startRun(levelIndex = 1) {
   state.passiveScoreCarry = 0;
   state.power = { name: null, until: 0 };
   state.shieldCapacity = 0;
-  updateShield(0, 1);
+  emitShieldChanged(0, 1);
   resetCombo();
-  updateLives(state.lives);
+  emitLivesChanged();
   updateScore(state.score);
+  GameEvents.emit('score:changed', state.score);
+  emitPowerChanged('None');
   setupWeapons(state);
+  emitWeaponChanged();
   const nextLevel = Math.max(1, Math.min(LEVELS.length, Math.floor(levelIndex)));
   startLevel(nextLevel);
 }
@@ -1200,7 +1344,7 @@ function applyRunUpgrade(upgradeId, { choice } = {}) {
     case 'life': {
       const cap = getLifeCap(state);
       state.lives = Math.min(cap, (state.lives ?? 0) + 1);
-      updateLives(state.lives);
+      emitLivesChanged();
       return 'LIFE +1';
     }
     case 'shield-duration': {
@@ -1222,7 +1366,7 @@ function applyRunUpgrade(upgradeId, { choice } = {}) {
         state.power.until = now + newRemaining;
         state.player.shield = newCharge;
         state.shieldCapacity = newCapacity;
-        updateShield(newCharge, newCapacity);
+        emitShieldChanged(newCharge, newCapacity);
       }
       return 'SHIELD DURATION +20%';
     }
@@ -1341,11 +1485,21 @@ function completeLevel() {
   applyLevelMutators({});
   clearLevelEntities();
   updateScore(state.score);
-  updateLives(state.lives);
+  GameEvents.emit('score:changed', state.score);
+  emitLivesChanged();
   if (nextLevelIndex <= LEVELS.length) {
     unlockLevel(nextLevelIndex);
   }
   const nextLevel = LEVELS[nextLevelIndex - 1] ?? null;
+  dlog('Level end', { id: currentLevel?.key ?? `L${state.levelIndex}`, reason: 'completed', time: levelTime, score: state.score });
+  GameEvents.emit('level:ended', {
+    id: currentLevel?.key ?? `L${state.levelIndex}`,
+    index: state.levelIndex,
+    reason: 'completed',
+    time: levelTime,
+    score: state.score,
+    nextLevel: nextLevelIndex <= LEVELS.length ? nextLevelIndex : null,
+  });
   if (nextLevel) {
     renderUpgradeSelection({
       nextLevelIndex,
@@ -1387,8 +1541,17 @@ function gameOver() {
   applyLevelMutators({});
   clearLevelEntities();
   updateScore(state.score);
-  updateLives(state.lives);
+  GameEvents.emit('score:changed', state.score);
+  emitLivesChanged();
   recordBestScore(state.score);
+  dlog('Level end', { id: state.level?.key ?? `L${state.levelIndex}`, reason: 'player-dead', time: levelTime, score: state.score });
+  GameEvents.emit('level:ended', {
+    id: state.level?.key ?? `L${state.levelIndex}`,
+    index: state.levelIndex,
+    reason: 'player-dead',
+    time: levelTime,
+    score: state.score,
+  });
   showOverlay(`
     <h1><span class="heart">SHIP DESTROYED</span></h1>
     <p>Level ${state.levelIndex}: ${levelName} after <strong>${levelTime}s</strong>.</p>
@@ -1427,7 +1590,8 @@ function renderStartOverlay({ resetHud = false } = {}) {
   state.nextWaveIndex = 0;
   state.levelIndex = 1;
   updateScore(state.score);
-  updateLives(state.lives);
+  GameEvents.emit('score:changed', state.score);
+  emitLivesChanged();
   highestUnlockedLevel = clampLevelIndex(getMetaValue('highestUnlockedLevel', highestUnlockedLevel));
   const storedBest = Number.parseInt(getMetaValue('bestScore', bestScore), 10);
   if (Number.isFinite(storedBest) && storedBest >= 0) {
@@ -1616,7 +1780,7 @@ function renderOptionsOverlay({ context = 'game', onClose } = {}) {
     const target = event.target;
     const value = target.value;
     if (typeof value === 'string') {
-      const next = setDifficultyMode(value);
+      const next = setDifficulty(value);
       if (typeof next === 'string' && difficultySelect) {
         difficultySelect.value = next;
       }
@@ -1649,38 +1813,20 @@ function renderOptionsOverlay({ context = 'game', onClose } = {}) {
 function handlePlayerHit() {
   const player = state.player;
   const particles = resolvePaletteSection(state.theme, 'particles');
-  if (player.shield > 0) {
-    player.shield -= 400;
-    const capacity = state.shieldCapacity || getShieldCapacity(state);
-    if (player.shield <= 0) {
-      player.shield = 0;
-      state.shieldCapacity = 0;
-      if (state.power.name === 'shield') {
-        state.power.name = null;
-        state.power.until = 0;
-        updatePower('None');
-      }
-      updateShield(0, capacity || 1);
-    } else {
-      updateShield(player.shield, capacity || SHIELD_BASE_DURATION);
-    }
-    resetCombo();
+  resetCombo();
+  const result = applyPlayerDamage(1);
+  if (result.absorbed > 0 && result.overflow <= 0) {
     addParticle(state, player.x, player.y, particles.shieldHit, 20, 3, 400);
     playHit();
     return false;
   }
-  if (player.invuln > 0) {
-    return false;
+  if (!result.lostLife) {
+    return result.defeated;
   }
-  state.lives -= 1;
-  resetCombo();
-  updateLives(state.lives);
-  triggerDamagePulse(state.lives <= 1 ? 0.85 : 0.55);
   addParticle(state, player.x, player.y, particles.playerHit, 30, 3.2, 500);
   playZap();
   state.bossMercyUntil = performance.now() + 600;
-  player.invuln = state.assistEnabled ? 3000 : 2000;
-  if (state.lives <= 0) {
+  if (result.defeated) {
     gameOver();
     return true;
   }
@@ -1712,6 +1858,7 @@ function loop(now) {
   updateTime(Math.floor(state.time));
   ensureGuaranteedWeaponDrop(state);
   scheduleLevelWaves();
+  tickSpawner(dt);
   updateEffects(state, dt);
   updateWeather();
   updateComboTimer(dt);
@@ -1912,6 +2059,11 @@ function loop(now) {
           addScore(25);
           playSfx('explode');
           maybeDropWeaponToken(state, enemy);
+          GameEvents.emit(enemy.type === 'asteroid' ? 'asteroid:destroyed' : 'enemy:destroyed', {
+            type: enemy.type,
+            position: { x: enemy.x, y: enemy.y },
+            combo: state.combo?.multiplier ?? 1,
+          });
         }
         break;
       }
@@ -1931,22 +2083,26 @@ function loop(now) {
         }
         addParticle(state, state.boss.x, state.boss.y, particles.bossHit, 18, 3.4, 320);
         playHit();
-        if (state.boss.hp <= 0) {
-          const defeatedBoss = state.boss;
-          spawnExplosion(defeatedBoss.x, defeatedBoss.y, 'boss');
-          shakeScreen(6, 500);
-          showToast('BOSS DEFEATED', 1200);
-          playBossDown();
-          incrementCombo();
-          addScore(600);
-          if (!defeatedBoss.rewardDropped) {
-            defeatedBoss.rewardDropped = true;
-            maybeDropWeaponToken(state, { x: defeatedBoss.x, y: defeatedBoss.y });
+          if (state.boss.hp <= 0) {
+            const defeatedBoss = state.boss;
+            spawnExplosion(defeatedBoss.x, defeatedBoss.y, 'boss');
+            shakeScreen(6, 500);
+            showToast('BOSS DEFEATED', 1200);
+            playBossDown();
+            incrementCombo();
+            addScore(600);
+            if (!defeatedBoss.rewardDropped) {
+              defeatedBoss.rewardDropped = true;
+              maybeDropWeaponToken(state, { x: defeatedBoss.x, y: defeatedBoss.y });
+            }
+            state.boss = null;
+            state.bossDefeatedAt = now;
+            state.bossMercyUntil = 0;
+            GameEvents.emit('enemy:destroyed', {
+              type: 'boss',
+              position: { x: defeatedBoss.x, y: defeatedBoss.y },
+            });
           }
-          state.boss = null;
-          state.bossDefeatedAt = now;
-          state.bossMercyUntil = 0;
-        }
         break;
       }
     }

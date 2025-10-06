@@ -1,10 +1,12 @@
 /**
  * powerups.js — spawning, application, and rendering of power-ups for Retro Space Run.
  */
+// CHANGELOG: Emitted GameEvents when power-ups modify shield or HUD state.
 import { rand, TAU, coll, clamp } from './utils.js';
 import { playPow } from './audio.js';
 import { updatePower, updateShield, getViewSize } from './ui.js';
 import { resolvePaletteSection } from './themes.js';
+import { GameEvents } from './events.js';
 
 const spawnState = {
   last: 0,
@@ -92,7 +94,9 @@ export function applyPower(state, kind, now) {
   }
   state.power.name = kind;
   state.power.until = now + duration;
-  updatePower(kind.toUpperCase());
+  const label = kind.toUpperCase();
+  updatePower(label);
+  GameEvents.emit('powerup:changed', label);
   playPow();
   switch (kind) {
     case 'shield':
@@ -101,6 +105,7 @@ export function applyPower(state, kind, now) {
       }
       state.shieldCapacity = duration;
       updateShield(duration, duration);
+      GameEvents.emit('shield:changed', { value: duration, max: duration });
       break;
     case 'rapid':
       state.lastShot = 0;
@@ -124,10 +129,12 @@ export function clearExpiredPowers(state, now) {
       }
       state.shieldCapacity = 0;
       updateShield(0, 1);
+      GameEvents.emit('shield:changed', { value: 0, max: 1 });
     }
     state.power.name = null;
     state.power.until = 0;
     updatePower('None');
+    GameEvents.emit('powerup:changed', 'None');
   }
 }
 
@@ -189,6 +196,10 @@ export function resetPowerState(state) {
   state.power.name = null;
   state.power.until = 0;
   updatePower('None');
+  GameEvents.emit('powerup:changed', 'None');
+  state.shieldCapacity = 0;
+  updateShield(0, 1);
+  GameEvents.emit('shield:changed', { value: 0, max: 1 });
   if (state.player) {
     state.player.shield = 0;
     state.player.speed = 260;
