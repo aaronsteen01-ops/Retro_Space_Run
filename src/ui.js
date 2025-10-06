@@ -1091,7 +1091,7 @@ export function updatePower(label) {
   setHUDPowerup(label);
 }
 
-export function updateLevelChip({ levelIndex, name, mutators } = {}) {
+export function updateLevelChip({ levelIndex, name, mutators, theme } = {}) {
   if (!hudLevel) {
     return;
   }
@@ -1103,6 +1103,12 @@ export function updateLevelChip({ levelIndex, name, mutators } = {}) {
   const cleanName = typeof name === 'string' ? name.trim() : '';
   if (cleanName) {
     parts.push(cleanName);
+  }
+  const themeLabel = typeof theme?.label === 'string' ? theme.label.trim() : '';
+  const themeIcon = typeof theme?.icon === 'string' ? theme.icon.trim() : '';
+  if (themeLabel) {
+    const decorated = themeIcon ? `${themeIcon} ${themeLabel}` : themeLabel;
+    parts.push(decorated);
   }
   const baseLabel = parts.length ? parts.join(' · ') : '—';
   if (hudLevelLabel) {

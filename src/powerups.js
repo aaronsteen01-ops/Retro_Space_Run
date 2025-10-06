@@ -46,7 +46,10 @@ export function resetPowerTimers() {
 export function maybeSpawnPowerup(state, now) {
   const interval = state.level?.powerups?.intervalMs ?? 12000;
   const assistFactor = state.assistEnabled ? 2 / 3 : 1;
-  const targetInterval = interval * assistFactor;
+  const themeFactor = Number.isFinite(state.themeFx?.powerupIntervalMultiplier)
+    ? Math.max(0.2, state.themeFx.powerupIntervalMultiplier)
+    : 1;
+  const targetInterval = interval * assistFactor * themeFactor;
   if (now - spawnState.last < targetInterval) {
     return;
   }
@@ -90,8 +93,12 @@ export function applyPower(state, kind, now) {
   let duration = baseDuration;
   if (kind === 'shield') {
     const multiplier = state.runUpgrades?.shieldDurationMultiplier ?? 1;
-    duration = Math.round(baseDuration * multiplier);
+    duration = baseDuration * multiplier;
   }
+  const durationMultiplier = Number.isFinite(state.themeFx?.powerupDurationMultiplier)
+    ? Math.max(0.1, state.themeFx.powerupDurationMultiplier)
+    : 1;
+  duration = Math.round(duration * durationMultiplier);
   state.power.name = kind;
   state.power.until = now + duration;
   const label = kind.toUpperCase();
