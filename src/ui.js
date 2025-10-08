@@ -47,8 +47,6 @@ const hudRoot = document.getElementById('hud');
 const overlay = document.getElementById('overlay');
 let difficultySelect = document.getElementById('difficulty-select');
 
-const buttonRegions = [];
-const dropdownRegions = [];
 const buttonHandlers = new Map();
 const dropdownHandlers = new Map();
 
@@ -126,21 +124,24 @@ function logInteraction(kind, name, region) {
 }
 
 export const ui = {
-  buttonRegions,
-  dropdownRegions,
+  buttonRegions: [],
+  dropdownRegions: [],
   isDiffOpen: false,
   debug: false,
   debugLastClick: null,
   resetRegions() {
-    buttonRegions.length = 0;
-    dropdownRegions.length = 0;
+    this.buttonRegions = [];
+    this.dropdownRegions = [];
   },
   registerButton(region) {
     const normalized = normalizeRegion(region);
     if (!normalized) {
       return null;
     }
-    buttonRegions.push(normalized);
+    if (!Array.isArray(this.buttonRegions)) {
+      this.buttonRegions = [];
+    }
+    this.buttonRegions.push(normalized);
     return normalized;
   },
   registerDropdown(region) {
@@ -148,7 +149,10 @@ export const ui = {
     if (!normalized) {
       return null;
     }
-    dropdownRegions.push(normalized);
+    if (!Array.isArray(this.dropdownRegions)) {
+      this.dropdownRegions = [];
+    }
+    this.dropdownRegions.push(normalized);
     return normalized;
   },
   bindButtonHandler(name, handler) {
@@ -251,16 +255,20 @@ export const ui = {
     if (this.debug) {
       this.drawDebugCrosshair();
     }
-    for (const region of buttonRegions) {
+    const buttons = Array.isArray(this.buttonRegions) ? this.buttonRegions : [];
+    for (const region of buttons) {
       if (isPointInsideRegion(mx, my, region)) {
         this.handleButton(region.name, region);
         return;
       }
     }
-    for (const region of dropdownRegions) {
-      if (isPointInsideRegion(mx, my, region)) {
-        this.handleDropdown(region.name, region);
-        return;
+    if (this.isDiffOpen) {
+      const dropdowns = Array.isArray(this.dropdownRegions) ? this.dropdownRegions : [];
+      for (const region of dropdowns) {
+        if (isPointInsideRegion(mx, my, region)) {
+          this.handleDropdown(region.name, region);
+          return;
+        }
       }
     }
   },
