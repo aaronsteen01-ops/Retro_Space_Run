@@ -167,6 +167,18 @@ const APP_VIEW_STATES = Object.freeze({
 let currentViewState = APP_VIEW_STATES.MENU;
 let previousViewState = APP_VIEW_STATES.MENU;
 
+let themeBootReady = false;
+let mainInterfaceReady = false;
+let menuBooted = false;
+
+function maybeBootMenu() {
+  if (menuBooted || !themeBootReady || !mainInterfaceReady) {
+    return;
+  }
+  menuBooted = true;
+  mainInterface.setState('MENU', { resetHud: true, force: true });
+}
+
 if (canvas && typeof canvas.addEventListener === 'function') {
   canvas.addEventListener('mousedown', (event) => {
     if (!ui || typeof ui.onClick !== 'function') {
@@ -687,6 +699,7 @@ function spawnRandomEndlessBoss() {
 const state = {
   running: false,
   paused: false,
+  mode: APP_VIEW_STATES.MENU,
   gameMode: GAME_MODES.CAMPAIGN,
   levelDur: DEFAULT_LEVEL?.duration ?? 0,
   levelIndex: 1,
@@ -962,6 +975,8 @@ onThemeChange((key, palette) => {
   activePalette = palette ?? DEFAULT_THEME_PALETTE;
   refreshActivePalette();
   setMusicTheme(key);
+  themeBootReady = true;
+  maybeBootMenu();
 });
 
 onAssistChange((enabled) => {
@@ -3217,6 +3232,52 @@ function markMenuContext() {
   state.paused = false;
 }
 
+function renderGameplay(context, _gameState) {
+  if (!context || typeof context.clearRect !== 'function') {
+    return;
+  }
+  const { w, h } = getViewSize();
+  if (Number.isFinite(w) && Number.isFinite(h)) {
+    context.clearRect(0, 0, w, h);
+  }
+}
+
+function renderViewForState(viewState) {
+  switch (viewState) {
+    case APP_VIEW_STATES.MENU: {
+      if (ui && typeof ui.drawMainMenu === 'function') {
+        ui.drawMainMenu(ctx, state);
+      }
+      break;
+    }
+    case APP_VIEW_STATES.OPTIONS: {
+      if (ui && typeof ui.drawOptions === 'function') {
+        ui.drawOptions(ctx, state);
+      }
+      break;
+    }
+    case APP_VIEW_STATES.GARAGE: {
+      if (ui && typeof ui.drawGarage === 'function') {
+        ui.drawGarage(ctx, state);
+      }
+      break;
+    }
+    case APP_VIEW_STATES.ACHIEVEMENTS: {
+      if (ui && typeof ui.drawAchievements === 'function') {
+        ui.drawAchievements(ctx, state);
+      }
+      break;
+    }
+    case APP_VIEW_STATES.GAMEPLAY:
+    case APP_VIEW_STATES.ENDLESS: {
+      renderGameplay(ctx, state);
+      break;
+    }
+    default:
+      break;
+  }
+}
+
 function setAppState(newState, options = {}) {
   const next = normaliseViewState(newState);
   if (next === currentViewState && !options.force) {
@@ -3224,6 +3285,7 @@ function setAppState(newState, options = {}) {
   }
   previousViewState = currentViewState;
   currentViewState = next;
+  const stateChanged = previousViewState !== currentViewState;
   const isResume = next === APP_VIEW_STATES.GAMEPLAY && options.resume;
   if (!isResume) {
     if (ui && typeof ui.resetRegions === 'function') {
@@ -3276,6 +3338,11 @@ function setAppState(newState, options = {}) {
       break;
     }
   }
+  state.mode = currentViewState;
+  if (stateChanged || options.force) {
+    console.info('STATE:', state.mode);
+  }
+  renderViewForState(currentViewState);
   return currentViewState;
 }
 
@@ -3774,6 +3841,9 @@ const mainInterface = {
   },
 };
 
+mainInterfaceReady = true;
+maybeBootMenu();
+
 Object.defineProperty(mainInterface, 'settings', {
   get() {
     return state.settings;
@@ -3799,5 +3869,3 @@ if (typeof globalThis !== 'undefined') {
 export const main = mainInterface;
 
 monitorGamepadIdle();
-
-mainInterface.setState(APP_VIEW_STATES.MENU, { resetHud: true, force: true });
