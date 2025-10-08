@@ -18,6 +18,8 @@ import {
 } from './difficulty.js';
 import { getMetaValue, updateStoredMeta } from './storage.js';
 import { GameEvents } from './events.js';
+import { showToast as showHudToast } from './effects.js';
+import { isPaletteUnlocked } from './meta.js';
 
 const HUD_STYLE_ID = 'hud-compact-style';
 
@@ -45,6 +47,289 @@ export const ctx = canvas.getContext('2d');
 const hudRoot = document.getElementById('hud');
 const overlay = document.getElementById('overlay');
 let difficultySelect = document.getElementById('difficulty-select');
+
+const buttonHandlers = new Map();
+const dropdownHandlers = new Map();
+
+const NON_TEXT_INPUT_TYPES = new Set([
+  'button',
+  'checkbox',
+  'color',
+  'date',
+  'datetime-local',
+  'file',
+  'hidden',
+  'month',
+  'number',
+  'radio',
+  'range',
+  'reset',
+  'submit',
+  'time',
+  'week',
+]);
+
+function isTextEntryElement(element) {
+  if (!element) {
+    return false;
+  }
+  if (element.isContentEditable) {
+    return true;
+  }
+  const tag = typeof element.tagName === 'string' ? element.tagName.toLowerCase() : '';
+  if (tag === 'textarea') {
+    return true;
+  }
+  if (tag === 'input') {
+    const type = typeof element.type === 'string' ? element.type.toLowerCase() : '';
+    return !NON_TEXT_INPUT_TYPES.has(type);
+  }
+  return false;
+}
+
+function parseNumber(value, fallback = 0) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function normalizeRegion(region) {
+  if (!region || typeof region.name !== 'string') {
+    return null;
+  }
+  const name = region.name.trim();
+  if (!name) {
+    return null;
+  }
+  const x = parseNumber(region.x);
+  const y = parseNumber(region.y);
+  const w = Math.max(0, parseNumber(region.w));
+  const h = Math.max(0, parseNumber(region.h));
+  return { name, x, y, w, h };
+}
+
+function isPointInsideRegion(mx, my, region) {
+  if (!region) {
+    return false;
+  }
+  return mx >= region.x && mx <= region.x + region.w && my >= region.y && my <= region.y + region.h;
+}
+
+function sanitizeName(name) {
+  return typeof name === 'string' ? name.trim() : '';
+}
+
+function logInteraction(kind, name, region) {
+  const label = sanitizeName(name) || 'unknown';
+  // eslint-disable-next-line no-console
+  console.log(`[UI] ${kind} clicked: ${label}`, region);
+}
+
+export const ui = {
+  buttonRegions: [],
+  dropdownRegions: [],
+  diffOpen: false,
+  get isDiffOpen() {
+    return this.diffOpen;
+  },
+  set isDiffOpen(value) {
+    this.diffOpen = Boolean(value);
+  },
+  debug: false,
+  debugLastClick: null,
+  resetRegions() {
+    this.buttonRegions = [];
+    this.dropdownRegions = [];
+  },
+  registerButton(region) {
+    const normalized = normalizeRegion(region);
+    if (!normalized) {
+      return null;
+    }
+    if (!Array.isArray(this.buttonRegions)) {
+      this.buttonRegions = [];
+    }
+    this.buttonRegions.push(normalized);
+    return normalized;
+  },
+  registerDropdown(region) {
+    const normalized = normalizeRegion(region);
+    if (!normalized) {
+      return null;
+    }
+    if (!Array.isArray(this.dropdownRegions)) {
+      this.dropdownRegions = [];
+    }
+    this.dropdownRegions.push(normalized);
+    return normalized;
+  },
+  bindButtonHandler(name, handler) {
+    const key = sanitizeName(name);
+    if (!key) {
+      return () => {};
+    }
+    if (typeof handler !== 'function') {
+      buttonHandlers.delete(key);
+      return () => {};
+    }
+    buttonHandlers.set(key, handler);
+    return () => {
+      buttonHandlers.delete(key);
+    };
+  },
+  bindDropdownHandler(name, handler) {
+    const key = sanitizeName(name);
+    if (!key) {
+      return () => {};
+    }
+    if (typeof handler !== 'function') {
+      dropdownHandlers.delete(key);
+      return () => {};
+    }
+    dropdownHandlers.set(key, handler);
+    return () => {
+      dropdownHandlers.delete(key);
+    };
+  },
+  handleButton(name, region) {
+    const key = sanitizeName(name);
+    if (!key) {
+      return;
+    }
+    const handler = buttonHandlers.get(key);
+    const root = typeof globalThis !== 'undefined' ? globalThis : window;
+    const appMain = root?.main;
+    let result;
+    switch (key) {
+      case 'startCampaign':
+        result = appMain?.setState?.('GAMEPLAY');
+        break;
+      case 'endless':
+        result = appMain?.setState?.('ENDLESS');
+        break;
+      case 'garage':
+        result = appMain?.setState?.('GARAGE');
+        break;
+      case 'achievements':
+        result = appMain?.setState?.('ACHIEVEMENTS');
+        break;
+      case 'options':
+        result = appMain?.setState?.('OPTIONS');
+        break;
+      case 'difficultyToggle':
+        this.diffOpen = !this.diffOpen;
+        break;
+      default:
+        break;
+    }
+    if (handler) {
+      handler(region);
+    }
+    logInteraction('Button', key, region);
+    return result;
+  },
+  handleDropdown(name, region) {
+    const key = sanitizeName(name);
+    if (!key) {
+      return;
+    }
+    if (key.startsWith('difficulty_')) {
+      const diff = key.split('_')[1];
+      if (diff) {
+        const root = typeof globalThis !== 'undefined' ? globalThis : window;
+        const appMain = root?.main;
+        if (appMain?.settings) {
+          appMain.settings.difficulty = diff;
+        }
+        try {
+          root?.localStorage?.setItem?.('difficulty', diff);
+        } catch (err) {
+          /* ignore storage errors */
+        }
+        setDifficulty(diff);
+        this.diffOpen = false;
+        if (typeof this.toast === 'function') {
+          this.toast(`Difficulty: ${diff}`);
+        }
+      }
+    }
+    const handler = dropdownHandlers.get(key);
+    if (handler) {
+      handler(region);
+    }
+    logInteraction('Dropdown', key, region);
+  },
+  onClick(mx, my) {
+    const cx = Number(mx);
+    const cy = Number(my);
+    if (Number.isFinite(cx) && Number.isFinite(cy)) {
+      this.debugLastClick = { x: cx, y: cy };
+    }
+    if (this.debug) {
+      this.drawDebugCrosshair();
+    }
+    for (const region of buttonRegions) {
+      if (isPointInsideRegion(mx, my, region)) {
+        this.handleButton(region.name, region);
+        return;
+      }
+    }
+    if (this.diffOpen) {
+      const dropdowns = Array.isArray(this.dropdownRegions) ? this.dropdownRegions : [];
+      for (const region of dropdowns) {
+        if (isPointInsideRegion(mx, my, region)) {
+          this.handleDropdown(region.name, region);
+          return;
+        }
+      }
+    }
+  },
+  drawDebugCrosshair(context = ctx) {
+    if (!this.debug || !context || typeof context.save !== 'function') {
+      return;
+    }
+    const point = this.debugLastClick;
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+      return;
+    }
+    context.save();
+    context.lineWidth = 1;
+    context.strokeStyle = 'rgba(0, 255, 255, 0.85)';
+    context.beginPath();
+    const arm = 6;
+    context.moveTo(point.x - arm, point.y);
+    context.lineTo(point.x + arm, point.y);
+    context.moveTo(point.x, point.y - arm);
+    context.lineTo(point.x, point.y + arm);
+    context.stroke();
+    context.restore();
+  },
+  toast(message, duration = 1100) {
+    if (!message) {
+      return;
+    }
+    showHudToast(String(message), duration);
+  },
+};
+
+export function registerButtonRegion(region) {
+  return ui.registerButton(region);
+}
+
+export function registerDropdownRegion(region) {
+  return ui.registerDropdown(region);
+}
+
+export function clearMenuRegions() {
+  ui.resetRegions();
+}
+
+export function onMenuButton(name, handler) {
+  return ui.bindButtonHandler(name, handler);
+}
+
+export function onMenuDropdown(name, handler) {
+  return ui.bindDropdownHandler(name, handler);
+}
 
 const hudLives = document.getElementById('lives');
 const hudScore = document.getElementById('score');
@@ -97,6 +382,13 @@ subscribeDifficultyMode((mode) => {
 let DPR = window.devicePixelRatio || 1;
 let VIEW_W = window.innerWidth || canvas.clientWidth || canvas.width || 0;
 let VIEW_H = window.innerHeight || canvas.clientHeight || canvas.height || 0;
+
+function isThemeAvailable(key) {
+  if (key === 'cosmic-abyss') {
+    return isPaletteUnlocked('cosmic-abyss');
+  }
+  return true;
+}
 
 function syncDifficultySelect(mode = getStoredDifficultyMode()) {
   if (!difficultySelect) {
@@ -726,6 +1018,7 @@ function populateThemeControl() {
     return;
   }
   const entries = getThemeKeys()
+    .filter((key) => isThemeAvailable(key))
     .map((key) => ({ key, label: getThemeLabel(key) }))
     .sort((a, b) => a.label.localeCompare(b.label));
   control.innerHTML = '';
@@ -840,6 +1133,34 @@ if (assistToggle) {
   assistToggle.addEventListener('click', () => {
     toggleAssistMode();
   });
+}
+
+function handleDebugToggleKey(event) {
+  if (!event || event.repeat) {
+    return;
+  }
+  const key = event.key;
+  if (key !== 'd' && key !== 'D') {
+    return;
+  }
+  if (isTextEntryElement(event.target)) {
+    return;
+  }
+  ui.debug = !ui.debug;
+  if (ui.debug && ui.debugLastClick) {
+    const draw = () => {
+      ui.drawDebugCrosshair();
+    };
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(draw);
+    } else {
+      draw();
+    }
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('keydown', handleDebugToggleKey, { passive: true });
 }
 
 function fitCanvas() {
@@ -960,9 +1281,15 @@ export function setStartHandler(handler) {
   bindStartButton();
 }
 
-export function showOverlay(html) {
+export function showOverlay(html, options = {}) {
+  ui.resetRegions();
+  overlay.classList.remove('overlay--meta-menu');
   overlay.innerHTML = html;
   overlay.style.display = 'block';
+  const { className } = options ?? {};
+  if (className && typeof className === 'string') {
+    overlay.classList.add(className);
+  }
   bindStartButton();
   bindDifficultySelect();
   const focusTarget = overlay.querySelector('[autofocus], .btn, button, [role="button"]');
@@ -972,6 +1299,7 @@ export function showOverlay(html) {
 }
 
 export function hideOverlay() {
+  overlay.classList.remove('overlay--meta-menu');
   overlay.style.display = 'none';
 }
 
@@ -1229,6 +1557,11 @@ export function getActiveThemeKey() {
 
 export function getActiveThemePalette() {
   return getThemePalette(activeThemeKey);
+}
+
+export function refreshThemeOptions() {
+  populateThemeControl();
+  syncThemeControl();
 }
 
 export function setTheme(key, { persist = true } = {}) {

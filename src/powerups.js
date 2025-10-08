@@ -31,7 +31,7 @@ function spawnPowerupEntity(state, type, x, opts = {}) {
   state.powerups.push({
     type,
     x: clamp(x ?? rand(minX, maxX), minX, maxX),
-    y: -30,
+    y: opts.y ?? -30,
     vy: opts.vy ?? 110,
     r: 12,
     t: 9000,
@@ -56,6 +56,21 @@ export function maybeSpawnPowerup(state, now) {
   spawnState.last = now;
   const type = pickPowerupType();
   spawnPowerupEntity(state, type);
+}
+
+export function dropPowerup(state, options = {}) {
+  const { type, x, y, vy, guaranteed = true } = options ?? {};
+  const chosenType = type ?? pickPowerupType();
+  const { w } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const dropX = x ?? state.player?.x ?? viewW / 2;
+  spawnPowerupEntity(state, chosenType, dropX, {
+    y: y ?? (state.player ? state.player.y - 20 : undefined),
+    vy: vy ?? 90,
+    guaranteed,
+  });
+  spawnState.last = performance.now();
+  return chosenType;
 }
 
 export function ensureGuaranteedPowerups(state, now) {
@@ -118,7 +133,10 @@ export function applyPower(state, kind, now) {
       state.lastShot = 0;
       break;
     case 'boost':
-      state.player.speed = 360;
+      if (state.player) {
+        const baseSpeed = Math.max(120, state.player.baseSpeed ?? state.player.speed ?? 260);
+        state.player.speed = baseSpeed * 1.4;
+      }
       break;
     default:
       break;
@@ -127,16 +145,27 @@ export function applyPower(state, kind, now) {
 
 export function clearExpiredPowers(state, now) {
   if (state.power.name && now > state.power.until) {
-    if (state.power.name === 'boost') {
-      state.player.speed = 260;
+    const baseSpeed = Math.max(120, state.player?.baseSpeed ?? 260);
+    const baseShield = Math.max(0, state.player?.baseShield ?? 0);
+    if (state.power.name === 'boost' && state.player) {
+      state.player.speed = baseSpeed;
     }
-    if (state.power.name === 'shield' || (state.player?.shield ?? 0) > 0) {
+    if (state.power.name === 'shield') {
       if (state.player) {
-        state.player.shield = 0;
+        state.player.shield = baseShield;
       }
-      state.shieldCapacity = 0;
-      updateShield(0, 1);
-      GameEvents.emit('shield:changed', { value: 0, max: 1 });
+      state.shieldCapacity = baseShield;
+      const maxShield = Math.max(baseShield, 1);
+      updateShield(baseShield, maxShield);
+      GameEvents.emit('shield:changed', { value: baseShield, max: maxShield });
+    } else if ((state.player?.shield ?? 0) > baseShield) {
+      if (state.player) {
+        state.player.shield = baseShield;
+      }
+      state.shieldCapacity = baseShield;
+      const maxShield = Math.max(baseShield, 1);
+      updateShield(baseShield, maxShield);
+      GameEvents.emit('shield:changed', { value: baseShield, max: maxShield });
     }
     state.power.name = null;
     state.power.until = 0;
@@ -204,11 +233,14 @@ export function resetPowerState(state) {
   state.power.until = 0;
   updatePower('None');
   GameEvents.emit('powerup:changed', 'None');
-  state.shieldCapacity = 0;
-  updateShield(0, 1);
-  GameEvents.emit('shield:changed', { value: 0, max: 1 });
+  const baseShield = Math.max(0, state.player?.baseShield ?? 0);
+  state.shieldCapacity = baseShield;
+  const maxShield = Math.max(baseShield, 1);
+  updateShield(baseShield, maxShield);
+  GameEvents.emit('shield:changed', { value: baseShield, max: maxShield });
   if (state.player) {
-    state.player.shield = 0;
-    state.player.speed = 260;
+    state.player.shield = baseShield;
+    const baseSpeed = Math.max(120, state.player.baseSpeed ?? state.player.speed ?? 260);
+    state.player.speed = baseSpeed;
   }
 }

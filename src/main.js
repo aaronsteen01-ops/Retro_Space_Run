@@ -2,8 +2,9 @@
  * main.js — bootstraps Retro Space Run, orchestrating modules and the core game loop.
  */
 // CHANGELOG: Introduced GameEvents integration, damage handling, and spawn scheduler wiring.
-import { rand, coll, addParticle } from './utils.js';
+import { rand, coll, addParticle, clamp } from './utils.js';
 import {
+  canvas,
   ctx,
   showOverlay,
   hideOverlay,
@@ -28,6 +29,8 @@ import {
   getActiveThemeKey,
   setGamepadIndicator,
   pulseMutatorIcon,
+  refreshThemeOptions,
+  ui,
 } from './ui.js';
 import {
   playZap,
@@ -39,6 +42,7 @@ import {
   playBossDown,
   getVolume,
   setVolume,
+  setMusicTheme,
 } from './audio.js';
 import { resetPlayer, updatePlayer, clampPlayerToBounds, drawPlayer } from './player.js';
 import {
@@ -46,14 +50,17 @@ import {
   updateEnemies,
   drawEnemies,
   spawnBoss,
+  spawnMidBoss,
   updateBoss,
   drawBoss,
   drawBossHealth,
   isPointInBossBeam,
+  handleEnemyDestroyed,
 } from './enemies.js';
 import {
   resetPowerTimers,
   maybeSpawnPowerup,
+  dropPowerup,
   ensureGuaranteedPowerups,
   updatePowerups,
   drawPowerups,
@@ -68,6 +75,7 @@ import {
   updateWeaponDrops,
   drawWeaponDrops,
   maybeDropWeaponToken,
+  spawnWeaponToken,
   ensureGuaranteedWeaponDrop,
   updateMuzzleFlashes,
   drawMuzzleFlashes,
@@ -106,6 +114,26 @@ import {
 import { getMetaValue, updateStoredMeta } from './storage.js';
 import { GameEvents } from './events.js';
 import { configureSpawner, startLevelSpawns, stopLevelSpawns, tickSpawner } from './spawner.js';
+import {
+  recordRunEnd,
+  getSelectedShipKey,
+  setSelectedShip,
+  getMetaProgress,
+  isPaletteUnlocked,
+  unlockPalette,
+  getUnlockedShips,
+  getEndlessPersonalBests,
+  recordEndlessResult,
+} from './meta.js';
+import { getStoryBeat } from './story.js';
+import {
+  SHIP_CATALOGUE,
+  getShipByKey,
+  getDefaultShipKey,
+  getShipDisplayStats,
+  getShipRequirement,
+} from './ships.js';
+import { evaluateAchievements, getAchievementProgress } from './achievements.js';
 
 let activePalette = getActiveThemePalette() ?? DEFAULT_THEME_PALETTE;
 
@@ -121,6 +149,52 @@ const COMBO_STEP = 0.1;
 const COMBO_MAX_MULTIPLIER = 3;
 const PASSIVE_SCORE_RATE = 30;
 
+const STORY_OVERLAY_DURATION = 1800;
+
+const MENU_SELECTION_STORAGE_KEY = 'retro-space-run.menu-selection';
+
+const GAME_MODES = Object.freeze({
+  CAMPAIGN: 'campaign',
+  ENDLESS: 'endless',
+});
+
+const APP_VIEW_STATES = Object.freeze({
+  MENU: 'MENU',
+  GAMEPLAY: 'GAMEPLAY',
+  ENDLESS: 'ENDLESS',
+  GARAGE: 'GARAGE',
+  ACHIEVEMENTS: 'ACHIEVEMENTS',
+  OPTIONS: 'OPTIONS',
+});
+
+let currentViewState = APP_VIEW_STATES.MENU;
+let previousViewState = APP_VIEW_STATES.MENU;
+
+if (canvas && typeof canvas.addEventListener === 'function') {
+  canvas.addEventListener('mousedown', (event) => {
+    if (!ui || typeof ui.onClick !== 'function') {
+      return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const mx = event.clientX - rect.left;
+    const my = event.clientY - rect.top;
+    ui.onClick(mx, my);
+  });
+}
+
+const ENDLESS_SCALE_STEP = 0.1;
+const ENDLESS_BOSS_WAVE_MIN = 4;
+const ENDLESS_BOSS_WAVE_MAX = 5;
+
+const overlayElement = typeof document !== 'undefined' ? document.getElementById('overlay') : null;
+
+const storyOverlayState = {
+  active: false,
+  timeout: null,
+  keyHandler: null,
+  clickHandler: null,
+};
+
 function isDebugEnabled() {
   if (typeof window !== 'undefined') {
     return Boolean(window.__rsrDebug);
@@ -131,6 +205,81 @@ function isDebugEnabled() {
 function dlog(...args) {
   if (isDebugEnabled()) {
     console.log('[RSR]', ...args);
+  }
+}
+
+function dismissStoryOverlay({ hide = false } = {}) {
+  if (storyOverlayState.timeout) {
+    if (typeof window !== 'undefined') {
+      window.clearTimeout(storyOverlayState.timeout);
+    }
+    storyOverlayState.timeout = null;
+  }
+  if (overlayElement && storyOverlayState.clickHandler) {
+    overlayElement.removeEventListener('click', storyOverlayState.clickHandler);
+  }
+  if (typeof window !== 'undefined' && storyOverlayState.keyHandler) {
+    window.removeEventListener('keydown', storyOverlayState.keyHandler, true);
+  }
+  storyOverlayState.clickHandler = null;
+  storyOverlayState.keyHandler = null;
+  if (hide && storyOverlayState.active) {
+    hideOverlay();
+  }
+  storyOverlayState.active = false;
+}
+
+function showStoryOverlay(beat) {
+  if (!beat || !overlayElement) {
+    return;
+  }
+  dismissStoryOverlay({ hide: true });
+  const lines = Array.isArray(beat.textLines)
+    ? beat.textLines
+        .filter((line) => typeof line === 'string' && line.trim().length)
+        .map((line) => `<p class="story-card__line">${line}</p>`)
+        .join('')
+    : '';
+  const hint = '<p class="story-card__hint">Press Space or click to skip</p>';
+  const headingTag = beat.title ? `<h2>${beat.title}</h2>` : '';
+  showOverlay(`
+    <article class="story-card" role="status" aria-live="polite">
+      ${headingTag}
+      <div class="story-card__body">${lines}</div>
+      ${hint}
+    </article>
+  `);
+  storyOverlayState.active = true;
+
+  const finish = () => {
+    if (!storyOverlayState.active) {
+      return;
+    }
+    const shouldHide = overlayElement?.querySelector('.story-card');
+    dismissStoryOverlay();
+    if (shouldHide) {
+      hideOverlay();
+    }
+  };
+
+  storyOverlayState.clickHandler = (event) => {
+    event?.preventDefault?.();
+    finish();
+  };
+  storyOverlayState.keyHandler = (event) => {
+    if (!event) {
+      return;
+    }
+    const code = event.code || event.key;
+    if (code === 'Space' || code === 'Spacebar' || event.key === ' ') {
+      event.preventDefault();
+      finish();
+    }
+  };
+  overlayElement.addEventListener('click', storyOverlayState.clickHandler);
+  if (typeof window !== 'undefined') {
+    window.addEventListener('keydown', storyOverlayState.keyHandler, true);
+    storyOverlayState.timeout = window.setTimeout(finish, STORY_OVERLAY_DURATION);
   }
 }
 
@@ -167,6 +316,58 @@ function applyEnemyWeightMultipliers(weights = {}, multipliers = {}) {
     clone[type] = Math.max(0, base * multiplier);
   }
   return clone;
+}
+
+function getMidBossConfig(level) {
+  if (!level?.boss) {
+    return null;
+  }
+  return level.boss.midBoss ?? null;
+}
+
+function getFinalBossConfig(level) {
+  if (!level?.boss) {
+    return null;
+  }
+  if (level.boss.finalBoss) {
+    return level.boss.finalBoss;
+  }
+  return level.boss.kind ? level.boss : null;
+}
+
+function resolveMidBossTrigger(level, duration) {
+  const config = getMidBossConfig(level);
+  if (!config) {
+    return null;
+  }
+  if (Number.isFinite(config.triggerTime)) {
+    return Math.max(0, config.triggerTime);
+  }
+  const ratio = Number.isFinite(config.triggerRatio) ? clamp(config.triggerRatio, 0.1, 0.95) : 0.6;
+  const baseDuration = Number.isFinite(duration) ? duration : level?.duration ?? 0;
+  return baseDuration * ratio;
+}
+
+function maybeSpawnMidBossFight() {
+  const level = state.level;
+  const config = getMidBossConfig(level);
+  if (!config) {
+    return;
+  }
+  if (state.midBossSpawned || state.midBossDefeated || state.boss || state.bossSpawned) {
+    return;
+  }
+  const triggerAt = resolveMidBossTrigger(level, state.levelDur);
+  if (!Number.isFinite(triggerAt)) {
+    return;
+  }
+  if (state.time >= triggerAt) {
+    spawnMidBoss(state, config);
+    state.midBossSpawned = true;
+    state.bossType = 'mid';
+    GameEvents.emit('boss:spawned', { type: 'mid', config });
+    showToast('INTRUDER ALERT', 900);
+  }
 }
 
 function clampMultiplier(value, fallback = 1, min = 0.1, max = 5) {
@@ -293,6 +494,18 @@ function createRunUpgradeState() {
   };
 }
 
+function createRunStats({ level = 1, shipKey = null } = {}) {
+  const initialLevel = Number.isFinite(level) ? Math.max(1, Math.floor(level)) : 1;
+  return {
+    bosses: 0,
+    kills: 0,
+    livesLost: 0,
+    score: 0,
+    highestLevel: initialLevel,
+    ship: shipKey,
+  };
+}
+
 function getLifeCap(stateLike) {
   return stateLike.assistEnabled ? ASSIST_LIFE_CAP : LIFE_CAP_BASE;
 }
@@ -304,6 +517,12 @@ function getShieldCapacity(stateLike) {
 
 let highestUnlockedLevel = clampLevelIndex(readHighestUnlockedLevel());
 let bestScore = Math.max(0, Number.parseInt(getMetaValue('bestScore', 0), 10) || 0);
+const initialEndlessBests = getEndlessPersonalBests();
+let bestEndlessScore = Math.max(0, Number.isFinite(initialEndlessBests.score) ? initialEndlessBests.score : 0);
+let bestEndlessTime = Math.max(0, Number.isFinite(initialEndlessBests.time) ? initialEndlessBests.time : 0);
+const defaultShipKey = getDefaultShipKey();
+const initialShipKey = getSelectedShipKey() || defaultShipKey;
+const initialShip = getShipByKey(initialShipKey) ?? getShipByKey(defaultShipKey);
 
 function unlockLevel(levelIndex) {
   const capped = clampLevelIndex(levelIndex);
@@ -324,9 +543,154 @@ function recordBestScore(score) {
   }
 }
 
+function computeDifficultyMultipliers(mode = state.difficultyMode) {
+  const base = { ...getDifficultyMultipliers(mode) };
+  if (state.gameMode === GAME_MODES.ENDLESS) {
+    const scale = Number.isFinite(state.endless?.difficultyScale)
+      ? Math.max(0.5, state.endless.difficultyScale)
+      : 1;
+    return {
+      density: (base.density ?? 1) * scale,
+      speed: (base.speed ?? 1) * scale,
+      hp: (base.hp ?? 1) * scale,
+    };
+  }
+  return base;
+}
+
+function applyDifficultyMode(mode = state.difficultyMode) {
+  const nextMode = mode ?? state.difficultyMode;
+  state.difficultyMode = nextMode;
+  state.difficulty = computeDifficultyMultipliers(nextMode);
+}
+
+function buildEndlessThemeOrder() {
+  const keys = getThemeKeys();
+  if (!Array.isArray(keys) || keys.length === 0) {
+    return [DEFAULT_THEME_KEY];
+  }
+  return keys.slice();
+}
+
+function rollEndlessBossWave() {
+  return Math.floor(Math.random() * (ENDLESS_BOSS_WAVE_MAX - ENDLESS_BOSS_WAVE_MIN + 1)) + ENDLESS_BOSS_WAVE_MIN;
+}
+
+function resetEndlessState() {
+  const order = buildEndlessThemeOrder();
+  const endless = state.endless ?? {};
+  endless.active = true;
+  endless.loop = 0;
+  endless.stage = 1;
+  endless.levelPointer = 0;
+  endless.themeOrder = order;
+  endless.themeIndex = 0;
+  endless.currentTheme = order[0] ?? DEFAULT_THEME_KEY;
+  endless.difficultyScale = 1;
+  endless.waveCounter = 0;
+  endless.nextBossWave = rollEndlessBossWave();
+  endless.totalTime = 0;
+  endless.randomBossActive = false;
+  state.endless = endless;
+  applyDifficultyMode(state.difficultyMode);
+}
+
+function getEndlessBaseLevel() {
+  const levelsCount = LEVELS.length;
+  if (levelsCount === 0) {
+    return DEFAULT_LEVEL;
+  }
+  const pointer = state.endless?.levelPointer ?? 0;
+  const index = ((pointer % levelsCount) + levelsCount) % levelsCount;
+  return LEVELS[index] ?? DEFAULT_LEVEL;
+}
+
+function createEndlessLevelOverride() {
+  const baseLevel = getEndlessBaseLevel();
+  const endless = state.endless ?? {};
+  if (!Array.isArray(endless.themeOrder) || endless.themeOrder.length === 0) {
+    endless.themeOrder = buildEndlessThemeOrder();
+    endless.themeIndex = 0;
+  }
+  const order = endless.themeOrder;
+  const themeIndex = Number.isFinite(endless.themeIndex) ? endless.themeIndex : 0;
+  const themeKey = order.length ? order[(themeIndex % order.length + order.length) % order.length] : baseLevel?.theme ?? DEFAULT_THEME_KEY;
+  endless.themeIndex = order.length ? (themeIndex + 1) % order.length : 0;
+  endless.currentTheme = themeKey;
+  const behaviour = getThemeBehaviour(themeKey);
+  return {
+    ...baseLevel,
+    theme: themeKey,
+    themeBehaviour: behaviour,
+  };
+}
+
+function advanceEndlessProgression() {
+  const endless = state.endless ?? {};
+  const levelsCount = LEVELS.length;
+  endless.waveCounter = 0;
+  endless.randomBossActive = false;
+  endless.nextBossWave = rollEndlessBossWave();
+  if (levelsCount > 0) {
+    endless.levelPointer = (Number.isFinite(endless.levelPointer) ? endless.levelPointer : 0) + 1;
+    if (endless.levelPointer >= levelsCount) {
+      endless.levelPointer = 0;
+      endless.loop = (endless.loop ?? 0) + 1;
+      endless.difficultyScale = 1 + endless.loop * ENDLESS_SCALE_STEP;
+      applyDifficultyMode(state.difficultyMode);
+      showToast('Threat level rising!', 1200);
+    }
+  }
+  endless.stage = (endless.stage ?? 1) + 1;
+  state.endless = endless;
+}
+
+function cloneBossConfig(config = {}) {
+  return JSON.parse(JSON.stringify(config));
+}
+
+function pickRandomEndlessBossConfig() {
+  const pool = LEVELS.map((level) => getFinalBossConfig(level)).filter(Boolean);
+  if (!pool.length) {
+    return null;
+  }
+  const index = Math.floor(Math.random() * pool.length);
+  return cloneBossConfig(pool[index]);
+}
+
+function spawnRandomEndlessBoss() {
+  if (state.gameMode !== GAME_MODES.ENDLESS) {
+    return;
+  }
+  if (state.boss || state.bossSpawned || state.endless?.randomBossActive) {
+    return;
+  }
+  const config = pickRandomEndlessBossConfig();
+  if (!config) {
+    return;
+  }
+  const bossConfig = {
+    ...config,
+    role: 'endless',
+    introMessage: config.introMessage ?? 'ENDLESS PROTOCOL',
+    introColour: config.introColour ?? '#ff9dfd',
+    bannerColour: config.bannerColour ?? 'rgba(255, 230, 255, 0.9)',
+    healthLabel: config.healthLabel ?? 'Flagship Integrity',
+  };
+  spawnBoss(state, bossConfig);
+  state.bossSpawned = true;
+  state.bossType = 'endless';
+  state.endless.randomBossActive = true;
+  state.endless.waveCounter = 0;
+  state.endless.nextBossWave = rollEndlessBossWave();
+  showToast('ENEMY FLAGSHIP DETECTED', 1100);
+  GameEvents.emit('boss:spawned', { type: 'endless', config: bossConfig });
+}
+
 const state = {
   running: false,
   paused: false,
+  gameMode: GAME_MODES.CAMPAIGN,
   levelDur: DEFAULT_LEVEL?.duration ?? 0,
   levelIndex: 1,
   level: DEFAULT_LEVEL,
@@ -343,6 +707,7 @@ const state = {
   difficultyMode: getDifficultyMode(),
   difficulty: getDifficultyMultipliers(),
   player: null,
+  ship: initialShip,
   bullets: [],
   enemies: [],
   enemyBullets: [],
@@ -357,9 +722,27 @@ const state = {
   restartPromptVisible: false,
   starfield: mergeStarfieldConfig(),
   stars: [],
+  endless: {
+    active: false,
+    loop: 0,
+    stage: 1,
+    levelPointer: 0,
+    themeIndex: 0,
+    themeOrder: [],
+    currentTheme: DEFAULT_THEME_KEY,
+    difficultyScale: 1,
+    waveCounter: 0,
+    nextBossWave: ENDLESS_BOSS_WAVE_MIN,
+    totalTime: 0,
+    randomBossActive: false,
+  },
   finishGate: null,
   boss: null,
+  bossType: null,
   bossSpawned: false,
+  midBossSpawned: false,
+  midBossDefeated: false,
+  midBossDefeatedAt: 0,
   bossDefeatedAt: 0,
   bossMercyUntil: 0,
   lastShot: 0,
@@ -375,12 +758,15 @@ const state = {
   assistEnabled: getAssistMode(),
   settings: {
     autoFire: getAutoFire(),
+    difficulty: getDifficultyMode(),
   },
   levelContext: { enemyWeights: {}, mutators: {}, themeKey: null, themeBehaviour: null },
   weather: { windX: 0, windDrift: 0, squall: null },
   levelIntroTimeout: null,
   runUpgrades: createRunUpgradeState(),
   themeFx: createThemeFxState(),
+  runStats: createRunStats({ level: 1, shipKey: initialShip?.key ?? defaultShipKey }),
+  storyOutroShown: false,
 };
 
 configureSpawner(state);
@@ -464,6 +850,9 @@ function addScore(basePoints, { allowFraction = false } = {}) {
   const awarded = Math.max(0, Math.round(numericBase * multiplier));
   if (awarded > 0) {
     state.score += awarded;
+    if (state.runStats) {
+      state.runStats.score = (state.runStats.score ?? 0) + awarded;
+    }
     updateScore(state.score);
     GameEvents.emit('score:changed', state.score);
     dlog('Score award', awarded, '→', state.score);
@@ -539,6 +928,9 @@ function applyPlayerDamage(damage) {
   if (overflow > 0) {
     const lifeLoss = Math.max(1, Math.ceil(overflow));
     state.lives = Math.max(0, state.lives - lifeLoss);
+    if (state.runStats && lifeLoss > 0) {
+      state.runStats.livesLost = (state.runStats.livesLost ?? 0) + lifeLoss;
+    }
     result.lostLife = lifeLoss > 0;
     emitLivesChanged();
     triggerDamagePulse(state.lives <= 1 ? 0.85 : 0.55);
@@ -560,18 +952,19 @@ function applyPlayerDamage(damage) {
 }
 
 onDifficultyModeChange((mode) => {
-  state.difficultyMode = mode;
-  state.difficulty = getDifficultyMultipliers(mode);
+  applyDifficultyMode(mode);
+  state.settings.difficulty = mode;
   if (state.running && state.level) {
-    const config = getDifficultyConfig(mode, state.level?.key ?? state.level);
+    const config = getDifficultyConfig(state.difficultyMode, state.level?.key ?? state.level);
     startLevelSpawns(config);
     dlog('Difficulty mode updated', mode, config);
   }
 });
 
-onThemeChange((_, palette) => {
+onThemeChange((key, palette) => {
   activePalette = palette ?? DEFAULT_THEME_PALETTE;
   refreshActivePalette();
+  setMusicTheme(key);
 });
 
 onAssistChange((enabled) => {
@@ -586,6 +979,19 @@ onInputAction(INPUT_ACTIONS.ASSIST, () => {
   toggleAssistMode();
 });
 
+GameEvents.on('wave:spawned', () => {
+  if (state.gameMode !== GAME_MODES.ENDLESS || !state.endless?.active) {
+    return;
+  }
+  if (state.boss || state.bossSpawned) {
+    return;
+  }
+  state.endless.waveCounter = (state.endless.waveCounter ?? 0) + 1;
+  if (state.endless.waveCounter >= state.endless.nextBossWave) {
+    spawnRandomEndlessBoss();
+  }
+});
+
 onInputAction(INPUT_ACTIONS.AUTO_FIRE, () => {
   toggleAutoFire();
 });
@@ -596,21 +1002,22 @@ onInputAction(INPUT_ACTIONS.OPTIONS, () => {
     return;
   }
   if (state.running) {
-    renderOptionsOverlay({
+    setAppState(APP_VIEW_STATES.OPTIONS, {
       context: 'game',
       onClose: () => {
         hideOverlay();
         state.paused = false;
         clearInput();
+        setAppState(APP_VIEW_STATES.GAMEPLAY, { resume: true });
       },
     });
     return;
   }
   if (atMenuScreen) {
-    renderOptionsOverlay({
+    setAppState(APP_VIEW_STATES.OPTIONS, {
       context: 'menu',
       onClose: () => {
-        renderStartOverlay();
+        setAppState(APP_VIEW_STATES.MENU, { force: true });
       },
     });
   }
@@ -931,9 +1338,14 @@ function clearLevelEntities() {
   state.particles.length = 0;
   state.finishGate = null;
   state.boss = null;
+  state.bossType = null;
   state.bossSpawned = false;
+  state.midBossSpawned = false;
+  state.midBossDefeated = false;
+  state.midBossDefeatedAt = 0;
   state.bossDefeatedAt = 0;
   state.bossMercyUntil = 0;
+  state.storyOutroShown = false;
   state.weaponDropSecured = false;
   state.powerupsGrantedL1 = 0;
   state.lastGuaranteedPowerup = null;
@@ -948,17 +1360,23 @@ function clearLevelEntities() {
   resetPowerTimers();
   resetEffects();
   spawnStars();
-  resetPlayer(state);
+  resetPlayer(state, state.ship);
+  const baseShield = Math.max(0, state.player?.baseShield ?? 0);
+  state.shieldCapacity = baseShield;
   if (state.player) {
-    state.player.shield = 0;
+    state.player.shield = baseShield;
+    state.player.speed = Math.max(120, state.player.baseSpeed ?? state.player.speed ?? 260);
   }
-  state.shieldCapacity = 0;
-  emitShieldChanged(0, 1);
+  emitShieldChanged(baseShield, Math.max(baseShield, 1));
   emitPowerChanged('None');
   updateTime(0);
 }
 
 function resetGame(levelIndex = state.levelIndex) {
+  if (state.gameMode === GAME_MODES.ENDLESS) {
+    startRun(1, { gameMode: GAME_MODES.ENDLESS });
+    return;
+  }
   const fallbackIndex = Number.isFinite(levelIndex) ? levelIndex : state.levelIndex;
   const targetLevelIndex = Math.max(1, Math.min(LEVELS.length, Math.floor(fallbackIndex || 1)));
   const startScore = Number.isFinite(state.levelStartScore) ? state.levelStartScore : state.score;
@@ -972,11 +1390,13 @@ function resetGame(levelIndex = state.levelIndex) {
   GameEvents.emit('score:changed', state.score);
   emitLivesChanged();
   state.power = { name: null, until: 0 };
-  state.shieldCapacity = 0;
+  const baseShield = Math.max(0, state.player?.baseShield ?? 0);
+  state.shieldCapacity = baseShield;
   if (state.player) {
-    state.player.shield = 0;
+    state.player.shield = baseShield;
+    state.player.speed = Math.max(120, state.player.baseSpeed ?? state.player.speed ?? 260);
   }
-  emitShieldChanged(0, 1);
+  emitShieldChanged(baseShield, Math.max(baseShield, 1));
   if (startWeapon) {
     state.weapon = { ...startWeapon };
   } else {
@@ -994,6 +1414,30 @@ function resetGame(levelIndex = state.levelIndex) {
 
 function promptLevelRestart() {
   if (!state.level) {
+    return;
+  }
+  if (state.gameMode === GAME_MODES.ENDLESS) {
+    state.restartPromptVisible = true;
+    showOverlay(`
+      <h1>Restart Endless Run?</h1>
+      <p>Restart from the beginning with base threat level?</p>
+      <div class="overlay-actions">
+        <button id="confirm-restart" class="btn" autofocus>Restart Endless</button>
+        <button id="cancel-restart" class="btn btn-secondary">Resume</button>
+      </div>
+    `);
+    const confirmBtn = document.getElementById('confirm-restart');
+    confirmBtn?.addEventListener('click', () => {
+      state.restartPromptVisible = false;
+      startRun(1, { gameMode: GAME_MODES.ENDLESS });
+    });
+    const cancelBtn = document.getElementById('cancel-restart');
+    cancelBtn?.addEventListener('click', () => {
+      state.restartPromptVisible = false;
+      hideOverlay();
+      state.paused = false;
+      clearInput();
+    });
     return;
   }
   const levelName = state.level?.name;
@@ -1124,6 +1568,7 @@ function levelIntro(level) {
     clearTimeout(state.levelIntroTimeout);
     state.levelIntroTimeout = null;
   }
+  dismissStoryOverlay({ hide: true });
   const themeKey = state.levelContext?.themeKey ?? level?.theme ?? DEFAULT_THEME_KEY;
   if (themeKey) {
     setTheme(themeKey, { persist: false });
@@ -1175,10 +1620,16 @@ function levelIntro(level) {
       </div>
     </div>
   `);
+  const storyKey = typeof level?.key === 'string' ? level.key : null;
+  const storyIntro = storyKey ? getStoryBeat(storyKey, 'intro') : null;
+  const introDuration = storyIntro ? 1200 : 1600;
   state.levelIntroTimeout = window.setTimeout(() => {
     hideOverlay();
     state.levelIntroTimeout = null;
-  }, 1600);
+    if (storyIntro) {
+      showStoryOverlay(storyIntro);
+    }
+  }, introDuration);
 }
 
 function pickReplacementType(originalType, weights) {
@@ -1406,14 +1857,26 @@ function scheduleLevelWaves() {
   }
 }
 
-function startLevel(levelIndex) {
-  const targetLevel = LEVELS[levelIndex - 1] ?? DEFAULT_LEVEL;
+function startLevel(levelIndex, options = {}) {
+  const { levelOverride = null, stageNumber = null } = options;
+  const targetLevel = levelOverride ?? LEVELS[levelIndex - 1] ?? DEFAULT_LEVEL;
   if (!targetLevel) {
     return;
   }
-  state.levelIndex = levelIndex;
+  state.levelIndex = Number.isFinite(stageNumber) ? stageNumber : levelIndex;
   state.level = targetLevel;
   state.levelDur = targetLevel?.duration ?? 0;
+  if (state.runStats) {
+    state.runStats.highestLevel = Math.max(state.runStats.highestLevel ?? 0, state.levelIndex);
+  }
+  state.boss = null;
+  state.bossType = null;
+  state.bossSpawned = false;
+  state.midBossSpawned = false;
+  state.midBossDefeated = false;
+  state.midBossDefeatedAt = 0;
+  state.bossDefeatedAt = 0;
+  state.bossMercyUntil = 0;
   state.nextWaveIndex = 0;
   state.time = 0;
   state.levelStartScore = state.score;
@@ -1422,6 +1885,10 @@ function startLevel(levelIndex) {
   state.levelStartWeapon = state.weapon ? { ...state.weapon } : null;
   state.passiveScoreCarry = 0;
   resetCombo();
+  if (state.gameMode === GAME_MODES.ENDLESS) {
+    state.endless.waveCounter = 0;
+    state.endless.randomBossActive = false;
+  }
   configureLevelContext(targetLevel);
   levelIntro(targetLevel);
   updateScore(state.score);
@@ -1438,7 +1905,7 @@ function startLevel(levelIndex) {
   dlog('Level start', { level: targetLevel?.key ?? levelIndex, config: spawnConfig });
   GameEvents.emit('level:started', {
     id: targetLevel?.key ?? `L${levelIndex}`,
-    index: levelIndex,
+    index: state.levelIndex,
     name: targetLevel?.name ?? null,
     difficulty: state.difficultyMode,
     config: spawnConfig,
@@ -1452,13 +1919,19 @@ function startLevel(levelIndex) {
   requestAnimationFrame(loop);
 }
 
-function startRun(levelIndex = 1) {
+function startRun(levelIndex = 1, options = {}) {
+  const { gameMode = GAME_MODES.CAMPAIGN } = options;
   atMenuScreen = false;
   optionsOverlayOpen = false;
   optionsOverlayCloseHandler = null;
+  state.gameMode = gameMode;
   state.difficultyMode = getDifficultyMode();
-  state.difficulty = getDifficultyMultipliers(state.difficultyMode);
+  applyDifficultyMode(state.difficultyMode);
+  state.settings.difficulty = state.difficultyMode;
   state.assistEnabled = getAssistMode();
+  const selectedShipKey = getSelectedShipKey() || defaultShipKey;
+  const selectedShip = getShipByKey(selectedShipKey) ?? getShipByKey(defaultShipKey);
+  state.ship = selectedShip;
   state.runUpgrades = createRunUpgradeState();
   state.lives = state.assistEnabled ? 4 : 3;
   state.score = 0;
@@ -1466,17 +1939,34 @@ function startRun(levelIndex = 1) {
   state.levelStartTime = performance.now();
   state.passiveScoreCarry = 0;
   state.power = { name: null, until: 0 };
-  state.shieldCapacity = 0;
-  emitShieldChanged(0, 1);
   resetCombo();
   emitLivesChanged();
   updateScore(state.score);
   GameEvents.emit('score:changed', state.score);
   emitPowerChanged('None');
+  resetPlayer(state, state.ship);
+  const initialStage = gameMode === GAME_MODES.ENDLESS ? 1 : levelIndex;
+  state.runStats = createRunStats({ level: initialStage, shipKey: selectedShip?.key ?? defaultShipKey });
+  const baseShield = Math.max(0, state.player?.baseShield ?? 0);
+  state.shieldCapacity = baseShield;
+  if (state.player) {
+    state.player.shield = baseShield;
+    state.player.speed = Math.max(120, state.player.baseSpeed ?? state.player.speed ?? 260);
+  }
+  emitShieldChanged(baseShield, Math.max(baseShield, 1));
   setupWeapons(state);
   emitWeaponChanged();
-  const nextLevel = Math.max(1, Math.min(LEVELS.length, Math.floor(levelIndex)));
-  startLevel(nextLevel);
+  state.endless.totalTime = 0;
+  if (gameMode === GAME_MODES.ENDLESS) {
+    resetEndlessState();
+    state.runStats.highestLevel = state.endless.stage;
+    const override = createEndlessLevelOverride();
+    startLevel(1, { levelOverride: override, stageNumber: state.endless.stage });
+  } else {
+    state.endless.active = false;
+    const nextLevel = Math.max(1, Math.min(LEVELS.length, Math.floor(levelIndex)));
+    startLevel(nextLevel);
+  }
 }
 
 function buildUpgradePoolForState() {
@@ -1636,7 +2126,9 @@ function renderUpgradeSelection({ nextLevelIndex, nextLevel, levelTime, scoreDel
   });
   const menuBtn = document.getElementById('summary-menu');
   menuBtn?.addEventListener('click', () => {
-    renderStartOverlay();
+    recordRunEnd({ score: state.score, bossesDefeated: state.runStats?.bosses ?? 0 });
+    state.runStats = createRunStats({ shipKey: state.ship?.key ?? defaultShipKey });
+    setAppState(APP_VIEW_STATES.MENU);
   });
   let handled = false;
   const buttons = Array.from(document.querySelectorAll('button[data-upgrade]'));
@@ -1666,6 +2158,39 @@ function renderUpgradeSelection({ nextLevelIndex, nextLevel, levelTime, scoreDel
   });
 }
 
+function buildAchievementSnapshot(levelKey) {
+  const resolvedLevel = typeof levelKey === 'string' && levelKey.trim().length > 0 ? levelKey.trim() : null;
+  return {
+    kills: state.runStats?.kills ?? 0,
+    bossesDefeated: state.runStats?.bosses ?? 0,
+    livesLost: state.runStats?.livesLost ?? 0,
+    score: state.score ?? 0,
+    level: resolvedLevel,
+  };
+}
+
+function announceAchievementUnlocks(unlocked = []) {
+  unlocked.forEach((achievement, index) => {
+    const name = achievement?.name ?? 'Achievement';
+    const message = `Achievement Unlocked: ${name}`;
+    if (typeof window !== 'undefined' && index > 0) {
+      window.setTimeout(() => {
+        showToast(message, 1400);
+      }, index * 200);
+    } else {
+      showToast(message, 1400);
+    }
+  });
+}
+
+function evaluateAchievementsForLevel(levelKey) {
+  const snapshot = buildAchievementSnapshot(levelKey);
+  const { unlocked } = evaluateAchievements(snapshot);
+  if (unlocked.length > 0) {
+    announceAchievementUnlocks(unlocked);
+  }
+}
+
 function completeLevel() {
   state.running = false;
   state.paused = false;
@@ -1673,24 +2198,53 @@ function completeLevel() {
   const scoreDelta = state.score - (state.levelStartScore ?? 0);
   const nextLevelIndex = state.levelIndex + 1;
   const currentLevel = state.level;
+  const levelId = currentLevel?.key ?? `L${state.levelIndex}`;
   applyLevelMutators({});
   clearLevelEntities();
   updateScore(state.score);
   GameEvents.emit('score:changed', state.score);
   emitLivesChanged();
+  if (state.gameMode === GAME_MODES.ENDLESS) {
+    dlog('Level end', { id: levelId, reason: 'completed', time: levelTime, score: state.score });
+    GameEvents.emit('level:ended', {
+      id: levelId,
+      index: state.levelIndex,
+      reason: 'completed',
+      time: levelTime,
+      score: state.score,
+      nextLevel: null,
+    });
+    evaluateAchievementsForLevel(levelId);
+    if (!LEVELS.length) {
+      gameOver();
+      return;
+    }
+    advanceEndlessProgression();
+    const levelsCount = LEVELS.length;
+    const pointer = ((state.endless.levelPointer % levelsCount) + levelsCount) % levelsCount;
+    const stageNumber = state.endless.stage;
+    const override = createEndlessLevelOverride();
+    startLevel(pointer + 1, { levelOverride: override, stageNumber });
+    return;
+  }
   if (nextLevelIndex <= LEVELS.length) {
     unlockLevel(nextLevelIndex);
   }
   const nextLevel = LEVELS[nextLevelIndex - 1] ?? null;
-  dlog('Level end', { id: currentLevel?.key ?? `L${state.levelIndex}`, reason: 'completed', time: levelTime, score: state.score });
+  dlog('Level end', { id: levelId, reason: 'completed', time: levelTime, score: state.score });
   GameEvents.emit('level:ended', {
-    id: currentLevel?.key ?? `L${state.levelIndex}`,
+    id: levelId,
     index: state.levelIndex,
     reason: 'completed',
     time: levelTime,
     score: state.score,
     nextLevel: nextLevelIndex <= LEVELS.length ? nextLevelIndex : null,
   });
+  evaluateAchievementsForLevel(levelId);
+  if (state.levelIndex === 3 && !isPaletteUnlocked('cosmic-abyss')) {
+    unlockPalette('cosmic-abyss');
+    populateThemeUnlocks();
+  }
   if (nextLevel) {
     renderUpgradeSelection({
       nextLevelIndex,
@@ -1702,6 +2256,8 @@ function completeLevel() {
   }
   const header = `LEVEL ${state.levelIndex} COMPLETE`;
   const restartLabel = `Restart Level ${state.levelIndex}`;
+  recordRunEnd({ score: state.score, bossesDefeated: state.runStats?.bosses ?? 0 });
+  state.runStats = createRunStats({ shipKey: state.ship?.key ?? defaultShipKey });
   recordBestScore(state.score);
   showOverlay(`
     <h1><span class="cyan">${header}</span></h1>
@@ -1716,7 +2272,7 @@ function completeLevel() {
     resetGame(state.levelIndex);
   });
   document.getElementById('summary-menu')?.addEventListener('click', () => {
-    renderStartOverlay();
+    setAppState(APP_VIEW_STATES.MENU);
   });
 }
 
@@ -1729,36 +2285,265 @@ function gameOver() {
   const levelTime = Math.floor(state.time);
   const scoreDelta = state.score - (state.levelStartScore ?? 0);
   const levelName = state.level?.name ?? 'Sector';
+  recordRunEnd({ score: state.score, bossesDefeated: state.runStats?.bosses ?? 0 });
+  state.runStats = createRunStats({ shipKey: state.ship?.key ?? defaultShipKey });
   applyLevelMutators({});
   clearLevelEntities();
   updateScore(state.score);
   GameEvents.emit('score:changed', state.score);
   emitLivesChanged();
   recordBestScore(state.score);
-  dlog('Level end', { id: state.level?.key ?? `L${state.levelIndex}`, reason: 'player-dead', time: levelTime, score: state.score });
+  const levelId = state.level?.key ?? `L${state.levelIndex}`;
+  dlog('Level end', { id: levelId, reason: 'player-dead', time: levelTime, score: state.score });
   GameEvents.emit('level:ended', {
-    id: state.level?.key ?? `L${state.levelIndex}`,
+    id: levelId,
     index: state.levelIndex,
     reason: 'player-dead',
     time: levelTime,
     score: state.score,
   });
-  showOverlay(`
-    <h1><span class="heart">SHIP DESTROYED</span></h1>
-    <p>Level ${state.levelIndex}: ${levelName} after <strong>${levelTime}s</strong>.</p>
-    <p>Score this run: <strong>${state.score}</strong> · Level gain: <strong>${Math.max(0, scoreDelta)}</strong></p>
-    <div class="overlay-actions">
-      <button id="restart-level" class="btn" autofocus>Restart Level ${state.levelIndex}</button>
-      <button id="overlay-menu" class="btn btn-secondary">Menu</button>
-    </div>
-  `);
-  document.getElementById('restart-level')?.addEventListener('click', () => {
-    startRun(state.levelIndex);
-  });
+  evaluateAchievementsForLevel(levelId);
+  if (state.gameMode === GAME_MODES.ENDLESS) {
+    const survivalTime = Math.max(Math.floor(state.endless?.totalTime ?? 0), levelTime);
+    const bests = recordEndlessResult({ score: state.score, time: survivalTime });
+    bestEndlessScore = Math.max(0, bests.score ?? bestEndlessScore);
+    bestEndlessTime = Math.max(0, bests.time ?? bestEndlessTime);
+    state.endless.active = false;
+    showOverlay(`
+      <h1><span class="cyan">ENDLESS RUN TERMINATED</span></h1>
+      <p>Final Score: <strong>${formatNumber(state.score)}</strong></p>
+      <p>Longest Time Survived: <strong>${formatNumber(survivalTime)}s</strong></p>
+      <p>Personal Best — Score: <strong>${formatNumber(bestEndlessScore)}</strong> · Time: <strong>${formatNumber(bestEndlessTime)}s</strong></p>
+      <div class="overlay-actions">
+        <button id="restart-level" class="btn" autofocus>Retry Endless</button>
+        <button id="overlay-menu" class="btn btn-secondary">Menu</button>
+      </div>
+    `);
+    document.getElementById('restart-level')?.addEventListener('click', () => {
+      startRun(1, { gameMode: GAME_MODES.ENDLESS });
+    });
+  } else {
+    showOverlay(`
+      <h1><span class="heart">SHIP DESTROYED</span></h1>
+      <p>Level ${state.levelIndex}: ${levelName} after <strong>${levelTime}s</strong>.</p>
+      <p>Score this run: <strong>${state.score}</strong> · Level gain: <strong>${Math.max(0, scoreDelta)}</strong></p>
+      <div class="overlay-actions">
+        <button id="restart-level" class="btn" autofocus>Restart Level ${state.levelIndex}</button>
+        <button id="overlay-menu" class="btn btn-secondary">Menu</button>
+      </div>
+    `);
+    document.getElementById('restart-level')?.addEventListener('click', () => {
+      startRun(state.levelIndex);
+    });
+  }
   document.getElementById('overlay-menu')?.addEventListener('click', () => {
-    renderStartOverlay({ resetHud: true });
+    setAppState(APP_VIEW_STATES.MENU, { resetHud: true });
   });
 }
+
+function formatNumber(value) {
+  const numeric = Number.isFinite(value) ? value : Number.parseInt(value ?? 0, 10);
+  if (!Number.isFinite(numeric)) {
+    return '0';
+  }
+  return numeric.toLocaleString();
+}
+
+function getShipUnlockInfo(ship, progress) {
+  const unlockedShips = Array.isArray(progress?.shipsUnlocked) ? progress.shipsUnlocked : [];
+  const unlocked = unlockedShips.includes(ship.key);
+  const info = {
+    unlocked,
+    requirement: null,
+    progressText: null,
+  };
+  if (unlocked || !ship.unlock || ship.unlock.type === 'default') {
+    return info;
+  }
+  if (ship.unlock.type === 'bosses') {
+    const target = Math.max(1, Number.isFinite(ship.unlock.count) ? ship.unlock.count : 0);
+    const current = Math.max(0, Number.isFinite(progress?.bossesDefeated) ? progress.bossesDefeated : 0);
+    info.requirement = ship.unlock.description ?? `Defeat ${target} bosses to unlock.`;
+    info.progressText = `${Math.min(current, target)} / ${target} bosses defeated`;
+    return info;
+  }
+  if (ship.unlock.type === 'score') {
+    const target = Math.max(0, Number.isFinite(ship.unlock.score) ? ship.unlock.score : 0);
+    const current = Math.max(0, Number.isFinite(progress?.totalScore) ? progress.totalScore : 0);
+    info.requirement = ship.unlock.description ?? `Accumulate ${formatNumber(target)} total score.`;
+    info.progressText = `${formatNumber(Math.min(current, target))} / ${formatNumber(target)} score banked`;
+    return info;
+  }
+  info.requirement = getShipRequirement(ship);
+  return info;
+}
+
+function buildShipCard(ship, progress, selectedKey, { interactive = true } = {}) {
+  const info = getShipUnlockInfo(ship, progress);
+  const stats = getShipDisplayStats(ship);
+  const statsMarkup = stats
+    .map((entry) => `<li class="ship-card__stat"><span class="ship-card__stat-label">${entry.label}</span><span class="ship-card__stat-value">${entry.value}</span></li>`)
+    .join('');
+  const statusLabel = ship.key === selectedKey
+    ? 'Selected'
+    : info.unlocked
+      ? 'Unlocked'
+      : 'Locked';
+  const statusClass = ship.key === selectedKey
+    ? 'ship-card__status--selected'
+    : info.unlocked
+      ? 'ship-card__status--unlocked'
+      : 'ship-card__status--locked';
+  const statusMarkup = `<span class="ship-card__status ${statusClass}">${statusLabel}</span>`;
+  const header = `<div class="ship-card__header"><span class="ship-card__name">${ship.name}</span>${ship.role ? `<span class="ship-card__role">${ship.role}</span>` : ''}</div>`;
+  const difficulty = ship.difficulty ? `<span class="ship-card__badge">${ship.difficulty}</span>` : '';
+  const description = `<p class="ship-card__desc">${ship.description}</p>`;
+  const statsBlock = `<ul class="ship-card__stats">${statsMarkup}</ul>`;
+  const requirement = !info.unlocked && info.requirement
+    ? `<p class="ship-card__lock">${info.requirement}</p>`
+    : '';
+  const progressLine = !info.unlocked && info.progressText
+    ? `<p class="ship-card__progress">${info.progressText}</p>`
+    : '';
+  const classes = ['ship-card'];
+  if (!info.unlocked) {
+    classes.push('ship-card--locked');
+  }
+  if (ship.key === selectedKey) {
+    classes.push('is-selected');
+  }
+  const content = `
+    ${statusMarkup}
+    ${header}
+    ${difficulty}
+    ${description}
+    ${statsBlock}
+    ${requirement}
+    ${progressLine}
+  `;
+  if (info.unlocked && interactive) {
+    return `<button type="button" class="${classes.join(' ')}" data-ship-option="${ship.key}" aria-pressed="${ship.key === selectedKey ? 'true' : 'false'}">${content}</button>`;
+  }
+  const attrs = [`class="${classes.join(' ')}"`, `data-ship-option="${ship.key}"`];
+  if (!info.unlocked) {
+    attrs.push('data-locked="true"', 'aria-disabled="true"');
+  }
+  return `<div ${attrs.join(' ')}>${content}</div>`;
+}
+
+function buildShipCards(progress, selectedKey, { interactive = true } = {}) {
+  return SHIP_CATALOGUE.map((ship) => buildShipCard(ship, progress, selectedKey, { interactive })).join('');
+}
+
+function bindShipSelectionHandlers({ context = 'start' } = {}) {
+  const cards = Array.from(document.querySelectorAll('[data-ship-option]'));
+  cards.forEach((card) => {
+    const key = card.getAttribute('data-ship-option');
+    if (!key || card.hasAttribute('data-locked')) {
+      return;
+    }
+    card.addEventListener('click', () => {
+      const previous = getSelectedShipKey() || defaultShipKey;
+      if (previous === key) {
+        return;
+      }
+      setSelectedShip(key);
+      if (context === 'garage') {
+        renderGarageOverlay();
+      } else {
+        setAppState(APP_VIEW_STATES.MENU, { force: true });
+      }
+    });
+  });
+}
+
+function populateThemeUnlocks() {
+  if (typeof refreshThemeOptions === 'function') {
+    refreshThemeOptions();
+  }
+}
+
+function renderGarageOverlay() {
+  populateThemeUnlocks();
+  const progress = getMetaProgress();
+  const selectedKey = getSelectedShipKey() || defaultShipKey;
+  const shipGrid = buildShipCards(progress, selectedKey);
+  const runs = formatNumber(progress.totalRuns);
+  const score = formatNumber(progress.totalScore);
+  const bosses = formatNumber(progress.bossesDefeated);
+  const cosmicUnlocked = isPaletteUnlocked('cosmic-abyss');
+  const cosmicStatus = cosmicUnlocked ? 'Unlocked' : 'Locked';
+  const cosmicHint = cosmicUnlocked
+    ? 'Abyssal hues ready for deployment.'
+    : `Clear Level 3 to unlock. Highest unlocked level: L${highestUnlockedLevel}`;
+  showOverlay(`
+    <h1>GARAGE</h1>
+    <p class="garage-summary">Runs: <strong>${runs}</strong> · Banked Score: <strong>${score}</strong> · Bosses Defeated: <strong>${bosses}</strong></p>
+    <div class="garage-section">
+      <h2 class="garage-section__title">Ships</h2>
+      <div class="ship-select__grid ship-select__grid--garage">${shipGrid}</div>
+    </div>
+    <div class="garage-section">
+      <h2 class="garage-section__title">Unlockables</h2>
+      <div class="garage-upgrades">
+        <div class="garage-upgrade${cosmicUnlocked ? ' garage-upgrade--unlocked' : ''}">
+          <div class="garage-upgrade__title">Cosmic Abyss Palette</div>
+          <div class="garage-upgrade__status">${cosmicStatus}</div>
+          <p class="garage-upgrade__hint">${cosmicHint}</p>
+        </div>
+      </div>
+    </div>
+    <div class="overlay-actions">
+      <button id="garage-back" class="btn">Back</button>
+    </div>
+  `);
+  document.getElementById('garage-back')?.addEventListener('click', () => {
+    setAppState(APP_VIEW_STATES.MENU);
+  });
+  bindShipSelectionHandlers({ context: 'garage' });
+}
+
+function renderAchievementsOverlay() {
+  const progress = getAchievementProgress();
+  const total = progress.length;
+  const earned = progress.filter((entry) => entry.earned).length;
+  const listItems = progress
+    .map((entry) => {
+      const statusIcon = entry.earned ? '✓' : '✗';
+      const itemClass = entry.earned ? 'achievement-list__item achievement-list__item--earned' : 'achievement-list__item';
+      const statusClass = entry.earned
+        ? 'achievement-list__status achievement-list__status--earned'
+        : 'achievement-list__status';
+      const description = entry.description
+        ? `<span class="achievement-list__desc">${entry.description}</span>`
+        : '';
+      return `
+        <li class="${itemClass}">
+          <span class="${statusClass}" aria-hidden="true">${statusIcon}</span>
+          <span class="achievement-list__details">
+            <span class="achievement-list__name">${entry.name}</span>
+            ${description}
+          </span>
+        </li>
+      `;
+    })
+    .join('');
+  const listMarkup = total
+    ? `<ul class="achievement-list" role="list">${listItems}</ul>`
+    : '<p class="achievements-empty">No achievements logged yet.</p>';
+  showOverlay(`
+    <h1>Achievements</h1>
+    <p class="achievements-summary">Unlocked <strong>${earned}</strong> of <strong>${total}</strong>.</p>
+    ${listMarkup}
+    <div class="overlay-actions">
+      <button id="achievements-back" class="btn" autofocus>Back</button>
+    </div>
+  `);
+  document.getElementById('achievements-back')?.addEventListener('click', () => {
+    setAppState(APP_VIEW_STATES.MENU);
+  });
+}
+
 
 function renderStartOverlay({ resetHud = false } = {}) {
   atMenuScreen = true;
@@ -1766,6 +2551,10 @@ function renderStartOverlay({ resetHud = false } = {}) {
   optionsOverlayCloseHandler = null;
   state.running = false;
   state.paused = false;
+  populateThemeUnlocks();
+  state.runStats = createRunStats({ shipKey: state.ship?.key ?? initialShip?.key ?? defaultShipKey });
+  state.endless.active = false;
+  state.endless.totalTime = 0;
   if (resetHud) {
     state.assistEnabled = getAssistMode();
     state.lives = state.assistEnabled ? 4 : 3;
@@ -1788,6 +2577,13 @@ function renderStartOverlay({ resetHud = false } = {}) {
   if (Number.isFinite(storedBest) && storedBest >= 0) {
     bestScore = Math.max(bestScore, storedBest);
   }
+  const storedEndless = getEndlessPersonalBests();
+  if (Number.isFinite(storedEndless.score) && storedEndless.score >= 0) {
+    bestEndlessScore = Math.max(bestEndlessScore, storedEndless.score);
+  }
+  if (Number.isFinite(storedEndless.time) && storedEndless.time >= 0) {
+    bestEndlessTime = Math.max(bestEndlessTime, storedEndless.time);
+  }
   const hasProgress = highestUnlockedLevel > 1;
   const unlockedLevels = LEVELS.slice(0, highestUnlockedLevel);
   const levelButtons = unlockedLevels
@@ -1796,64 +2592,459 @@ function renderStartOverlay({ resetHud = false } = {}) {
       return `<button class="level-select__btn" data-level="${levelNumber}">L${levelNumber} · ${level.name}</button>`;
     })
     .join('');
-  const progressSummary = (hasProgress || bestScore > 0)
-    ? `<p class="overlay-progress">Best Score: <strong>${bestScore}</strong> · Highest Level: <strong>L${highestUnlockedLevel}</strong></p>`
+  const metaProgress = getMetaProgress();
+  const selectedShipKey = getSelectedShipKey() || defaultShipKey;
+  const achievementsProgress = getAchievementProgress();
+  const earnedAchievements = achievementsProgress.filter((entry) => entry.earned).length;
+  const bestScoreLine = hasProgress || bestScore > 0
+    ? `Best Score <strong>${formatNumber(bestScore)}</strong> · Highest Sector <strong>L${highestUnlockedLevel}</strong>`
     : '';
-  const primaryAction = hasProgress
-    ? `<button id="continue-btn" class="btn" autofocus>Continue</button>`
-    : `<button id="start-btn" class="btn" autofocus>Start Level 1</button>`;
-  showOverlay(`
-    <h1>RETRO <span class="cyan">SPACE</span> <span class="heart">RUN</span></h1>
-    <p>WASD / Arrow keys to steer · Space to fire · P pause · R restart level · F fullscreen · M mute · H Assist Mode</p>
-    <p>Pick a sector or continue your furthest run. Assist Mode toggles an extra life and softer spawns.</p>
-    ${progressSummary}
-    <div class="difficulty-select">
-      <label class="difficulty-select__label" for="difficulty-select">Difficulty</label>
-      <select id="difficulty-select" class="difficulty-select__control">
-        <option value="easy">Easy · 85% density / 90% speed</option>
-        <option value="normal">Normal · Original balance</option>
-        <option value="hard">Hard · 120% density / 110% speed</option>
-      </select>
-      <p class="difficulty-select__hint">Adjust enemy density, projectile speed, and boss durability. Normal preserves the current challenge.</p>
-    </div>
-    <div class="overlay-actions">
-      ${primaryAction}
-      <button id="toggle-level-select" class="btn btn-secondary" aria-expanded="false">Select Level</button>
-    </div>
-    <div id="level-select" class="level-select" hidden>
-      <p class="level-select__label">Unlocked Levels</p>
-      <div class="level-select__grid">${levelButtons}</div>
-    </div>
-    <p class="overlay-hint">Press Esc for Options</p>
-  `);
-  const continueBtn = document.getElementById('continue-btn');
-  continueBtn?.addEventListener('click', () => {
-    startRun(highestUnlockedLevel);
+  const endlessSummaryLine = bestEndlessScore > 0 || bestEndlessTime > 0
+    ? `Endless Best · Score <strong>${formatNumber(bestEndlessScore)}</strong> · Time <strong>${formatNumber(bestEndlessTime)}s</strong>`
+    : '';
+  const metaSummaryLine = `Runs <strong>${formatNumber(metaProgress.totalRuns)}</strong> · Banked Score <strong>${formatNumber(metaProgress.totalScore)}</strong> · Bosses Defeated <strong>${formatNumber(metaProgress.bossesDefeated)}</strong>`;
+  const achievementsSummaryLine = achievementsProgress.length
+    ? `Achievements <strong>${earnedAchievements}</strong> / <strong>${achievementsProgress.length}</strong>`
+    : '';
+  const statsMarkup = [bestScoreLine, endlessSummaryLine, metaSummaryLine, achievementsSummaryLine]
+    .filter((line) => typeof line === 'string' && line.trim().length > 0)
+    .map((line) => `<p>${line}</p>`)
+    .join('');
+  const unlockedShips = getUnlockedShips();
+  const unlockedShipSet = new Set(unlockedShips);
+  const totalShips = SHIP_CATALOGUE.length;
+  const shipChipsMarkup = SHIP_CATALOGUE
+    .map((ship) => {
+      const unlocked = unlockedShipSet.has(ship.key);
+      const isSelected = ship.key === selectedShipKey;
+      const classes = ['meta-menu__chip'];
+      if (unlocked) {
+        classes.push('is-active');
+      } else {
+        classes.push('is-locked');
+      }
+      if (isSelected) {
+        classes.push('is-selected');
+      }
+      const status = isSelected ? 'selected' : unlocked ? 'unlocked' : 'locked';
+      const requirement = getShipRequirement(ship);
+      const hint = isSelected
+        ? 'Selected ship'
+        : unlocked
+          ? 'Unlocked ship'
+          : requirement ?? 'Locked ship';
+      const title = hint ? ` title="${hint.replace(/"/g, '&quot;')}"` : '';
+      return `<span class="${classes.join(' ')}" data-status="${status}"${title}>${ship.name}</span>`;
+    })
+    .join('');
+  const themeKeys = getThemeKeys();
+  const activeThemeKey = getActiveThemeKey();
+  const cosmicUnlocked = isPaletteUnlocked('cosmic-abyss');
+  const cosmicHint = cosmicUnlocked
+    ? 'Cosmic Abyss unlocked.'
+    : `Clear Level 3 to unlock. Highest unlocked: L${highestUnlockedLevel}`;
+  const themeEntries = themeKeys.map((key) => {
+    const unlocked = key === 'cosmic-abyss' ? cosmicUnlocked : true;
+    const hint = key === 'cosmic-abyss' ? cosmicHint : 'Theme unlocked';
+    return {
+      key,
+      label: getThemeLabel(key),
+      unlocked,
+      hint,
+    };
   });
-  const startBtn = document.getElementById('start-btn');
-  startBtn?.addEventListener('click', () => {
-    startRun(1);
-  });
-  const toggle = document.getElementById('toggle-level-select');
-  const panel = document.getElementById('level-select');
-  toggle?.addEventListener('click', () => {
-    if (!panel) {
+  const unlockedThemeCount = themeEntries.filter((entry) => entry.unlocked).length;
+  const themeChipsMarkup = themeEntries
+    .map((entry) => {
+      const classes = ['meta-menu__chip'];
+      if (entry.unlocked) {
+        classes.push('is-active');
+      } else {
+        classes.push('is-locked');
+      }
+      if (entry.key === activeThemeKey) {
+        classes.push('is-selected');
+      }
+      return `<span class="${classes.join(' ')}" data-theme-chip="${entry.key}" title="${entry.hint}">${entry.label}</span>`;
+    })
+    .join('');
+  const achievementChipsMarkup = achievementsProgress.length
+    ? achievementsProgress
+        .map((entry) => {
+          const classes = ['meta-menu__chip'];
+          if (entry.earned) {
+            classes.push('is-active');
+          } else {
+            classes.push('is-locked');
+          }
+          const status = entry.earned ? 'earned' : 'locked';
+          const desc = entry.description ? ` title="${entry.description.replace(/"/g, '&quot;')}"` : '';
+          return `<span class="${classes.join(' ')}" data-status="${status}"${desc}>${entry.name}</span>`;
+        })
+        .join('')
+    : '<p class="meta-detail__summary">Log runs to unlock achievements.</p>';
+  let storedSelectionId = null;
+  if (typeof window !== 'undefined') {
+    try {
+      storedSelectionId = window.localStorage?.getItem(MENU_SELECTION_STORAGE_KEY) ?? null;
+    } catch (err) {
+      storedSelectionId = null;
+    }
+  }
+  const menuItems = [
+    {
+      id: 'campaign',
+      label: 'Start Campaign',
+      onActivate: () => {
+        const targetLevel = hasProgress ? highestUnlockedLevel : 1;
+        setAppState(APP_VIEW_STATES.GAMEPLAY, { level: targetLevel });
+      },
+      detail: () => {
+        const primaryButton = hasProgress
+          ? `<button id="meta-campaign-continue" class="btn" data-primary-action>Continue L${highestUnlockedLevel}</button>`
+          : `<button id="meta-campaign-start" class="btn" data-primary-action>Launch Level 1</button>`;
+        const restartButton = hasProgress
+          ? `<button id="meta-campaign-restart" class="btn btn-secondary">Start Level 1</button>`
+          : '';
+        const toggleButton = `<button id="meta-campaign-toggle" class="btn btn-secondary" aria-expanded="false">Select Sector</button>`;
+        const levelPanel = `<div id="meta-campaign-levels" class="level-select" hidden><p class="level-select__label">Unlocked Levels</p><div class="level-select__grid">${levelButtons}</div></div>`;
+        const desc = hasProgress
+          ? 'Resume your deepest unlocked sector or revisit previous encounters.'
+          : 'Launch the story campaign and carve through escalating sectors.';
+        const campaignStatsBlock = bestScoreLine
+          ? `<p class="meta-detail__summary">${bestScoreLine}</p>`
+          : '';
+        const metaStatsBlock = metaSummaryLine
+          ? `<p class="meta-detail__summary">${metaSummaryLine}</p>`
+          : '';
+        return {
+          html: `
+            <div class="meta-detail" data-meta-detail="campaign">
+              <h2 class="meta-detail__title">Campaign</h2>
+              <p class="meta-detail__desc">${desc}</p>
+              ${campaignStatsBlock}
+              ${metaStatsBlock}
+              <div class="meta-detail__actions">
+                ${primaryButton}
+                ${restartButton}
+                ${toggleButton}
+              </div>
+              ${levelPanel}
+              <div class="difficulty-select">
+                <label class="difficulty-select__label" for="difficulty-select">Difficulty</label>
+                <select id="difficulty-select" class="difficulty-select__control">
+                  <option value="easy">Easy · 85% density / 90% speed</option>
+                  <option value="normal">Normal · Original balance</option>
+                  <option value="hard">Hard · 120% density / 110% speed</option>
+                </select>
+                <p class="difficulty-select__hint">Adjust density, speed, and boss durability.</p>
+              </div>
+            </div>
+          `,
+          onMount: () => {
+            document.getElementById('meta-campaign-continue')?.addEventListener('click', () => {
+              setAppState(APP_VIEW_STATES.GAMEPLAY, { level: highestUnlockedLevel });
+            });
+            document.getElementById('meta-campaign-start')?.addEventListener('click', () => {
+              setAppState(APP_VIEW_STATES.GAMEPLAY, { level: 1 });
+            });
+            document.getElementById('meta-campaign-restart')?.addEventListener('click', () => {
+              setAppState(APP_VIEW_STATES.GAMEPLAY, { level: 1 });
+            });
+            const toggle = document.getElementById('meta-campaign-toggle');
+            const levelPanelElement = document.getElementById('meta-campaign-levels');
+            toggle?.addEventListener('click', () => {
+              if (!levelPanelElement) {
+                return;
+              }
+              const hidden = levelPanelElement.hasAttribute('hidden');
+              if (hidden) {
+                levelPanelElement.removeAttribute('hidden');
+                toggle.setAttribute('aria-expanded', 'true');
+                const firstLevelButton = levelPanelElement.querySelector('button:not([disabled])');
+                firstLevelButton?.focus();
+              } else {
+                levelPanelElement.setAttribute('hidden', '');
+                toggle.setAttribute('aria-expanded', 'false');
+                toggle.focus();
+              }
+            });
+            levelPanelElement?.querySelectorAll('[data-level]').forEach((btn) => {
+              const element = btn;
+              const levelNumber = Number.parseInt(element.getAttribute('data-level') ?? '', 10);
+              if (!Number.isFinite(levelNumber)) {
+                return;
+              }
+              element.addEventListener('click', () => {
+                setAppState(APP_VIEW_STATES.GAMEPLAY, { level: levelNumber });
+              });
+            });
+            bindDifficultySelect();
+          },
+        };
+      },
+    },
+    {
+      id: 'endless',
+      label: 'Endless Mode',
+      onActivate: () => {
+        setAppState(APP_VIEW_STATES.ENDLESS);
+      },
+      detail: () => {
+        const endlessStatsBlock = endlessSummaryLine
+          ? `<p class="meta-detail__summary">${endlessSummaryLine}</p>`
+          : '<p class="meta-detail__summary">Face infinite waves for escalating score.</p>';
+        return {
+          html: `
+            <div class="meta-detail" data-meta-detail="endless">
+              <h2 class="meta-detail__title">Endless Mode</h2>
+              <p class="meta-detail__desc">Survive escalating swarms and chase personal records.</p>
+              ${endlessStatsBlock}
+              <div class="meta-detail__actions">
+                <button id="meta-endless-start" class="btn" data-primary-action>Launch Endless Run</button>
+              </div>
+            </div>
+          `,
+          onMount: () => {
+            document.getElementById('meta-endless-start')?.addEventListener('click', () => {
+              setAppState(APP_VIEW_STATES.ENDLESS);
+            });
+          },
+        };
+      },
+    },
+    {
+      id: 'garage',
+      label: 'Garage',
+      onActivate: () => {
+        setAppState(APP_VIEW_STATES.GARAGE);
+      },
+      detail: () => ({
+        html: `
+          <div class="meta-detail" data-meta-detail="garage">
+            <h2 class="meta-detail__title">Garage</h2>
+            <p class="meta-detail__desc">Review ships, swap loadouts, and inspect unlock progress.</p>
+            <div class="meta-detail__chips">${shipChipsMarkup}</div>
+            <div class="meta-detail__actions">
+              <button id="meta-garage-open" class="btn" data-primary-action>Enter Garage</button>
+            </div>
+          </div>
+        `,
+        onMount: () => {
+          document.getElementById('meta-garage-open')?.addEventListener('click', () => {
+            setAppState(APP_VIEW_STATES.GARAGE);
+          });
+        },
+      }),
+    },
+    {
+      id: 'achievements',
+      label: 'Achievements',
+      onActivate: () => {
+        setAppState(APP_VIEW_STATES.ACHIEVEMENTS);
+      },
+      detail: () => ({
+        html: `
+          <div class="meta-detail" data-meta-detail="achievements">
+            <h2 class="meta-detail__title">Achievements</h2>
+            <p class="meta-detail__desc">Track feats earned during your runs.</p>
+            <div class="meta-detail__chips">${achievementChipsMarkup}</div>
+            <div class="meta-detail__actions">
+              <button id="meta-achievements-open" class="btn" data-primary-action>View Achievements</button>
+            </div>
+          </div>
+        `,
+        onMount: () => {
+          document.getElementById('meta-achievements-open')?.addEventListener('click', () => {
+            setAppState(APP_VIEW_STATES.ACHIEVEMENTS);
+          });
+        },
+      }),
+    },
+    {
+      id: 'options',
+      label: 'Options',
+      onActivate: () => {
+        setAppState(APP_VIEW_STATES.OPTIONS, { context: 'menu' });
+      },
+      detail: () => {
+        const assistEnabled = getAssistMode();
+        const autoFireEnabled = getAutoFire();
+        const themeLabel = getThemeLabel(activeThemeKey);
+        return {
+          html: `
+            <div class="meta-detail" data-meta-detail="options">
+              <h2 class="meta-detail__title">Options</h2>
+              <p class="meta-detail__desc">Adjust presentation, input, and accessibility toggles.</p>
+              <p class="meta-detail__summary">Assist Mode <strong>${assistEnabled ? 'On' : 'Off'}</strong> · Auto Fire <strong>${autoFireEnabled ? 'On' : 'Off'}</strong></p>
+              <p class="meta-detail__summary">Current Theme <strong>${themeLabel}</strong></p>
+              <div class="meta-detail__chips">${themeChipsMarkup}</div>
+              <div class="meta-detail__actions">
+                <button id="meta-options-open" class="btn" data-primary-action>Open Options</button>
+              </div>
+            </div>
+          `,
+          onMount: () => {
+            document.getElementById('meta-options-open')?.addEventListener('click', () => {
+              setAppState(APP_VIEW_STATES.OPTIONS, { context: 'menu' });
+            });
+          },
+        };
+      },
+    },
+  ];
+  const storedIndex = menuItems.findIndex((item) => item.id === storedSelectionId);
+  const initialIndex = storedIndex >= 0 ? storedIndex : 0;
+  const navMarkup = menuItems
+    .map((item, index) => {
+      const tabindex = index === initialIndex ? '0' : '-1';
+      const activeClass = index === initialIndex ? ' meta-menu__nav-item is-active' : ' meta-menu__nav-item';
+      return `<button type="button" class="${activeClass.trim()}" data-menu-item="${item.id}" data-menu-index="${index}" role="menuitem" tabindex="${tabindex}">${item.label}</button>`;
+    })
+    .join('');
+  const selectedShip = SHIP_CATALOGUE.find((ship) => ship.key === selectedShipKey);
+  const selectedShipName = selectedShip?.name ?? 'Pioneer';
+  const statsContent = statsMarkup || '<p class="meta-detail__summary">Begin a run to gather intel.</p>';
+  const menuMarkup = `
+    <div class="meta-menu" data-meta-menu>
+      <div class="meta-menu__panel meta-menu__panel--brand">
+        <div class="meta-menu__logo-wrap">
+          <div class="meta-menu__logo-ring" aria-hidden="true"></div>
+          <div class="meta-menu__logo">RETRO <span class="cyan">SPACE</span> <span class="heart">RUN</span></div>
+        </div>
+        <p class="meta-menu__tagline">Chart your next sortie.</p>
+        <div class="meta-menu__stats">${statsContent}</div>
+        <div class="meta-menu__unlocks">
+          <div class="meta-menu__unlocks-item">Ships<span class="meta-menu__unlocks-value">${unlockedShips.length} / ${totalShips}</span></div>
+          <div class="meta-menu__unlocks-item">Themes<span class="meta-menu__unlocks-value">${unlockedThemeCount} / ${themeEntries.length}</span></div>
+          <div class="meta-menu__unlocks-item">Achievements<span class="meta-menu__unlocks-value">${earnedAchievements} / ${achievementsProgress.length}</span></div>
+        </div>
+        <p class="meta-menu__footnote">Current Ship: <strong>${selectedShipName}</strong></p>
+      </div>
+      <div class="meta-menu__panel meta-menu__panel--nav">
+        <h2 class="meta-menu__heading">Mission Control</h2>
+        <div class="meta-menu__nav" role="menu" data-meta-menu-nav>
+          ${navMarkup}
+        </div>
+        <p class="meta-menu__footnote">Use ↑ ↓ to browse · Enter to launch</p>
+      </div>
+      <div class="meta-menu__panel meta-menu__panel--detail">
+        <div class="meta-detail" id="meta-menu-detail" data-meta-menu-detail></div>
+      </div>
+    </div>
+  `;
+  showOverlay(menuMarkup, { className: 'overlay--meta-menu' });
+  const overlayRoot = typeof document !== 'undefined' ? document.getElementById('overlay') : null;
+  const detailContainer = overlayRoot?.querySelector('[data-meta-menu-detail]') ?? null;
+  const navRoot = overlayRoot?.querySelector('[data-meta-menu-nav]') ?? null;
+  const navButtons = Array.from(navRoot?.querySelectorAll('[data-menu-item]') ?? []);
+  let activeIndex = initialIndex;
+  const persistSelection = (id) => {
+    if (typeof window === 'undefined') {
       return;
     }
-    panel.removeAttribute('hidden');
-    toggle.setAttribute('aria-expanded', 'true');
-    const firstLevelButton = panel.querySelector('button:not([disabled])');
-    firstLevelButton?.focus();
-  });
-  panel?.querySelectorAll('[data-level]').forEach((btn) => {
-    const element = btn;
-    const levelNumber = Number.parseInt(element.getAttribute('data-level') ?? '', 10);
-    element.addEventListener('click', () => {
-      startRun(levelNumber);
+    try {
+      window.localStorage?.setItem(MENU_SELECTION_STORAGE_KEY, id);
+    } catch (err) {
+      // Ignore storage failures.
+    }
+  };
+  const renderDetail = (item) => {
+    if (!detailContainer) {
+      return;
+    }
+    if (!item || typeof item.detail !== 'function') {
+      detailContainer.innerHTML = '';
+      return;
+    }
+    const result = item.detail();
+    if (!result || typeof result.html !== 'string') {
+      detailContainer.innerHTML = '';
+      return;
+    }
+    detailContainer.innerHTML = result.html;
+    try {
+      result.onMount?.();
+    } catch (err) {
+      // Swallow mount errors to avoid blocking menu.
+    }
+  };
+  const updateSelection = (index, { focus = false, force = false } = {}) => {
+    if (!menuItems.length) {
+      return;
+    }
+    const max = menuItems.length;
+    const nextIndex = ((index % max) + max) % max;
+    const changed = nextIndex !== activeIndex;
+    activeIndex = nextIndex;
+    navButtons.forEach((button, idx) => {
+      const isActive = idx === activeIndex;
+      if (isActive) {
+        button.classList.add('is-active');
+        button.setAttribute('tabindex', '0');
+        button.setAttribute('aria-selected', 'true');
+        if (focus) {
+          button.focus();
+        }
+      } else {
+        button.classList.remove('is-active');
+        button.setAttribute('tabindex', '-1');
+        button.setAttribute('aria-selected', 'false');
+      }
     });
+    if (changed || force) {
+      renderDetail(menuItems[activeIndex]);
+      persistSelection(menuItems[activeIndex].id);
+    }
+  };
+  const activateCurrent = () => {
+    const item = menuItems[activeIndex];
+    if (!item) {
+      return;
+    }
+    const primary = detailContainer?.querySelector('[data-primary-action]');
+    if (primary) {
+      primary.click();
+      primary.focus?.();
+      return;
+    }
+    if (typeof item.onActivate === 'function') {
+      item.onActivate();
+    }
+  };
+  const handleNavKey = (event) => {
+    if (!event) {
+      return;
+    }
+    const key = event.key;
+    if (key === 'ArrowUp' || key === 'ArrowLeft') {
+      event.preventDefault();
+      updateSelection(activeIndex - 1, { focus: true });
+    } else if (key === 'ArrowDown' || key === 'ArrowRight') {
+      event.preventDefault();
+      updateSelection(activeIndex + 1, { focus: true });
+    } else if (key === 'Enter' || key === ' ') {
+      event.preventDefault();
+      activateCurrent();
+    }
+  };
+  navButtons.forEach((button, index) => {
+    button.addEventListener('click', () => {
+      updateSelection(index, { focus: true });
+    });
+    button.addEventListener('mouseenter', () => {
+      if (activeIndex !== index) {
+        updateSelection(index, { focus: false });
+      }
+    });
+    button.addEventListener('focus', () => {
+      updateSelection(index, { focus: false });
+    });
+    button.addEventListener('keydown', handleNavKey);
   });
+  navRoot?.addEventListener('keydown', handleNavKey);
+  updateSelection(initialIndex, { focus: true, force: true });
 }
-
 function renderOptionsOverlay({ context = 'game', onClose } = {}) {
   if (optionsOverlayOpen) {
     return;
@@ -1869,14 +3060,16 @@ function renderOptionsOverlay({ context = 'game', onClose } = {}) {
         hideOverlay();
         state.paused = false;
         clearInput();
+        setAppState(APP_VIEW_STATES.GAMEPLAY, { resume: true });
       }
       : () => {
-        renderStartOverlay();
+        setAppState(APP_VIEW_STATES.MENU, { force: true });
       };
   optionsOverlayOpen = true;
   optionsOverlayCloseHandler = closeHandler;
   const activeTheme = getActiveThemeKey();
   const themeButtons = getThemeKeys()
+    .filter((key) => key !== 'cosmic-abyss' || isPaletteUnlocked('cosmic-abyss'))
     .map((key) => {
       const label = getThemeLabel(key);
       const isActive = key === activeTheme;
@@ -2001,6 +3194,103 @@ function renderOptionsOverlay({ context = 'game', onClose } = {}) {
   closeBtn?.focus();
 }
 
+function normaliseViewState(value) {
+  if (typeof value !== 'string') {
+    return APP_VIEW_STATES.MENU;
+  }
+  const key = value.toUpperCase();
+  return Object.prototype.hasOwnProperty.call(APP_VIEW_STATES, key)
+    ? APP_VIEW_STATES[key]
+    : APP_VIEW_STATES.MENU;
+}
+
+function resetUiInteractionState() {
+  if (ui && typeof ui === 'object') {
+    ui.diffOpen = false;
+    if ('isDiffOpen' in ui) {
+      ui.isDiffOpen = false;
+    }
+  }
+}
+
+function markMenuContext() {
+  atMenuScreen = true;
+  state.running = false;
+  state.paused = false;
+}
+
+function setAppState(newState, options = {}) {
+  const next = normaliseViewState(newState);
+  if (next === currentViewState && !options.force) {
+    return currentViewState;
+  }
+  previousViewState = currentViewState;
+  currentViewState = next;
+  const isResume = next === APP_VIEW_STATES.GAMEPLAY && options.resume;
+  if (!isResume) {
+    if (ui && typeof ui.resetRegions === 'function') {
+      ui.resetRegions();
+    }
+    resetUiInteractionState();
+  }
+  switch (next) {
+    case APP_VIEW_STATES.MENU: {
+      renderStartOverlay({ resetHud: Boolean(options.resetHud) });
+      break;
+    }
+    case APP_VIEW_STATES.OPTIONS: {
+      const context = options.context ?? (state.running ? 'game' : 'menu');
+      if (context !== 'game') {
+        markMenuContext();
+      }
+      renderOptionsOverlay({ context, onClose: options.onClose });
+      break;
+    }
+    case APP_VIEW_STATES.GARAGE: {
+      markMenuContext();
+      renderGarageOverlay();
+      break;
+    }
+    case APP_VIEW_STATES.ACHIEVEMENTS: {
+      markMenuContext();
+      renderAchievementsOverlay();
+      break;
+    }
+    case APP_VIEW_STATES.ENDLESS: {
+      hideOverlay();
+      startRun(1, { gameMode: GAME_MODES.ENDLESS });
+      break;
+    }
+    case APP_VIEW_STATES.GAMEPLAY: {
+      if (options.resume) {
+        return currentViewState;
+      }
+      hideOverlay();
+      const desiredLevel = Number.isFinite(options.level)
+        ? clampLevelIndex(options.level)
+        : Math.max(1, highestUnlockedLevel || 1);
+      startRun(desiredLevel);
+      break;
+    }
+    default: {
+      currentViewState = APP_VIEW_STATES.MENU;
+      renderStartOverlay({ resetHud: Boolean(options.resetHud) });
+      break;
+    }
+  }
+  return currentViewState;
+}
+
+function resolveLoopForState(viewState) {
+  switch (viewState) {
+    case APP_VIEW_STATES.GAMEPLAY:
+    case APP_VIEW_STATES.ENDLESS:
+      return loop;
+    default:
+      return null;
+  }
+}
+
 function handlePlayerHit() {
   const player = state.player;
   const particles = resolvePaletteSection(state.theme, 'particles');
@@ -2046,8 +3336,12 @@ function loop(now) {
   }
 
   state.time += dt;
+  if (state.gameMode === GAME_MODES.ENDLESS && state.endless?.active) {
+    state.endless.totalTime = (state.endless.totalTime ?? 0) + dt;
+  }
   updateTime(Math.floor(state.time));
   ensureGuaranteedWeaponDrop(state);
+  maybeSpawnMidBossFight();
   scheduleLevelWaves();
   tickSpawner(dt);
   updateEffects(state, dt);
@@ -2064,10 +3358,18 @@ function loop(now) {
   }
 
   if (state.time >= state.levelDur) {
-    if (!state.bossSpawned) {
-      spawnBoss(state, state.level?.boss);
+    const midConfig = getMidBossConfig(state.level);
+    const finalBossConfig = getFinalBossConfig(state.level);
+    const midCleared = !midConfig || state.midBossDefeated;
+    if (!state.bossSpawned && !state.boss && midCleared && finalBossConfig) {
+      spawnBoss(state, finalBossConfig);
       state.bossSpawned = true;
-    } else if (!state.boss && !state.finishGate && now - state.bossDefeatedAt > 600) {
+    } else if (
+      state.bossSpawned &&
+      !state.boss &&
+      !state.finishGate &&
+      now - state.bossDefeatedAt > 600
+    ) {
       ensureFinishGate();
     }
   }
@@ -2235,6 +3537,15 @@ function loop(now) {
         const bulletLevel = bullet.level ?? 0;
         state.bullets.splice(j, 1);
         freeBullet(bullet);
+        if (Number.isFinite(enemy.shieldTimer) && enemy.shieldTimer > 0) {
+          enemy.shieldTimer = 0;
+          enemy.shieldEmitter = null;
+          enemy.shieldStrength = 0;
+          const shieldColour = particles.shieldHit ?? particles.enemyHitDefault;
+          addParticle(state, enemy.x, enemy.y, shieldColour, 16, 3.2, 260);
+          playHit();
+          break;
+        }
         enemy.hp -= bullet.damage || 1;
         if (bulletLevel >= 2) {
           shakeScreen(rand(2, 4), 160);
@@ -2247,6 +3558,10 @@ function loop(now) {
         if (enemy.hp <= 0) {
           spawnExplosion(enemy.x, enemy.y, 'small');
           state.enemies.splice(i, 1);
+          handleEnemyDestroyed(state, enemy);
+          if (state.runStats) {
+            state.runStats.kills = (state.runStats.kills ?? 0) + 1;
+          }
           incrementCombo();
           addScore(25);
           playSfx('explode');
@@ -2275,26 +3590,67 @@ function loop(now) {
         }
         addParticle(state, state.boss.x, state.boss.y, particles.bossHit, 18, 3.4, 320);
         playHit();
-          if (state.boss.hp <= 0) {
-            const defeatedBoss = state.boss;
-            spawnExplosion(defeatedBoss.x, defeatedBoss.y, 'boss');
-            shakeScreen(6, 500);
+        if (state.boss.hp <= 0) {
+          const defeatedBoss = state.boss;
+          const isMidBoss = defeatedBoss?.role === 'mid' || defeatedBoss?.variant === 'mid' || state.bossType === 'mid';
+          spawnExplosion(defeatedBoss.x, defeatedBoss.y, 'boss');
+          if (state.runStats) {
+            state.runStats.kills = (state.runStats.kills ?? 0) + 1;
+          }
+          shakeScreen(isMidBoss ? 4 : 6, isMidBoss ? 360 : 500);
+          incrementCombo();
+          if (isMidBoss) {
+            showToast('INTRUDER NEUTRALISED', 1000);
+            playPow();
+            addScore(250);
+          } else {
             showToast('BOSS DEFEATED', 1200);
             playBossDown();
-            incrementCombo();
             addScore(600);
-            if (!defeatedBoss.rewardDropped) {
-              defeatedBoss.rewardDropped = true;
+          }
+          if (!defeatedBoss.rewardDropped) {
+            defeatedBoss.rewardDropped = true;
+            if (isMidBoss) {
+              if (Math.random() < 0.5) {
+                dropPowerup(state, { x: defeatedBoss.x, y: defeatedBoss.y, vy: 80 });
+              } else {
+                spawnWeaponToken(state, defeatedBoss.x, defeatedBoss.y);
+              }
+            } else {
               maybeDropWeaponToken(state, { x: defeatedBoss.x, y: defeatedBoss.y });
             }
-            state.boss = null;
-            state.bossDefeatedAt = now;
-            state.bossMercyUntil = 0;
-            GameEvents.emit('enemy:destroyed', {
-              type: 'boss',
-              position: { x: defeatedBoss.x, y: defeatedBoss.y },
-            });
           }
+          state.boss = null;
+          state.bossType = null;
+          if (state.gameMode === GAME_MODES.ENDLESS && defeatedBoss?.role === 'endless') {
+            state.bossSpawned = false;
+            state.endless.randomBossActive = false;
+            state.endless.waveCounter = 0;
+            state.endless.nextBossWave = rollEndlessBossWave();
+          }
+          if (isMidBoss) {
+            state.midBossDefeated = true;
+            state.midBossDefeatedAt = now;
+          } else {
+            state.bossDefeatedAt = now;
+            if (state.runStats) {
+              state.runStats.bosses = (state.runStats.bosses ?? 0) + 1;
+            }
+            if (!state.storyOutroShown) {
+              const outroKey = typeof state.level?.key === 'string' ? state.level.key : null;
+              const outroBeat = outroKey ? getStoryBeat(outroKey, 'outro') : null;
+              if (outroBeat) {
+                showStoryOverlay(outroBeat);
+                state.storyOutroShown = true;
+              }
+            }
+          }
+          state.bossMercyUntil = 0;
+          GameEvents.emit('enemy:destroyed', {
+            type: isMidBoss ? 'midBoss' : 'boss',
+            position: { x: defeatedBoss.x, y: defeatedBoss.y },
+          });
+        }
         break;
       }
     }
@@ -2369,6 +3725,10 @@ function loop(now) {
 
   ctx.restore();
 
+  if (ui && typeof ui.drawDebugCrosshair === 'function') {
+    ui.drawDebugCrosshair(ctx);
+  }
+
   addScore(PASSIVE_SCORE_RATE * dt, { allowFraction: true });
 
   requestAnimationFrame(loop);
@@ -2384,6 +3744,62 @@ function monitorGamepadIdle() {
   requestAnimationFrame(monitorGamepadIdle);
 }
 
+const mainInterface = {
+  state: currentViewState,
+  loop: resolveLoopForState(currentViewState),
+  setState(newState, options = {}) {
+    const applied = setAppState(newState, options);
+    this.state = applied;
+    if (ui && typeof ui === 'object') {
+      ui.diffOpen = false;
+      if ('isDiffOpen' in ui) {
+        ui.isDiffOpen = ui.diffOpen;
+      }
+    }
+    this.loop = resolveLoopForState(applied);
+    return applied;
+  },
+  getState: () => currentViewState,
+  getPreviousState: () => previousViewState,
+  constants: {
+    STATES: APP_VIEW_STATES,
+    GAME_MODES,
+  },
+  startCampaign(level) {
+    return this.setState(APP_VIEW_STATES.GAMEPLAY, { level });
+  },
+  startEndless() {
+    return this.setState(APP_VIEW_STATES.ENDLESS);
+  },
+  showMenu(options) {
+    return this.setState(APP_VIEW_STATES.MENU, options);
+  },
+};
+
+Object.defineProperty(mainInterface, 'settings', {
+  get() {
+    return state.settings;
+  },
+});
+
+Object.defineProperty(mainInterface, 'game', {
+  get() {
+    return state;
+  },
+});
+
+Object.defineProperty(mainInterface, 'gameState', {
+  get() {
+    return state;
+  },
+});
+
+if (typeof globalThis !== 'undefined') {
+  globalThis.main = mainInterface;
+}
+
+export const main = mainInterface;
+
 monitorGamepadIdle();
 
-renderStartOverlay({ resetHud: true });
+mainInterface.setState(APP_VIEW_STATES.MENU, { resetHud: true, force: true });
