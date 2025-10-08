@@ -176,10 +176,8 @@ if (canvas && typeof canvas.addEventListener === 'function') {
       return;
     }
     const rect = canvas.getBoundingClientRect();
-    const scaleX = rect.width ? canvas.width / rect.width : 1;
-    const scaleY = rect.height ? canvas.height / rect.height : 1;
-    const mx = (event.clientX - rect.left) * scaleX;
-    const my = (event.clientY - rect.top) * scaleY;
+    const mx = event.clientX - rect.left;
+    const my = event.clientY - rect.top;
     ui.onClick(mx, my);
   });
 }
@@ -3713,6 +3711,10 @@ function loop(now) {
   }
 
   ctx.restore();
+
+  if (ui && typeof ui.drawDebugCrosshair === 'function') {
+    ui.drawDebugCrosshair(ctx);
+  }
 
   addScore(PASSIVE_SCORE_RATE * dt, { allowFraction: true });
 
