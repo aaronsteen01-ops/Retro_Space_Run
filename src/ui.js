@@ -47,6 +47,157 @@ const hudRoot = document.getElementById('hud');
 const overlay = document.getElementById('overlay');
 let difficultySelect = document.getElementById('difficulty-select');
 
+const buttonRegions = [];
+const dropdownRegions = [];
+const buttonHandlers = new Map();
+const dropdownHandlers = new Map();
+
+function parseNumber(value, fallback = 0) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function normalizeRegion(region) {
+  if (!region || typeof region.name !== 'string') {
+    return null;
+  }
+  const name = region.name.trim();
+  if (!name) {
+    return null;
+  }
+  const x = parseNumber(region.x);
+  const y = parseNumber(region.y);
+  const w = Math.max(0, parseNumber(region.w));
+  const h = Math.max(0, parseNumber(region.h));
+  return { name, x, y, w, h };
+}
+
+function isPointInsideRegion(mx, my, region) {
+  if (!region) {
+    return false;
+  }
+  return mx >= region.x && mx <= region.x + region.w && my >= region.y && my <= region.y + region.h;
+}
+
+function sanitizeName(name) {
+  return typeof name === 'string' ? name.trim() : '';
+}
+
+function logInteraction(kind, name, region) {
+  const label = sanitizeName(name) || 'unknown';
+  // eslint-disable-next-line no-console
+  console.log(`[UI] ${kind} clicked: ${label}`, region);
+}
+
+export const ui = {
+  buttonRegions,
+  dropdownRegions,
+  resetRegions() {
+    buttonRegions.length = 0;
+    dropdownRegions.length = 0;
+  },
+  registerButton(region) {
+    const normalized = normalizeRegion(region);
+    if (!normalized) {
+      return null;
+    }
+    buttonRegions.push(normalized);
+    return normalized;
+  },
+  registerDropdown(region) {
+    const normalized = normalizeRegion(region);
+    if (!normalized) {
+      return null;
+    }
+    dropdownRegions.push(normalized);
+    return normalized;
+  },
+  bindButtonHandler(name, handler) {
+    const key = sanitizeName(name);
+    if (!key) {
+      return () => {};
+    }
+    if (typeof handler !== 'function') {
+      buttonHandlers.delete(key);
+      return () => {};
+    }
+    buttonHandlers.set(key, handler);
+    return () => {
+      buttonHandlers.delete(key);
+    };
+  },
+  bindDropdownHandler(name, handler) {
+    const key = sanitizeName(name);
+    if (!key) {
+      return () => {};
+    }
+    if (typeof handler !== 'function') {
+      dropdownHandlers.delete(key);
+      return () => {};
+    }
+    dropdownHandlers.set(key, handler);
+    return () => {
+      dropdownHandlers.delete(key);
+    };
+  },
+  handleButton(name, region) {
+    const key = sanitizeName(name);
+    if (!key) {
+      return;
+    }
+    const handler = buttonHandlers.get(key);
+    if (handler) {
+      handler(region);
+    }
+    logInteraction('Button', key, region);
+  },
+  handleDropdown(name, region) {
+    const key = sanitizeName(name);
+    if (!key) {
+      return;
+    }
+    const handler = dropdownHandlers.get(key);
+    if (handler) {
+      handler(region);
+    }
+    logInteraction('Dropdown', key, region);
+  },
+  onClick(mx, my) {
+    for (const region of buttonRegions) {
+      if (isPointInsideRegion(mx, my, region)) {
+        this.handleButton(region.name, region);
+        return;
+      }
+    }
+    for (const region of dropdownRegions) {
+      if (isPointInsideRegion(mx, my, region)) {
+        this.handleDropdown(region.name, region);
+        return;
+      }
+    }
+  },
+};
+
+export function registerButtonRegion(region) {
+  return ui.registerButton(region);
+}
+
+export function registerDropdownRegion(region) {
+  return ui.registerDropdown(region);
+}
+
+export function clearMenuRegions() {
+  ui.resetRegions();
+}
+
+export function onMenuButton(name, handler) {
+  return ui.bindButtonHandler(name, handler);
+}
+
+export function onMenuDropdown(name, handler) {
+  return ui.bindDropdownHandler(name, handler);
+}
+
 const hudLives = document.getElementById('lives');
 const hudScore = document.getElementById('score');
 let hudComboValue = document.getElementById('combo');
@@ -970,6 +1121,7 @@ export function setStartHandler(handler) {
 }
 
 export function showOverlay(html, options = {}) {
+  ui.resetRegions();
   overlay.classList.remove('overlay--meta-menu');
   overlay.innerHTML = html;
   overlay.style.display = 'block';

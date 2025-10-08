@@ -4,6 +4,7 @@
 // CHANGELOG: Introduced GameEvents integration, damage handling, and spawn scheduler wiring.
 import { rand, coll, addParticle, clamp } from './utils.js';
 import {
+  canvas,
   ctx,
   showOverlay,
   hideOverlay,
@@ -29,6 +30,7 @@ import {
   setGamepadIndicator,
   pulseMutatorIcon,
   refreshThemeOptions,
+  ui,
 } from './ui.js';
 import {
   playZap,
@@ -155,6 +157,20 @@ const GAME_MODES = Object.freeze({
   CAMPAIGN: 'campaign',
   ENDLESS: 'endless',
 });
+
+if (canvas && typeof canvas.addEventListener === 'function') {
+  canvas.addEventListener('mousedown', (event) => {
+    if (!ui || typeof ui.onClick !== 'function') {
+      return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = rect.width ? canvas.width / rect.width : 1;
+    const scaleY = rect.height ? canvas.height / rect.height : 1;
+    const mx = (event.clientX - rect.left) * scaleX;
+    const my = (event.clientY - rect.top) * scaleY;
+    ui.onClick(mx, my);
+  });
+}
 
 const ENDLESS_SCALE_STEP = 0.1;
 const ENDLESS_BOSS_WAVE_MIN = 4;
