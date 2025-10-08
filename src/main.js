@@ -3205,9 +3205,6 @@ function normaliseViewState(value) {
 }
 
 function resetUiInteractionState() {
-  if (ui && typeof ui.resetRegions === 'function') {
-    ui.resetRegions();
-  }
   if (ui && typeof ui === 'object') {
     ui.isDiffOpen = false;
   }
@@ -3228,6 +3225,9 @@ function setAppState(newState, options = {}) {
   currentViewState = next;
   const isResume = next === APP_VIEW_STATES.GAMEPLAY && options.resume;
   if (!isResume) {
+    if (ui && typeof ui.resetRegions === 'function') {
+      ui.resetRegions();
+    }
     resetUiInteractionState();
   }
   switch (next) {
