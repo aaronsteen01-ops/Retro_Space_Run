@@ -267,8 +267,7 @@ export const ui = {
     if (this.debug) {
       this.drawDebugCrosshair();
     }
-    const buttons = Array.isArray(this.buttonRegions) ? this.buttonRegions : [];
-    for (const region of buttons) {
+    for (const region of buttonRegions) {
       if (isPointInsideRegion(mx, my, region)) {
         this.handleButton(region.name, region);
         return;
