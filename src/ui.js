@@ -52,6 +52,42 @@ const dropdownRegions = [];
 const buttonHandlers = new Map();
 const dropdownHandlers = new Map();
 
+const NON_TEXT_INPUT_TYPES = new Set([
+  'button',
+  'checkbox',
+  'color',
+  'date',
+  'datetime-local',
+  'file',
+  'hidden',
+  'month',
+  'number',
+  'radio',
+  'range',
+  'reset',
+  'submit',
+  'time',
+  'week',
+]);
+
+function isTextEntryElement(element) {
+  if (!element) {
+    return false;
+  }
+  if (element.isContentEditable) {
+    return true;
+  }
+  const tag = typeof element.tagName === 'string' ? element.tagName.toLowerCase() : '';
+  if (tag === 'textarea') {
+    return true;
+  }
+  if (tag === 'input') {
+    const type = typeof element.type === 'string' ? element.type.toLowerCase() : '';
+    return !NON_TEXT_INPUT_TYPES.has(type);
+  }
+  return false;
+}
+
 function parseNumber(value, fallback = 0) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
@@ -93,6 +129,8 @@ export const ui = {
   buttonRegions,
   dropdownRegions,
   isDiffOpen: false,
+  debug: false,
+  debugLastClick: null,
   resetRegions() {
     buttonRegions.length = 0;
     dropdownRegions.length = 0;
@@ -205,6 +243,14 @@ export const ui = {
     logInteraction('Dropdown', key, region);
   },
   onClick(mx, my) {
+    const cx = Number(mx);
+    const cy = Number(my);
+    if (Number.isFinite(cx) && Number.isFinite(cy)) {
+      this.debugLastClick = { x: cx, y: cy };
+    }
+    if (this.debug) {
+      this.drawDebugCrosshair();
+    }
     for (const region of buttonRegions) {
       if (isPointInsideRegion(mx, my, region)) {
         this.handleButton(region.name, region);
@@ -217,6 +263,26 @@ export const ui = {
         return;
       }
     }
+  },
+  drawDebugCrosshair(context = ctx) {
+    if (!this.debug || !context || typeof context.save !== 'function') {
+      return;
+    }
+    const point = this.debugLastClick;
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+      return;
+    }
+    context.save();
+    context.lineWidth = 1;
+    context.strokeStyle = 'rgba(0, 255, 255, 0.85)';
+    context.beginPath();
+    const arm = 6;
+    context.moveTo(point.x - arm, point.y);
+    context.lineTo(point.x + arm, point.y);
+    context.moveTo(point.x, point.y - arm);
+    context.lineTo(point.x, point.y + arm);
+    context.stroke();
+    context.restore();
   },
 };
 
@@ -1042,6 +1108,34 @@ if (assistToggle) {
   assistToggle.addEventListener('click', () => {
     toggleAssistMode();
   });
+}
+
+function handleDebugToggleKey(event) {
+  if (!event || event.repeat) {
+    return;
+  }
+  const key = event.key;
+  if (key !== 'd' && key !== 'D') {
+    return;
+  }
+  if (isTextEntryElement(event.target)) {
+    return;
+  }
+  ui.debug = !ui.debug;
+  if (ui.debug && ui.debugLastClick) {
+    const draw = () => {
+      ui.drawDebugCrosshair();
+    };
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(draw);
+    } else {
+      draw();
+    }
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('keydown', handleDebugToggleKey, { passive: true });
 }
 
 function fitCanvas() {
