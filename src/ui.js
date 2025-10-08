@@ -969,9 +969,14 @@ export function setStartHandler(handler) {
   bindStartButton();
 }
 
-export function showOverlay(html) {
+export function showOverlay(html, options = {}) {
+  overlay.classList.remove('overlay--meta-menu');
   overlay.innerHTML = html;
   overlay.style.display = 'block';
+  const { className } = options ?? {};
+  if (className && typeof className === 'string') {
+    overlay.classList.add(className);
+  }
   bindStartButton();
   bindDifficultySelect();
   const focusTarget = overlay.querySelector('[autofocus], .btn, button, [role="button"]');
@@ -981,6 +986,7 @@ export function showOverlay(html) {
 }
 
 export function hideOverlay() {
+  overlay.classList.remove('overlay--meta-menu');
   overlay.style.display = 'none';
 }
 

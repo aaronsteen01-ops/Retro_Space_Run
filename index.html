@@ -76,6 +76,53 @@
   .btn:hover,#btn:hover{background:#00e5ff18; box-shadow:0 0 16px #00e5ff55 inset, 0 0 18px #00e5ff55;}
   .btn.btn-secondary{background:#ffffff08; border-color:#00e5ff44; box-shadow:0 0 10px #00e5ff22 inset, 0 0 10px #00e5ff22;}
   .btn.btn-secondary:hover{background:#00e5ff12;}
+  #msg .overlay--meta-menu{padding:0; border:none; background:transparent; box-shadow:none;}
+  .meta-menu{position:relative; display:grid; grid-template-columns:minmax(240px,1fr) 200px minmax(320px,1.4fr); gap:1.6rem; align-items:start; padding:2.2rem 2.6rem; border-radius:20px; background:#050814e6; border:1px solid #00e5ff33; box-shadow:0 18px 60px #00000066, 0 0 28px #00e5ff22 inset; overflow:hidden; min-width:min(880px,92vw);}
+  .meta-menu::before,.meta-menu::after{content:""; position:absolute; inset:-30%; pointer-events:none;}
+  .meta-menu::before{background:radial-gradient(2px 2px at 20% 30%, #ffffffaa 0, #ffffff00 70%) repeat, radial-gradient(1px 1px at 80% 60%, #00e5ffaa 0, #00e5ff00 70%) repeat; background-size:180px 180px, 220px 220px; animation:metaStarDrift 56s linear infinite; opacity:.32;}
+  .meta-menu::after{background:radial-gradient(2px 2px at 40% 60%, #ff3df7aa 0, #ff3df700 65%) repeat, radial-gradient(1px 1px at 70% 30%, #00e5ffaa 0, #00e5ff00 70%) repeat; background-size:120px 120px, 160px 160px; animation:metaStarDriftAlt 38s linear infinite; opacity:.45;}
+  .meta-menu__panel{position:relative; z-index:1; display:flex; flex-direction:column; gap:.75rem;}
+  .meta-menu__panel--brand{gap:1rem;}
+  .meta-menu__logo-wrap{position:relative; display:flex; align-items:center; justify-content:center; padding:1.6rem 0;}
+  .meta-menu__logo-ring{position:absolute; width:220px; height:220px; border-radius:50%; border:2px solid #00e5ff44; box-shadow:0 0 18px #00e5ff33 inset,0 0 12px #ff3df722; animation:metaLogoOrbit 28s linear infinite;}
+  .meta-menu__logo-ring::after{content:""; position:absolute; inset:18%; border-radius:50%; border:2px solid #ff3df733; opacity:.65; animation:metaLogoOrbit 18s linear infinite reverse;}
+  .meta-menu__logo{font-size:2.25rem; letter-spacing:.3em; text-transform:uppercase; text-align:center; font-weight:700; text-shadow:0 0 14px #00e5ffaa,0 0 18px #ff3df799; animation:metaLogoPulse 6s ease-in-out infinite;}
+  .meta-menu__tagline{margin:0; text-align:center; font-size:.85rem; letter-spacing:.14em; text-transform:uppercase; opacity:.75;}
+  .meta-menu__stats{display:flex; flex-direction:column; gap:.45rem; font-size:.85rem; letter-spacing:.06em; text-align:left;}
+  .meta-menu__stats p{margin:0;}
+  .meta-menu__unlocks{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.6rem; margin-top:.6rem;}
+  .meta-menu__unlocks-item{padding:.65rem .75rem; border-radius:12px; border:1px solid #00e5ff22; background:#ffffff07; text-align:center; text-transform:uppercase; letter-spacing:.1em; font-size:.7rem; box-shadow:0 0 12px #00e5ff11 inset;}
+  .meta-menu__unlocks-value{display:block; margin-top:.25rem; font-size:1rem; letter-spacing:.1em; color:var(--white);}
+  .meta-menu__panel--nav{gap:.9rem;}
+  .meta-menu__heading{margin:0; text-transform:uppercase; letter-spacing:.16em; font-size:.95rem; opacity:.78;}
+  .meta-menu__nav{display:flex; flex-direction:column; gap:.55rem;}
+  .meta-menu__nav-item{display:flex; align-items:center; justify-content:flex-start; width:100%; padding:.65rem 1rem; border-radius:12px; border:1px solid #00e5ff22; background:#ffffff05; color:var(--white); font-weight:650; letter-spacing:.12em; text-transform:uppercase; cursor:pointer; transition:background .2s ease, box-shadow .2s ease, border-color .2s ease; text-align:left;}
+  .meta-menu__nav-item:hover,.meta-menu__nav-item:focus-visible{background:#00e5ff12; border-color:#00e5ff66; outline:none; box-shadow:0 0 18px #00e5ff33 inset,0 0 18px #00e5ff33;}
+  .meta-menu__nav-item.is-active{background:#00e5ff1a; border-color:#ff3df777; box-shadow:0 0 20px #ff3df733 inset,0 0 18px #00e5ff55; color:var(--white);}
+  .meta-menu__panel--detail{gap:1rem; padding:1rem 1.2rem; border-radius:16px; border:1px solid #00e5ff22; background:#0a0d1acc; box-shadow:0 0 18px #00e5ff22 inset; min-height:260px;}
+  .meta-detail{display:flex; flex-direction:column; gap:.85rem;}
+  .meta-detail__title{margin:0; text-transform:uppercase; letter-spacing:.18em; font-size:1.1rem;}
+  .meta-detail__desc{margin:0; font-size:.9rem; letter-spacing:.05em; opacity:.85;}
+  .meta-detail__summary{margin:0; font-size:.85rem; letter-spacing:.06em; opacity:.8;}
+  .meta-detail__actions{display:flex; flex-wrap:wrap; gap:.75rem;}
+  .meta-detail__chips{display:flex; flex-wrap:wrap; gap:.45rem;}
+  .meta-menu__chip{display:inline-flex; align-items:center; justify-content:center; padding:.32rem .9rem; border-radius:999px; border:1px solid #00e5ff44; background:#ffffff0a; color:var(--white); font-size:.75rem; letter-spacing:.08em; text-transform:uppercase; transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease;}
+  .meta-menu__chip.is-active{border-color:#ff3df7aa; box-shadow:0 0 16px #ff3df733 inset,0 0 12px #00e5ff55; transform:translateY(-1px);}
+  .meta-menu__chip.is-locked{border-color:#ffffff22; color:#ffffff88; background:#ffffff05;}
+  .meta-menu__chip.is-selected{border-color:#ff3df7ee; box-shadow:0 0 22px #ff3df744 inset,0 0 18px #ff3df755;}
+  .meta-menu__chip[data-status="earned"]::before{content:"✓"; margin-right:.4rem; color:#3df5ff; text-shadow:0 0 10px #00e5ff55; font-size:.75rem;}
+  .meta-menu__footnote{margin:0; font-size:.74rem; letter-spacing:.08em; opacity:.68;}
+  .meta-menu__badge{display:flex; align-items:center; gap:.4rem; font-size:.78rem; letter-spacing:.05em;}
+  @keyframes metaStarDrift{0%{transform:translate3d(0,0,0);}100%{transform:translate3d(-180px,160px,0);}}
+  @keyframes metaStarDriftAlt{0%{transform:translate3d(0,0,0);}100%{transform:translate3d(160px,-140px,0);}}
+  @keyframes metaLogoOrbit{0%{transform:rotate(0deg);}100%{transform:rotate(360deg);}}
+  @keyframes metaLogoPulse{0%{transform:scale(1);}40%{transform:scale(1.03);}70%{transform:scale(1.02);}100%{transform:scale(1);}}
+  @media (max-width:960px){
+    .meta-menu{grid-template-columns:1fr; min-width:min(92vw,640px); padding:1.8rem;}
+    .meta-menu__panel--nav{order:2;}
+    .meta-menu__panel--detail{order:3;}
+    .meta-menu__unlocks{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));}
+  }
   .overlay-actions{display:flex; flex-wrap:wrap; gap:.75rem; justify-content:center; margin-top:1rem;}
   .overlay-progress{margin:0.6rem 0 0; font-size:.9rem; letter-spacing:.05em;}
   .overlay-progress--meta{margin-top:.3rem; font-size:.82rem; opacity:.8;}
@@ -198,21 +245,7 @@
 <div id="game-toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <div id="msg">
-  <div class="box" id="overlay">
-    <h1>RETRO <span class="cyan">SPACE</span> <span class="heart">RUN</span></h1>
-    <p>WASD / Arrow keys to steer · Space to fire · P pause · F fullscreen · M mute · H Assist Mode</p>
-    <p>Reach the <span class="cyan">finish gate</span> with calmer Level&nbsp;1 waves. Assist Mode adds a spare life, gentler drops, and longer invulnerability.</p>
-    <div class="difficulty-select">
-      <label class="difficulty-select__label" for="difficulty-select">Difficulty</label>
-      <select id="difficulty-select" class="difficulty-select__control">
-        <option value="easy">Easy · 85% density / 90% speed</option>
-        <option value="normal">Normal · Original balance</option>
-        <option value="hard">Hard · 120% density / 110% speed</option>
-      </select>
-      <p class="difficulty-select__hint">Adjust enemy density, projectile speed, and boss durability. Normal preserves the current challenge.</p>
-    </div>
-    <a id="btn">Start</a>
-  </div>
+  <div class="box" id="overlay"></div>
 </div>
 
 <div id="fx"></div>

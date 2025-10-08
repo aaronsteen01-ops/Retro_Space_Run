@@ -147,6 +147,8 @@ const PASSIVE_SCORE_RATE = 30;
 
 const STORY_OVERLAY_DURATION = 1800;
 
+const MENU_SELECTION_STORAGE_KEY = 'retro-space-run.menu-selection';
+
 const GAME_MODES = Object.freeze({
   CAMPAIGN: 'campaign',
   ENDLESS: 'endless',
@@ -2509,6 +2511,7 @@ function renderAchievementsOverlay() {
   });
 }
 
+
 function renderStartOverlay({ resetHud = false } = {}) {
   atMenuScreen = true;
   optionsOverlayOpen = false;
@@ -2556,100 +2559,458 @@ function renderStartOverlay({ resetHud = false } = {}) {
       return `<button class="level-select__btn" data-level="${levelNumber}">L${levelNumber} · ${level.name}</button>`;
     })
     .join('');
-  const progressSummary = (hasProgress || bestScore > 0)
-    ? `<p class="overlay-progress">Best Score: <strong>${bestScore}</strong> · Highest Level: <strong>L${highestUnlockedLevel}</strong></p>`
-    : '';
-  const endlessSummary = (bestEndlessScore > 0 || bestEndlessTime > 0)
-    ? `<p class="overlay-progress">Endless Best — Score: <strong>${formatNumber(bestEndlessScore)}</strong> · Time: <strong>${formatNumber(bestEndlessTime)}s</strong></p>`
-    : '';
   const metaProgress = getMetaProgress();
   const selectedShipKey = getSelectedShipKey() || defaultShipKey;
-  const metaSummary = `<p class="overlay-progress overlay-progress--meta">Runs: <strong>${formatNumber(metaProgress.totalRuns)}</strong> · Banked Score: <strong>${formatNumber(metaProgress.totalScore)}</strong> · Bosses Defeated: <strong>${formatNumber(metaProgress.bossesDefeated)}</strong></p>`;
   const achievementsProgress = getAchievementProgress();
   const earnedAchievements = achievementsProgress.filter((entry) => entry.earned).length;
-  const achievementsSummary = achievementsProgress.length
-    ? `<p class="overlay-progress">Achievements: <strong>${earnedAchievements}</strong> / <strong>${achievementsProgress.length}</strong></p>`
+  const bestScoreLine = hasProgress || bestScore > 0
+    ? `Best Score <strong>${formatNumber(bestScore)}</strong> · Highest Sector <strong>L${highestUnlockedLevel}</strong>`
     : '';
-  const shipGrid = buildShipCards(metaProgress, selectedShipKey);
-  const shipSection = `
-    <div class="ship-select">
-      <p class="ship-select__label">Hangar</p>
-      <div class="ship-select__grid">${shipGrid}</div>
-      <p class="ship-select__hint">Unlock new ships by defeating bosses, banking score, and clearing deeper sectors.</p>
+  const endlessSummaryLine = bestEndlessScore > 0 || bestEndlessTime > 0
+    ? `Endless Best · Score <strong>${formatNumber(bestEndlessScore)}</strong> · Time <strong>${formatNumber(bestEndlessTime)}s</strong>`
+    : '';
+  const metaSummaryLine = `Runs <strong>${formatNumber(metaProgress.totalRuns)}</strong> · Banked Score <strong>${formatNumber(metaProgress.totalScore)}</strong> · Bosses Defeated <strong>${formatNumber(metaProgress.bossesDefeated)}</strong>`;
+  const achievementsSummaryLine = achievementsProgress.length
+    ? `Achievements <strong>${earnedAchievements}</strong> / <strong>${achievementsProgress.length}</strong>`
+    : '';
+  const statsMarkup = [bestScoreLine, endlessSummaryLine, metaSummaryLine, achievementsSummaryLine]
+    .filter((line) => typeof line === 'string' && line.trim().length > 0)
+    .map((line) => `<p>${line}</p>`)
+    .join('');
+  const unlockedShips = getUnlockedShips();
+  const unlockedShipSet = new Set(unlockedShips);
+  const totalShips = SHIP_CATALOGUE.length;
+  const shipChipsMarkup = SHIP_CATALOGUE
+    .map((ship) => {
+      const unlocked = unlockedShipSet.has(ship.key);
+      const isSelected = ship.key === selectedShipKey;
+      const classes = ['meta-menu__chip'];
+      if (unlocked) {
+        classes.push('is-active');
+      } else {
+        classes.push('is-locked');
+      }
+      if (isSelected) {
+        classes.push('is-selected');
+      }
+      const status = isSelected ? 'selected' : unlocked ? 'unlocked' : 'locked';
+      const requirement = getShipRequirement(ship);
+      const hint = isSelected
+        ? 'Selected ship'
+        : unlocked
+          ? 'Unlocked ship'
+          : requirement ?? 'Locked ship';
+      const title = hint ? ` title="${hint.replace(/"/g, '&quot;')}"` : '';
+      return `<span class="${classes.join(' ')}" data-status="${status}"${title}>${ship.name}</span>`;
+    })
+    .join('');
+  const themeKeys = getThemeKeys();
+  const activeThemeKey = getActiveThemeKey();
+  const cosmicUnlocked = isPaletteUnlocked('cosmic-abyss');
+  const cosmicHint = cosmicUnlocked
+    ? 'Cosmic Abyss unlocked.'
+    : `Clear Level 3 to unlock. Highest unlocked: L${highestUnlockedLevel}`;
+  const themeEntries = themeKeys.map((key) => {
+    const unlocked = key === 'cosmic-abyss' ? cosmicUnlocked : true;
+    const hint = key === 'cosmic-abyss' ? cosmicHint : 'Theme unlocked';
+    return {
+      key,
+      label: getThemeLabel(key),
+      unlocked,
+      hint,
+    };
+  });
+  const unlockedThemeCount = themeEntries.filter((entry) => entry.unlocked).length;
+  const themeChipsMarkup = themeEntries
+    .map((entry) => {
+      const classes = ['meta-menu__chip'];
+      if (entry.unlocked) {
+        classes.push('is-active');
+      } else {
+        classes.push('is-locked');
+      }
+      if (entry.key === activeThemeKey) {
+        classes.push('is-selected');
+      }
+      return `<span class="${classes.join(' ')}" data-theme-chip="${entry.key}" title="${entry.hint}">${entry.label}</span>`;
+    })
+    .join('');
+  const achievementChipsMarkup = achievementsProgress.length
+    ? achievementsProgress
+        .map((entry) => {
+          const classes = ['meta-menu__chip'];
+          if (entry.earned) {
+            classes.push('is-active');
+          } else {
+            classes.push('is-locked');
+          }
+          const status = entry.earned ? 'earned' : 'locked';
+          const desc = entry.description ? ` title="${entry.description.replace(/"/g, '&quot;')}"` : '';
+          return `<span class="${classes.join(' ')}" data-status="${status}"${desc}>${entry.name}</span>`;
+        })
+        .join('')
+    : '<p class="meta-detail__summary">Log runs to unlock achievements.</p>';
+  let storedSelectionId = null;
+  if (typeof window !== 'undefined') {
+    try {
+      storedSelectionId = window.localStorage?.getItem(MENU_SELECTION_STORAGE_KEY) ?? null;
+    } catch (err) {
+      storedSelectionId = null;
+    }
+  }
+  const menuItems = [
+    {
+      id: 'campaign',
+      label: 'Start Campaign',
+      onActivate: () => {
+        startRun(hasProgress ? highestUnlockedLevel : 1);
+      },
+      detail: () => {
+        const primaryButton = hasProgress
+          ? `<button id="meta-campaign-continue" class="btn" data-primary-action>Continue L${highestUnlockedLevel}</button>`
+          : `<button id="meta-campaign-start" class="btn" data-primary-action>Launch Level 1</button>`;
+        const restartButton = hasProgress
+          ? `<button id="meta-campaign-restart" class="btn btn-secondary">Start Level 1</button>`
+          : '';
+        const toggleButton = `<button id="meta-campaign-toggle" class="btn btn-secondary" aria-expanded="false">Select Sector</button>`;
+        const levelPanel = `<div id="meta-campaign-levels" class="level-select" hidden><p class="level-select__label">Unlocked Levels</p><div class="level-select__grid">${levelButtons}</div></div>`;
+        const desc = hasProgress
+          ? 'Resume your deepest unlocked sector or revisit previous encounters.'
+          : 'Launch the story campaign and carve through escalating sectors.';
+        const campaignStatsBlock = bestScoreLine
+          ? `<p class="meta-detail__summary">${bestScoreLine}</p>`
+          : '';
+        const metaStatsBlock = metaSummaryLine
+          ? `<p class="meta-detail__summary">${metaSummaryLine}</p>`
+          : '';
+        return {
+          html: `
+            <div class="meta-detail" data-meta-detail="campaign">
+              <h2 class="meta-detail__title">Campaign</h2>
+              <p class="meta-detail__desc">${desc}</p>
+              ${campaignStatsBlock}
+              ${metaStatsBlock}
+              <div class="meta-detail__actions">
+                ${primaryButton}
+                ${restartButton}
+                ${toggleButton}
+              </div>
+              ${levelPanel}
+              <div class="difficulty-select">
+                <label class="difficulty-select__label" for="difficulty-select">Difficulty</label>
+                <select id="difficulty-select" class="difficulty-select__control">
+                  <option value="easy">Easy · 85% density / 90% speed</option>
+                  <option value="normal">Normal · Original balance</option>
+                  <option value="hard">Hard · 120% density / 110% speed</option>
+                </select>
+                <p class="difficulty-select__hint">Adjust density, speed, and boss durability.</p>
+              </div>
+            </div>
+          `,
+          onMount: () => {
+            document.getElementById('meta-campaign-continue')?.addEventListener('click', () => {
+              startRun(highestUnlockedLevel);
+            });
+            document.getElementById('meta-campaign-start')?.addEventListener('click', () => {
+              startRun(1);
+            });
+            document.getElementById('meta-campaign-restart')?.addEventListener('click', () => {
+              startRun(1);
+            });
+            const toggle = document.getElementById('meta-campaign-toggle');
+            const levelPanelElement = document.getElementById('meta-campaign-levels');
+            toggle?.addEventListener('click', () => {
+              if (!levelPanelElement) {
+                return;
+              }
+              const hidden = levelPanelElement.hasAttribute('hidden');
+              if (hidden) {
+                levelPanelElement.removeAttribute('hidden');
+                toggle.setAttribute('aria-expanded', 'true');
+                const firstLevelButton = levelPanelElement.querySelector('button:not([disabled])');
+                firstLevelButton?.focus();
+              } else {
+                levelPanelElement.setAttribute('hidden', '');
+                toggle.setAttribute('aria-expanded', 'false');
+                toggle.focus();
+              }
+            });
+            levelPanelElement?.querySelectorAll('[data-level]').forEach((btn) => {
+              const element = btn;
+              const levelNumber = Number.parseInt(element.getAttribute('data-level') ?? '', 10);
+              if (!Number.isFinite(levelNumber)) {
+                return;
+              }
+              element.addEventListener('click', () => {
+                startRun(levelNumber);
+              });
+            });
+            bindDifficultySelect();
+          },
+        };
+      },
+    },
+    {
+      id: 'endless',
+      label: 'Endless Mode',
+      onActivate: () => {
+        startRun(1, { gameMode: GAME_MODES.ENDLESS });
+      },
+      detail: () => {
+        const endlessStatsBlock = endlessSummaryLine
+          ? `<p class="meta-detail__summary">${endlessSummaryLine}</p>`
+          : '<p class="meta-detail__summary">Face infinite waves for escalating score.</p>';
+        return {
+          html: `
+            <div class="meta-detail" data-meta-detail="endless">
+              <h2 class="meta-detail__title">Endless Mode</h2>
+              <p class="meta-detail__desc">Survive escalating swarms and chase personal records.</p>
+              ${endlessStatsBlock}
+              <div class="meta-detail__actions">
+                <button id="meta-endless-start" class="btn" data-primary-action>Launch Endless Run</button>
+              </div>
+            </div>
+          `,
+          onMount: () => {
+            document.getElementById('meta-endless-start')?.addEventListener('click', () => {
+              startRun(1, { gameMode: GAME_MODES.ENDLESS });
+            });
+          },
+        };
+      },
+    },
+    {
+      id: 'garage',
+      label: 'Garage',
+      onActivate: () => {
+        renderGarageOverlay();
+      },
+      detail: () => ({
+        html: `
+          <div class="meta-detail" data-meta-detail="garage">
+            <h2 class="meta-detail__title">Garage</h2>
+            <p class="meta-detail__desc">Review ships, swap loadouts, and inspect unlock progress.</p>
+            <div class="meta-detail__chips">${shipChipsMarkup}</div>
+            <div class="meta-detail__actions">
+              <button id="meta-garage-open" class="btn" data-primary-action>Enter Garage</button>
+            </div>
+          </div>
+        `,
+        onMount: () => {
+          document.getElementById('meta-garage-open')?.addEventListener('click', () => {
+            renderGarageOverlay();
+          });
+        },
+      }),
+    },
+    {
+      id: 'achievements',
+      label: 'Achievements',
+      onActivate: () => {
+        renderAchievementsOverlay();
+      },
+      detail: () => ({
+        html: `
+          <div class="meta-detail" data-meta-detail="achievements">
+            <h2 class="meta-detail__title">Achievements</h2>
+            <p class="meta-detail__desc">Track feats earned during your runs.</p>
+            <div class="meta-detail__chips">${achievementChipsMarkup}</div>
+            <div class="meta-detail__actions">
+              <button id="meta-achievements-open" class="btn" data-primary-action>View Achievements</button>
+            </div>
+          </div>
+        `,
+        onMount: () => {
+          document.getElementById('meta-achievements-open')?.addEventListener('click', () => {
+            renderAchievementsOverlay();
+          });
+        },
+      }),
+    },
+    {
+      id: 'options',
+      label: 'Options',
+      onActivate: () => {
+        renderOptionsOverlay({ context: 'menu' });
+      },
+      detail: () => {
+        const assistEnabled = getAssistMode();
+        const autoFireEnabled = getAutoFire();
+        const themeLabel = getThemeLabel(activeThemeKey);
+        return {
+          html: `
+            <div class="meta-detail" data-meta-detail="options">
+              <h2 class="meta-detail__title">Options</h2>
+              <p class="meta-detail__desc">Adjust presentation, input, and accessibility toggles.</p>
+              <p class="meta-detail__summary">Assist Mode <strong>${assistEnabled ? 'On' : 'Off'}</strong> · Auto Fire <strong>${autoFireEnabled ? 'On' : 'Off'}</strong></p>
+              <p class="meta-detail__summary">Current Theme <strong>${themeLabel}</strong></p>
+              <div class="meta-detail__chips">${themeChipsMarkup}</div>
+              <div class="meta-detail__actions">
+                <button id="meta-options-open" class="btn" data-primary-action>Open Options</button>
+              </div>
+            </div>
+          `,
+          onMount: () => {
+            document.getElementById('meta-options-open')?.addEventListener('click', () => {
+              renderOptionsOverlay({ context: 'menu' });
+            });
+          },
+        };
+      },
+    },
+  ];
+  const storedIndex = menuItems.findIndex((item) => item.id === storedSelectionId);
+  const initialIndex = storedIndex >= 0 ? storedIndex : 0;
+  const navMarkup = menuItems
+    .map((item, index) => {
+      const tabindex = index === initialIndex ? '0' : '-1';
+      const activeClass = index === initialIndex ? ' meta-menu__nav-item is-active' : ' meta-menu__nav-item';
+      return `<button type="button" class="${activeClass.trim()}" data-menu-item="${item.id}" data-menu-index="${index}" role="menuitem" tabindex="${tabindex}">${item.label}</button>`;
+    })
+    .join('');
+  const selectedShip = SHIP_CATALOGUE.find((ship) => ship.key === selectedShipKey);
+  const selectedShipName = selectedShip?.name ?? 'Pioneer';
+  const statsContent = statsMarkup || '<p class="meta-detail__summary">Begin a run to gather intel.</p>';
+  const menuMarkup = `
+    <div class="meta-menu" data-meta-menu>
+      <div class="meta-menu__panel meta-menu__panel--brand">
+        <div class="meta-menu__logo-wrap">
+          <div class="meta-menu__logo-ring" aria-hidden="true"></div>
+          <div class="meta-menu__logo">RETRO <span class="cyan">SPACE</span> <span class="heart">RUN</span></div>
+        </div>
+        <p class="meta-menu__tagline">Chart your next sortie.</p>
+        <div class="meta-menu__stats">${statsContent}</div>
+        <div class="meta-menu__unlocks">
+          <div class="meta-menu__unlocks-item">Ships<span class="meta-menu__unlocks-value">${unlockedShips.length} / ${totalShips}</span></div>
+          <div class="meta-menu__unlocks-item">Themes<span class="meta-menu__unlocks-value">${unlockedThemeCount} / ${themeEntries.length}</span></div>
+          <div class="meta-menu__unlocks-item">Achievements<span class="meta-menu__unlocks-value">${earnedAchievements} / ${achievementsProgress.length}</span></div>
+        </div>
+        <p class="meta-menu__footnote">Current Ship: <strong>${selectedShipName}</strong></p>
+      </div>
+      <div class="meta-menu__panel meta-menu__panel--nav">
+        <h2 class="meta-menu__heading">Mission Control</h2>
+        <div class="meta-menu__nav" role="menu" data-meta-menu-nav>
+          ${navMarkup}
+        </div>
+        <p class="meta-menu__footnote">Use ↑ ↓ to browse · Enter to launch</p>
+      </div>
+      <div class="meta-menu__panel meta-menu__panel--detail">
+        <div class="meta-detail" id="meta-menu-detail" data-meta-menu-detail></div>
+      </div>
     </div>
   `;
-  const primaryAction = hasProgress
-    ? `<button id="continue-btn" class="btn" autofocus>Continue</button>`
-    : `<button id="start-btn" class="btn" autofocus>Start Level 1</button>`;
-  showOverlay(`
-    <h1>RETRO <span class="cyan">SPACE</span> <span class="heart">RUN</span></h1>
-    <p>WASD / Arrow keys to steer · Space to fire · P pause · R restart level · F fullscreen · M mute · H Assist Mode</p>
-    <p>Pick a sector or continue your furthest run. Assist Mode toggles an extra life and softer spawns.</p>
-    ${progressSummary}
-    ${endlessSummary}
-    ${metaSummary}
-    ${achievementsSummary}
-    ${shipSection}
-    <div class="difficulty-select">
-      <label class="difficulty-select__label" for="difficulty-select">Difficulty</label>
-      <select id="difficulty-select" class="difficulty-select__control">
-        <option value="easy">Easy · 85% density / 90% speed</option>
-        <option value="normal">Normal · Original balance</option>
-        <option value="hard">Hard · 120% density / 110% speed</option>
-      </select>
-      <p class="difficulty-select__hint">Adjust enemy density, projectile speed, and boss durability. Normal preserves the current challenge.</p>
-    </div>
-    <div class="overlay-actions">
-      ${primaryAction}
-      <button id="toggle-level-select" class="btn btn-secondary" aria-expanded="false">Select Level</button>
-      <button id="endless-btn" class="btn btn-secondary">Endless Survival</button>
-      <button id="garage-btn" class="btn btn-secondary">Garage</button>
-      <button id="achievements-btn" class="btn btn-secondary">Achievements</button>
-    </div>
-    <div id="level-select" class="level-select" hidden>
-      <p class="level-select__label">Unlocked Levels</p>
-      <div class="level-select__grid">${levelButtons}</div>
-    </div>
-    <p class="overlay-hint">Press Esc for Options</p>
-  `);
-  const continueBtn = document.getElementById('continue-btn');
-  continueBtn?.addEventListener('click', () => {
-    startRun(highestUnlockedLevel);
-  });
-  const startBtn = document.getElementById('start-btn');
-  startBtn?.addEventListener('click', () => {
-    startRun(1);
-  });
-  const toggle = document.getElementById('toggle-level-select');
-  const panel = document.getElementById('level-select');
-  toggle?.addEventListener('click', () => {
-    if (!panel) {
+  showOverlay(menuMarkup, { className: 'overlay--meta-menu' });
+  const overlayRoot = typeof document !== 'undefined' ? document.getElementById('overlay') : null;
+  const detailContainer = overlayRoot?.querySelector('[data-meta-menu-detail]') ?? null;
+  const navRoot = overlayRoot?.querySelector('[data-meta-menu-nav]') ?? null;
+  const navButtons = Array.from(navRoot?.querySelectorAll('[data-menu-item]') ?? []);
+  let activeIndex = initialIndex;
+  const persistSelection = (id) => {
+    if (typeof window === 'undefined') {
       return;
     }
-    panel.removeAttribute('hidden');
-    toggle.setAttribute('aria-expanded', 'true');
-    const firstLevelButton = panel.querySelector('button:not([disabled])');
-    firstLevelButton?.focus();
-  });
-  panel?.querySelectorAll('[data-level]').forEach((btn) => {
-    const element = btn;
-    const levelNumber = Number.parseInt(element.getAttribute('data-level') ?? '', 10);
-    element.addEventListener('click', () => {
-      startRun(levelNumber);
+    try {
+      window.localStorage?.setItem(MENU_SELECTION_STORAGE_KEY, id);
+    } catch (err) {
+      // Ignore storage failures.
+    }
+  };
+  const renderDetail = (item) => {
+    if (!detailContainer) {
+      return;
+    }
+    if (!item || typeof item.detail !== 'function') {
+      detailContainer.innerHTML = '';
+      return;
+    }
+    const result = item.detail();
+    if (!result || typeof result.html !== 'string') {
+      detailContainer.innerHTML = '';
+      return;
+    }
+    detailContainer.innerHTML = result.html;
+    try {
+      result.onMount?.();
+    } catch (err) {
+      // Swallow mount errors to avoid blocking menu.
+    }
+  };
+  const updateSelection = (index, { focus = false, force = false } = {}) => {
+    if (!menuItems.length) {
+      return;
+    }
+    const max = menuItems.length;
+    const nextIndex = ((index % max) + max) % max;
+    const changed = nextIndex !== activeIndex;
+    activeIndex = nextIndex;
+    navButtons.forEach((button, idx) => {
+      const isActive = idx === activeIndex;
+      if (isActive) {
+        button.classList.add('is-active');
+        button.setAttribute('tabindex', '0');
+        button.setAttribute('aria-selected', 'true');
+        if (focus) {
+          button.focus();
+        }
+      } else {
+        button.classList.remove('is-active');
+        button.setAttribute('tabindex', '-1');
+        button.setAttribute('aria-selected', 'false');
+      }
     });
+    if (changed || force) {
+      renderDetail(menuItems[activeIndex]);
+      persistSelection(menuItems[activeIndex].id);
+    }
+  };
+  const activateCurrent = () => {
+    const item = menuItems[activeIndex];
+    if (!item) {
+      return;
+    }
+    const primary = detailContainer?.querySelector('[data-primary-action]');
+    if (primary) {
+      primary.click();
+      primary.focus?.();
+      return;
+    }
+    if (typeof item.onActivate === 'function') {
+      item.onActivate();
+    }
+  };
+  const handleNavKey = (event) => {
+    if (!event) {
+      return;
+    }
+    const key = event.key;
+    if (key === 'ArrowUp' || key === 'ArrowLeft') {
+      event.preventDefault();
+      updateSelection(activeIndex - 1, { focus: true });
+    } else if (key === 'ArrowDown' || key === 'ArrowRight') {
+      event.preventDefault();
+      updateSelection(activeIndex + 1, { focus: true });
+    } else if (key === 'Enter' || key === ' ') {
+      event.preventDefault();
+      activateCurrent();
+    }
+  };
+  navButtons.forEach((button, index) => {
+    button.addEventListener('click', () => {
+      updateSelection(index, { focus: true });
+    });
+    button.addEventListener('mouseenter', () => {
+      if (activeIndex !== index) {
+        updateSelection(index, { focus: false });
+      }
+    });
+    button.addEventListener('focus', () => {
+      updateSelection(index, { focus: false });
+    });
+    button.addEventListener('keydown', handleNavKey);
   });
-  document.getElementById('garage-btn')?.addEventListener('click', () => {
-    renderGarageOverlay();
-  });
-  document.getElementById('achievements-btn')?.addEventListener('click', () => {
-    renderAchievementsOverlay();
-  });
-  document.getElementById('endless-btn')?.addEventListener('click', () => {
-    startRun(1, { gameMode: GAME_MODES.ENDLESS });
-  });
-  bindShipSelectionHandlers({ context: 'start' });
+  navRoot?.addEventListener('keydown', handleNavKey);
+  updateSelection(initialIndex, { focus: true, force: true });
 }
-
 function renderOptionsOverlay({ context = 'game', onClose } = {}) {
   if (optionsOverlayOpen) {
     return;
