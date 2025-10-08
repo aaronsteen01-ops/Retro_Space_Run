@@ -687,7 +687,7 @@ export const THEMES = {
   },
 };
 
-const THEME_BEHAVIOURS = {
+export const THEME_BEHAVIOURS = {
   'synth-horizon': {
     key: 'synth-horizon',
     icon: '🌅',
@@ -852,134 +852,6 @@ const THEME_BEHAVIOURS = {
       stars: {
         bright: '#63e9ff',
         dim: '#a195ff',
-      },
-    },
-  },
-};
-
-const THEME_BEHAVIOURS = {
-  'synth-horizon': {
-    key: 'synth-horizon',
-    icon: '🌅',
-    title: 'Neon Horizon',
-    summary: 'Neon lasers, frequent powerups, balanced pace.',
-    overlay: {
-      kind: 'laser',
-      intensity: 0.28,
-      speed: 0.32,
-      spacing: 240,
-      colours: {
-        primary: 'rgba(0, 229, 255, 0.22)',
-        secondary: 'rgba(255, 61, 247, 0.16)',
-      },
-    },
-    spawnModifiers: {
-      powerupIntervalMultiplier: 0.75,
-    },
-    paletteAdjustments: {
-      particles: {
-        enemyHitDefault: '#4ffcff',
-        enemyHitStrafer: '#ff6aff',
-        bossHit: '#ff6aff',
-        bossCore: '#9dfdff',
-      },
-      bullets: {
-        playerLevels: ['#8cfbff', '#c4faff', '#fff4ff'],
-        highlight: '#ff92ff',
-        muzzleEdge: '#8cfbff',
-        enemyGlow: '#66fbffaa',
-      },
-      stars: {
-        bright: '#7af8ff',
-        dim: '#ff74ff',
-      },
-    },
-  },
-  'luminous-depths': {
-    key: 'luminous-depths',
-    icon: '💧',
-    title: 'Luminous Depths',
-    summary: 'Veiled fog, slower movement, heavy drone patrols.',
-    overlay: {
-      kind: 'fog',
-      intensity: 0.46,
-      speed: 0.18,
-      colours: {
-        near: 'rgba(36, 245, 217, 0.2)',
-        far: 'rgba(22, 128, 255, 0.08)',
-        highlight: 'rgba(110, 255, 255, 0.12)',
-      },
-    },
-    spawnModifiers: {
-      enemySpeedMultiplier: 0.85,
-      powerupIntervalMultiplier: 1.1,
-      enemyWeightMultipliers: {
-        asteroid: 0.7,
-        strafer: 0.6,
-        drone: 1.5,
-      },
-    },
-    paletteAdjustments: {
-      particles: {
-        enemyHitDefault: '#5ae9ff',
-        enemyHitStrafer: '#1a9dff',
-        bossHit: '#1a9dff',
-        bossCore: '#8cfaff',
-      },
-      bullets: {
-        playerLevels: ['#76f5ff', '#b3f9ff', '#e7fdff'],
-        highlight: '#f1ffff',
-        muzzleEdge: '#b3f9ff',
-        enemyGlow: '#5defffaa',
-      },
-      stars: {
-        bright: '#76f5ff',
-        dim: '#2f96ff',
-      },
-    },
-  },
-  'ember-overdrive': {
-    key: 'ember-overdrive',
-    icon: '🔥',
-    title: 'Ember Overdrive',
-    summary: 'Heat shimmer, faster hostiles, fleeting boosts.',
-    overlay: {
-      kind: 'heat',
-      intensity: 0.4,
-      speed: 0.5,
-      waves: 4,
-      colours: {
-        hot: 'rgba(255, 123, 57, 0.24)',
-        warm: 'rgba(255, 189, 45, 0.18)',
-        highlight: 'rgba(255, 228, 178, 0.14)',
-      },
-    },
-    spawnModifiers: {
-      enemySpeedMultiplier: 1.25,
-      powerupDurationMultiplier: 0.65,
-      enemyWeightMultipliers: {
-        asteroid: 0.9,
-        drone: 0.85,
-        strafer: 1.25,
-        turret: 1.15,
-      },
-    },
-    paletteAdjustments: {
-      particles: {
-        enemyHitDefault: '#ffc96b',
-        enemyHitStrafer: '#ff7e42',
-        bossHit: '#ff7e42',
-        bossCore: '#ffe6a6',
-      },
-      bullets: {
-        playerLevels: ['#ffb867', '#ffd091', '#ffe9bb'],
-        highlight: '#fff3cf',
-        muzzleEdge: '#ffd091',
-        enemyGlow: '#ffb96baa',
-      },
-      stars: {
-        bright: '#ffd66e',
-        dim: '#ff6b39',
       },
     },
   },
