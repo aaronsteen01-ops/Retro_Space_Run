@@ -4,29 +4,19 @@
 // CHANGELOG: Broadcast weapon changes via GameEvents for HUD synchronisation.
 import { coll, lerp, rand } from './utils.js';
 import { playPew, playPow, playUpgrade } from './audio.js';
-import { updateWeapon, updateScore, updateShield, updatePower, getViewSize } from './ui.js';
+import { ui, updateScore, getViewSize } from './ui.js';
 import { resolvePaletteSection, DEFAULT_THEME_PALETTE } from './themes.js';
 import { getBullet } from './bullets.js';
 import { showToast } from './effects.js';
 import { GameEvents } from './events.js';
+import { labelPower, labelWeapon, weaponGlyph, weaponToIconClass, getWeaponDisplayName, WEAPON_DISPLAY_NAMES } from './hud-formatters.js';
+
+export { WEAPON_DISPLAY_NAMES } from './hud-formatters.js';
+export { getWeaponDisplayName } from './hud-formatters.js';
 
 const DEFAULT_BULLET_LEVELS = DEFAULT_THEME_PALETTE.bullets.playerLevels;
 const SHIELD_BASE_DURATION = 8000;
 const DUPLICATE_SHIELD_RATIO = 0.5;
-
-export const WEAPON_DISPLAY_NAMES = Object.freeze({
-  pulse: 'Pulse Cannon',
-  twin: 'Twin Blaster',
-  burst: 'Burst Laser',
-  heavy: 'Heavy Plasma',
-});
-
-const WEAPON_PICTOGRAMS = Object.freeze({
-  pulse: '•',
-  twin: '||',
-  burst: '≋',
-  heavy: '◎',
-});
 
 const weaponDefs = {
   pulse: {
@@ -581,42 +571,35 @@ function romanNumeral(index) {
   return numerals[idx] || numerals[numerals.length - 1];
 }
 
-function weaponHudLabel(weapon) {
-  if (!weapon) {
-    return 'None';
-  }
-  const name = getWeaponDisplayName(weapon.name);
-  if (!name) {
-    return 'None';
-  }
-  const def = weaponDefs[weapon.name];
-  const levelIndex = def ? clampLevel(def, weapon.level) : 0;
-  const levelLabel = romanNumeral(levelIndex);
-  return `${name} – ${levelLabel}`;
-}
-
 export function getWeaponLabel(weapon) {
-  return weaponHudLabel(weapon);
-}
-
-export function getWeaponDisplayName(id) {
-  return WEAPON_DISPLAY_NAMES[id] || null;
-}
-
-function getWeaponPictogram(id) {
-  return WEAPON_PICTOGRAMS[id] || '•';
+  return labelWeapon(weapon);
 }
 
 export function updateWeaponHud(state) {
   const weapon = state?.weapon ?? null;
-  const label = weaponHudLabel(weapon);
-  const icon = weapon ? getWeaponPictogram(weapon.name) : undefined;
-  updateWeapon(label, {
-    icon,
-  });
-  GameEvents.emit('weapon:changed', weapon
-    ? { name: getWeaponDisplayName(weapon.name) ?? label, label, icon }
-    : 'None');
+  ui.bindHud(state);
+  const label = labelWeapon(weapon);
+  const icon = weapon ? weaponGlyph(weapon) : '';
+  const className = weaponToIconClass(weapon);
+  if (weapon) {
+    GameEvents.emit('weapon:changed', {
+      state,
+      weapon: { ...weapon },
+      label,
+      icon,
+      className,
+      name: getWeaponDisplayName(weapon.name) ?? label,
+    });
+  } else {
+    GameEvents.emit('weapon:changed', {
+      state,
+      weapon: null,
+      label: 'None',
+      icon: '',
+      className: 'hud-icon weapon-icon weapon-icon--none',
+      name: 'None',
+    });
+  }
 }
 
 export function setupWeapons(state) {
@@ -903,10 +886,9 @@ function upgradeWeapon(state, weaponName) {
         state.player.shield = newCharge;
       }
       state.shieldCapacity = fullCapacity;
-      updateShield(newCharge, fullCapacity);
-      GameEvents.emit('shield:changed', { value: newCharge, max: fullCapacity });
-      updatePower('SHIELD');
-      GameEvents.emit('powerup:changed', 'SHIELD');
+      ui.bindHud(state);
+      GameEvents.emit('shield:changed', { state, value: newCharge, max: fullCapacity });
+      GameEvents.emit('powerup:changed', { state, label: labelPower(state.power) });
       showToast('+50% SHIELD', 1000);
     } else {
       if (typeof state.addScore === 'function') {

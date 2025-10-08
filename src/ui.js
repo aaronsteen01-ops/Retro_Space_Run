@@ -10,6 +10,7 @@ import {
   getThemeLabel,
   getThemePalette,
 } from './themes.js';
+import { labelWeapon, weaponGlyph, weaponToIconClass, labelPower } from './hud-formatters.js';
 import {
   DIFFICULTY,
   getDifficultyMode as getStoredDifficultyMode,
@@ -34,12 +35,6 @@ const ICONS = Object.freeze({
     '<svg viewBox="0 0 24 24" class="hud-svg" focusable="false" aria-hidden="true"><path d="M11 3 5.5 13.2h5l-1.5 7.8 6.9-11.4h-5L17 3H11Z" fill="currentColor"/></svg>',
 });
 
-const WEAPON_ICON_MAP = new Map([
-  ['•', '<svg viewBox="0 0 24 24" class="hud-svg" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="3.5" fill="currentColor"/></svg>'],
-  ['||', '<svg viewBox="0 0 24 24" class="hud-svg" focusable="false" aria-hidden="true"><path d="M9.5 6.5v11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M14.5 6.5v11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'],
-  ['≋', '<svg viewBox="0 0 24 24" class="hud-svg" focusable="false" aria-hidden="true"><path d="M6 9h12M6 12h12M6 15h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'],
-  ['◎', '<svg viewBox="0 0 24 24" class="hud-svg" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="2.8" fill="currentColor" opacity="0.75"/></svg>'],
-]);
 
 export const canvas = document.getElementById('game');
 export const ctx = canvas.getContext('2d');
@@ -470,27 +465,118 @@ function handleAutoFireToggleClick(event) {
   toggleAutoFire();
 }
 
+function resolveEventState(payload) {
+  if (payload && typeof payload === 'object') {
+    if (payload.state && typeof payload.state === 'object') {
+      return payload.state;
+    }
+    if (!Array.isArray(payload) && typeof payload.player === 'object' && 'lives' in payload) {
+      return payload;
+    }
+  }
+  const root = typeof globalThis !== 'undefined' ? globalThis : window;
+  const mainInterface = root?.main;
+  if (mainInterface) {
+    if (typeof mainInterface.getState === 'function') {
+      try {
+        const maybeState = mainInterface.getState();
+        if (maybeState && typeof maybeState === 'object') {
+          return maybeState;
+        }
+      } catch (error) {
+        // ignore accessor errors
+      }
+    }
+    if (mainInterface.game && typeof mainInterface.game === 'object') {
+      return mainInterface.game;
+    }
+    if (mainInterface.state && typeof mainInterface.state === 'object') {
+      return mainInterface.state;
+    }
+  }
+  return null;
+}
+
+function bindHudInternal(state) {
+  if (!state || typeof state !== 'object') {
+    return;
+  }
+  applyHudLives(state.lives);
+  const shieldValue = Number.isFinite(state.player?.shield)
+    ? Math.max(0, state.player.shield)
+    : 0;
+  const baseShield = Number.isFinite(state.player?.baseShield)
+    ? Math.max(0, state.player.baseShield)
+    : 0;
+  const capacity = Number.isFinite(state.shieldCapacity)
+    ? Math.max(0, state.shieldCapacity)
+    : baseShield;
+  const maxShield = Math.max(capacity, baseShield, 1);
+  applyHudShield(shieldValue, maxShield);
+  const weaponLabel = labelWeapon(state.weapon);
+  const weaponClass = weaponToIconClass(state.weapon);
+  const weaponIconGlyph = weaponGlyph(state.weapon);
+  applyHudWeapon(weaponLabel, weaponIconGlyph, weaponClass);
+  const powerLabel = labelPower(state.power);
+  applyHudPowerup(powerLabel);
+}
+
 function bindHudEventSubscriptions() {
   if (hudEventsBound) {
     return;
   }
-  GameEvents.on('lives:changed', setHUDLives);
-  GameEvents.on('score:changed', setHUDScore);
-  GameEvents.on('shield:changed', (payload) => {
-    const data = payload ?? {};
-    setHUDShield(data.value, data.max);
-  });
-  GameEvents.on('weapon:changed', setHUDWeapon);
-  GameEvents.on('powerup:changed', setHUDPowerup);
+  const syncHud = (payload) => {
+    const state = resolveEventState(payload);
+    if (state) {
+      bindHudInternal(state);
+    }
+  };
+  GameEvents.on('lives:changed', syncHud);
+  GameEvents.on('shield:changed', syncHud);
+  GameEvents.on('weapon:changed', syncHud);
+  GameEvents.on('powerup:changed', syncHud);
   GameEvents.on('level:started', (payload = {}) => {
-    setHUDLives(payload.lives);
-    const shield = payload.shield ?? {};
-    setHUDShield(shield.value, shield.max);
-    setHUDScore(payload.score);
-    setHUDWeapon(payload.weapon ?? 'None');
-    setHUDPowerup(payload.powerup ?? 'None');
+    const state = resolveEventState(payload);
+    if (state) {
+      bindHudInternal(state);
+    } else {
+      const shield = payload.shield ?? {};
+      applyHudLives(payload.lives);
+      applyHudShield(shield.value, shield.max);
+      const fallbackWeaponState =
+        payload.weapon && typeof payload.weapon === 'object' ? payload.weapon : null;
+      const fallbackLabel = fallbackWeaponState
+        ? labelWeapon(fallbackWeaponState)
+        : typeof payload.weapon === 'string'
+          ? payload.weapon
+          : 'None';
+      const fallbackIcon = fallbackWeaponState
+        ? weaponGlyph(fallbackWeaponState)
+        : typeof payload.icon === 'string'
+          ? payload.icon
+          : '';
+      const fallbackClass = fallbackWeaponState
+        ? weaponToIconClass(fallbackWeaponState)
+        : typeof payload.weaponClass === 'string' && payload.weaponClass.trim().length
+          ? payload.weaponClass
+          : 'hud-icon weapon-icon weapon-icon--none';
+      applyHudWeapon(fallbackLabel, fallbackIcon, fallbackClass);
+      applyHudPowerup(payload.powerup ?? 'None');
+    }
+    if (Number.isFinite(payload.score)) {
+      setHUDScore(payload.score);
+    }
   });
+  GameEvents.on('score:changed', setHUDScore);
   hudEventsBound = true;
+}
+
+ui.bindHud = function bindHud(state) {
+  bindHudInternal(state);
+};
+
+export function bindHud(state) {
+  bindHudInternal(state);
 }
 
 function refreshLevelChipRefs() {
@@ -629,6 +715,15 @@ function injectHudStyles() {
       width: 1.35rem;
       height: 1.35rem;
       color: var(--cyn);
+    }
+    #hud .weapon-icon {
+      font-size: 1.05rem;
+      letter-spacing: 0.05em;
+      text-shadow: 0 0 6px var(--cyn);
+    }
+    #hud .weapon-icon.weapon-icon--none {
+      opacity: 0.7;
+      text-shadow: none;
     }
     #hud .hud-chip--lives .hud-icon,
     #hud .hud-chip--power .hud-icon {
@@ -923,35 +1018,6 @@ function setupHudLayout(root) {
     </div>
   `;
   refreshComboRefs();
-}
-
-function resolveWeaponIcon(icon) {
-  if (typeof icon === 'string' && icon.includes('<svg')) {
-    return icon;
-  }
-  if (typeof icon === 'string' && WEAPON_ICON_MAP.has(icon)) {
-    return WEAPON_ICON_MAP.get(icon);
-  }
-  return ICONS.weapon;
-}
-
-function normalizeWeaponLabel(label) {
-  const raw = typeof label === 'string' && label.trim().length ? label.trim() : 'None';
-  const separators = [' · ', ' – ', ' - ', ' — '];
-  for (const sep of separators) {
-    const parts = raw.split(sep);
-    if (parts.length === 2) {
-      const name = parts[0].trim();
-      const level = parts[1].trim();
-      const display = name && level ? `${name} · ${level}` : raw;
-      return {
-        display,
-        name: name || null,
-        level: level || null,
-      };
-    }
-  }
-  return { display: raw, name: raw !== 'None' ? raw : null, level: null };
 }
 
 function readStoredTheme() {
@@ -1309,7 +1375,7 @@ export function showPauseOverlay() {
   bindStartButton();
 }
 
-export function setHUDLives(value) {
+function applyHudLives(value) {
   if (!hudLives) {
     return;
   }
@@ -1320,10 +1386,6 @@ export function setHUDLives(value) {
     hudLivesChip.setAttribute('title', label);
     hudLivesChip.setAttribute('aria-label', label);
   }
-}
-
-export function updateLives(value) {
-  setHUDLives(value);
 }
 
 export function setHUDScore(value = 0) {
@@ -1380,7 +1442,7 @@ export function updateTime(value) {
   hudTime.textContent = `${seconds}s`;
 }
 
-export function setHUDShield(value = 0, maxValue = 1) {
+function applyHudShield(value = 0, maxValue = 1) {
   if (!hudShieldMeter || !hudShieldFill) {
     return;
   }
@@ -1398,11 +1460,7 @@ export function setHUDShield(value = 0, maxValue = 1) {
   }
 }
 
-export function updateShield(value = 0, maxValue = 1) {
-  setHUDShield(value, maxValue);
-}
-
-export function setHUDPowerup(label) {
+function applyHudPowerup(label) {
   if (!hudPower) {
     return;
   }
@@ -1413,10 +1471,6 @@ export function setHUDPowerup(label) {
     hudPowerChip.setAttribute('title', desc);
     hudPowerChip.setAttribute('aria-label', desc);
   }
-}
-
-export function updatePower(label) {
-  setHUDPowerup(label);
 }
 
 export function updateLevelChip({ levelIndex, name, mutators, theme } = {}) {
@@ -1521,30 +1575,20 @@ export function pulseMutatorIcon(kind) {
   mutatorPulseTimers.set(target, timeout);
 }
 
-export function updateWeapon(
-  label,
-  { icon } = {},
-) {
-  const resolved = normalizeWeaponLabel(label);
+function applyHudWeapon(label, glyph, iconClass) {
+  const display = typeof label === 'string' && label.trim().length ? label.trim() : 'None';
   if (hudWeapon) {
-    hudWeapon.textContent = resolved.display;
+    hudWeapon.textContent = display;
   }
   if (hudWeaponIcon) {
-    hudWeaponIcon.innerHTML = resolveWeaponIcon(icon);
+    hudWeaponIcon.className = iconClass || 'hud-icon weapon-icon weapon-icon--none';
+    hudWeaponIcon.textContent = glyph ?? '';
   }
   if (hudWeaponChip) {
-    const descriptor = `Weapon: ${resolved.display}`;
+    const descriptor = `Weapon: ${display}`;
     hudWeaponChip.setAttribute('title', descriptor);
     hudWeaponChip.setAttribute('aria-label', descriptor);
   }
-}
-
-export function setHUDWeapon(config) {
-  if (config && typeof config === 'object') {
-    updateWeapon(config.label ?? config.name ?? config, { icon: config.icon });
-    return;
-  }
-  updateWeapon(config);
 }
 
 export function currentOverlay() {
