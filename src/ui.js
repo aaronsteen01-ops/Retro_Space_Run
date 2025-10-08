@@ -1,6 +1,12 @@
 /**
  * ui.js — canvas sizing, HUD updates, overlay controls, and theme selection
  * management for Retro Space Run.
+ *
+ * Smoke test checklist:
+ * - Click START CAMPAIGN → transitions
+ * - Click ENDLESS → transitions
+ * - Open difficulty dropdown → select HARD → persists after reload
+ * - HUD: change weapon/power/life → values update
  */
 // CHANGELOG: Wired HUD widgets to GameEvents and refreshed difficulty control binding.
 import {
@@ -261,8 +267,10 @@ export const ui = {
     }
     if (this.debug) {
       this.drawDebugCrosshair();
+      this.debugDrawRegions();
     }
-    for (const region of buttonRegions) {
+    const buttons = Array.isArray(this.buttonRegions) ? this.buttonRegions : [];
+    for (const region of buttons) {
       if (isPointInsideRegion(mx, my, region)) {
         this.handleButton(region.name, region);
         return;
@@ -297,6 +305,38 @@ export const ui = {
     context.lineTo(point.x, point.y + arm);
     context.stroke();
     context.restore();
+  },
+  debugDrawRegions(context = ctx) {
+    if (!this.debug || !context || typeof context.save !== 'function') {
+      return;
+    }
+    const drawRegions = (regions, stroke, fill) => {
+      if (!Array.isArray(regions)) {
+        return;
+      }
+      for (const region of regions) {
+        if (!region || !Number.isFinite(region.x) || !Number.isFinite(region.y)) {
+          continue;
+        }
+        const width = Number.isFinite(region.w) ? region.w : 0;
+        const height = Number.isFinite(region.h) ? region.h : 0;
+        if (width <= 0 || height <= 0) {
+          continue;
+        }
+        context.save();
+        context.lineWidth = 2;
+        context.strokeStyle = stroke;
+        context.fillStyle = fill;
+        context.beginPath();
+        context.rect(region.x, region.y, width, height);
+        context.fill();
+        context.stroke();
+        context.restore();
+      }
+    };
+
+    drawRegions(this.buttonRegions, 'rgba(0, 255, 0, 0.8)', 'rgba(0, 255, 0, 0.12)');
+    drawRegions(this.dropdownRegions, 'rgba(255, 200, 0, 0.8)', 'rgba(255, 200, 0, 0.12)');
   },
   toast(message, duration = 1100) {
     if (!message) {
@@ -1205,17 +1245,18 @@ function handleDebugToggleKey(event) {
   if (!event || event.repeat) {
     return;
   }
-  const key = event.key;
-  if (key !== 'd' && key !== 'D') {
+  const key = typeof event.key === 'string' ? event.key.toLowerCase() : '';
+  if (key !== 'j') {
     return;
   }
   if (isTextEntryElement(event.target)) {
     return;
   }
   ui.debug = !ui.debug;
-  if (ui.debug && ui.debugLastClick) {
+  if (ui.debug) {
     const draw = () => {
       ui.drawDebugCrosshair();
+      ui.debugDrawRegions();
     };
     if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
       window.requestAnimationFrame(draw);
