@@ -3206,7 +3206,10 @@ function normaliseViewState(value) {
 
 function resetUiInteractionState() {
   if (ui && typeof ui === 'object') {
-    ui.isDiffOpen = false;
+    ui.diffOpen = false;
+    if ('isDiffOpen' in ui) {
+      ui.isDiffOpen = false;
+    }
   }
 }
 
@@ -3276,6 +3279,16 @@ function setAppState(newState, options = {}) {
     }
   }
   return currentViewState;
+}
+
+function resolveLoopForState(viewState) {
+  switch (viewState) {
+    case APP_VIEW_STATES.GAMEPLAY:
+    case APP_VIEW_STATES.ENDLESS:
+      return loop;
+    default:
+      return null;
+  }
 }
 
 function handlePlayerHit() {
@@ -3732,25 +3745,54 @@ function monitorGamepadIdle() {
 }
 
 const mainInterface = {
-  setState: setAppState,
+  state: currentViewState,
+  loop: resolveLoopForState(currentViewState),
+  setState(newState, options = {}) {
+    const applied = setAppState(newState, options);
+    this.state = applied;
+    if (ui && typeof ui === 'object') {
+      ui.diffOpen = false;
+      if ('isDiffOpen' in ui) {
+        ui.isDiffOpen = ui.diffOpen;
+      }
+    }
+    this.loop = resolveLoopForState(applied);
+    return applied;
+  },
   getState: () => currentViewState,
   getPreviousState: () => previousViewState,
-  state,
-  settings: state.settings,
   constants: {
     STATES: APP_VIEW_STATES,
     GAME_MODES,
   },
   startCampaign(level) {
-    return setAppState(APP_VIEW_STATES.GAMEPLAY, { level });
+    return this.setState(APP_VIEW_STATES.GAMEPLAY, { level });
   },
   startEndless() {
-    return setAppState(APP_VIEW_STATES.ENDLESS);
+    return this.setState(APP_VIEW_STATES.ENDLESS);
   },
   showMenu(options) {
-    return setAppState(APP_VIEW_STATES.MENU, options);
+    return this.setState(APP_VIEW_STATES.MENU, options);
   },
 };
+
+Object.defineProperty(mainInterface, 'settings', {
+  get() {
+    return state.settings;
+  },
+});
+
+Object.defineProperty(mainInterface, 'game', {
+  get() {
+    return state;
+  },
+});
+
+Object.defineProperty(mainInterface, 'gameState', {
+  get() {
+    return state;
+  },
+});
 
 if (typeof globalThis !== 'undefined') {
   globalThis.main = mainInterface;
@@ -3760,4 +3802,4 @@ export const main = mainInterface;
 
 monitorGamepadIdle();
 
-setAppState(APP_VIEW_STATES.MENU, { resetHud: true, force: true });
+mainInterface.setState(APP_VIEW_STATES.MENU, { resetHud: true, force: true });

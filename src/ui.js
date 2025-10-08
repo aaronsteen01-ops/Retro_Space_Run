@@ -18,6 +18,7 @@ import {
 } from './difficulty.js';
 import { getMetaValue, updateStoredMeta } from './storage.js';
 import { GameEvents } from './events.js';
+import { showToast as showHudToast } from './effects.js';
 import { isPaletteUnlocked } from './meta.js';
 
 const HUD_STYLE_ID = 'hud-compact-style';
@@ -126,7 +127,13 @@ function logInteraction(kind, name, region) {
 export const ui = {
   buttonRegions: [],
   dropdownRegions: [],
-  isDiffOpen: false,
+  diffOpen: false,
+  get isDiffOpen() {
+    return this.diffOpen;
+  },
+  set isDiffOpen(value) {
+    this.diffOpen = Boolean(value);
+  },
   debug: false,
   debugLastClick: null,
   resetRegions() {
@@ -188,35 +195,37 @@ export const ui = {
     if (!key) {
       return;
     }
+    const handler = buttonHandlers.get(key);
     const root = typeof globalThis !== 'undefined' ? globalThis : window;
     const appMain = root?.main;
+    let result;
     switch (key) {
       case 'startCampaign':
-        appMain?.setState?.('GAMEPLAY');
+        result = appMain?.setState?.('GAMEPLAY');
         break;
       case 'endless':
-        appMain?.setState?.('ENDLESS');
+        result = appMain?.setState?.('ENDLESS');
         break;
       case 'garage':
-        appMain?.setState?.('GARAGE');
+        result = appMain?.setState?.('GARAGE');
         break;
       case 'achievements':
-        appMain?.setState?.('ACHIEVEMENTS');
+        result = appMain?.setState?.('ACHIEVEMENTS');
         break;
       case 'options':
-        appMain?.setState?.('OPTIONS');
+        result = appMain?.setState?.('OPTIONS');
         break;
-      case 'toggleDifficulty':
-        this.isDiffOpen = !this.isDiffOpen;
+      case 'difficultyToggle':
+        this.diffOpen = !this.diffOpen;
         break;
       default:
         break;
     }
-    const handler = buttonHandlers.get(key);
     if (handler) {
       handler(region);
     }
     logInteraction('Button', key, region);
+    return result;
   },
   handleDropdown(name, region) {
     const key = sanitizeName(name);
@@ -231,13 +240,16 @@ export const ui = {
         if (appMain?.settings) {
           appMain.settings.difficulty = diff;
         }
-        this.isDiffOpen = false;
         try {
           root?.localStorage?.setItem?.('difficulty', diff);
         } catch (err) {
           /* ignore storage errors */
         }
         setDifficulty(diff);
+        this.diffOpen = false;
+        if (typeof this.toast === 'function') {
+          this.toast(`Difficulty: ${diff}`);
+        }
       }
     }
     const handler = dropdownHandlers.get(key);
@@ -262,7 +274,7 @@ export const ui = {
         return;
       }
     }
-    if (this.isDiffOpen) {
+    if (this.diffOpen) {
       const dropdowns = Array.isArray(this.dropdownRegions) ? this.dropdownRegions : [];
       for (const region of dropdowns) {
         if (isPointInsideRegion(mx, my, region)) {
@@ -291,6 +303,12 @@ export const ui = {
     context.lineTo(point.x, point.y + arm);
     context.stroke();
     context.restore();
+  },
+  toast(message, duration = 1100) {
+    if (!message) {
+      return;
+    }
+    showHudToast(String(message), duration);
   },
 };
 
