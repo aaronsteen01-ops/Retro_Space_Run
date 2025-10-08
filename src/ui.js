@@ -125,6 +125,29 @@ function logInteraction(kind, name, region) {
   console.log(`[UI] ${kind} clicked: ${label}`, region);
 }
 
+function drawRoundedRect(context, x, y, width, height, radius = 12) {
+  if (!context) {
+    return;
+  }
+  const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+  if (typeof context.roundRect === 'function') {
+    context.beginPath();
+    context.roundRect(x, y, width, height, r);
+    return;
+  }
+  context.beginPath();
+  context.moveTo(x + r, y);
+  context.lineTo(x + width - r, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + r);
+  context.lineTo(x + width, y + height - r);
+  context.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+  context.lineTo(x + r, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - r);
+  context.lineTo(x, y + r);
+  context.quadraticCurveTo(x, y, x + r, y);
+  context.closePath();
+}
+
 export const ui = {
   buttonRegions: [],
   dropdownRegions: [],
@@ -284,6 +307,7 @@ export const ui = {
           return;
         }
       }
+      this.diffOpen = false;
     }
   },
   drawDebugCrosshair(context = ctx) {
@@ -365,6 +389,246 @@ export function onMenuButton(name, handler) {
 export function onMenuDropdown(name, handler) {
   return ui.bindDropdownHandler(name, handler);
 }
+
+const MENU_BUTTONS = [
+  { name: 'startCampaign', label: 'Start Campaign' },
+  { name: 'endless', label: 'Endless Mode' },
+  { name: 'garage', label: 'Garage' },
+  { name: 'achievements', label: 'Achievements' },
+  { name: 'options', label: 'Options' },
+];
+
+function getViewMetrics() {
+  const width = Number.isFinite(VIEW_W) && VIEW_W > 0
+    ? VIEW_W
+    : canvas?.clientWidth ?? canvas?.width ?? 0;
+  const height = Number.isFinite(VIEW_H) && VIEW_H > 0
+    ? VIEW_H
+    : canvas?.clientHeight ?? canvas?.height ?? 0;
+  return { width, height };
+}
+
+function drawMenuBackdrop(context, width, height) {
+  if (!context) {
+    return;
+  }
+  context.save();
+  context.clearRect(0, 0, width, height);
+  const gradient = context.createLinearGradient(0, 0, 0, height);
+  gradient.addColorStop(0, 'rgba(6, 9, 24, 0.92)');
+  gradient.addColorStop(1, 'rgba(3, 5, 14, 0.88)');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, width, height);
+  context.restore();
+}
+
+function drawMenuButton(context, region, label, { secondary = false, active = false } = {}) {
+  if (!context || !region) {
+    return;
+  }
+  context.save();
+  context.lineWidth = secondary ? 1.5 : 2.2;
+  const fill = secondary
+    ? active
+      ? 'rgba(0, 229, 255, 0.22)'
+      : 'rgba(0, 229, 255, 0.12)'
+    : active
+      ? 'rgba(255, 61, 247, 0.24)'
+      : 'rgba(0, 229, 255, 0.18)';
+  const stroke = secondary
+    ? 'rgba(0, 229, 255, 0.55)'
+    : 'rgba(255, 61, 247, 0.65)';
+  context.fillStyle = fill;
+  context.strokeStyle = stroke;
+  drawRoundedRect(context, region.x, region.y, region.w, region.h, 18);
+  context.fill();
+  context.stroke();
+  context.fillStyle = '#e7faff';
+  context.textBaseline = 'middle';
+  context.textAlign = 'center';
+  context.font = secondary ? '600 18px "Segoe UI", sans-serif' : '700 20px "Segoe UI", sans-serif';
+  context.fillText(label, region.x + region.w / 2, region.y + region.h / 2);
+  context.restore();
+}
+
+function drawDropdownContainer(context, x, y, width, height) {
+  context.save();
+  context.lineWidth = 1.6;
+  context.fillStyle = 'rgba(4, 8, 22, 0.92)';
+  context.strokeStyle = 'rgba(0, 229, 255, 0.45)';
+  drawRoundedRect(context, x, y, width, height, 14);
+  context.fill();
+  context.stroke();
+  context.restore();
+}
+
+function drawDropdownEntry(context, region, label, { active = false, isFirst = false, isLast = false } = {}) {
+  if (!context || !region) {
+    return;
+  }
+  context.save();
+  const padding = 4;
+  const x = region.x + padding;
+  const y = region.y + padding;
+  const w = region.w - padding * 2;
+  const h = region.h - padding * 2;
+  context.fillStyle = active ? 'rgba(0, 229, 255, 0.28)' : 'rgba(0, 229, 255, 0.08)';
+  if (active || isFirst || isLast) {
+    const radius = isFirst || isLast ? 10 : 6;
+    drawRoundedRect(context, x, y, w, h, radius);
+    context.fill();
+  } else {
+    context.fillRect(x, y, w, h);
+  }
+  context.fillStyle = '#e7faff';
+  context.font = '600 17px "Segoe UI", sans-serif';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillText(label, region.x + region.w / 2, region.y + region.h / 2);
+  context.restore();
+  if (!isLast) {
+    context.save();
+    context.strokeStyle = 'rgba(0, 229, 255, 0.25)';
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(region.x + 6, region.y + region.h);
+    context.lineTo(region.x + region.w - 6, region.y + region.h);
+    context.stroke();
+    context.restore();
+  }
+}
+
+function formatDifficultyLabel(key) {
+  const base = typeof key === 'string' && key.length ? key : 'normal';
+  const name = base.charAt(0).toUpperCase() + base.slice(1);
+  const info = DIFFICULTY[base];
+  if (!info) {
+    return name;
+  }
+  const density = Number.isFinite(info.density) ? Math.round(info.density * 100) : 100;
+  const speed = Number.isFinite(info.speed) ? Math.round(info.speed * 100) : 100;
+  return `${name} · ${density}% density / ${speed}% speed`;
+}
+
+ui.drawMainMenu = function drawMainMenu(context = ctx) {
+  const renderContext = context ?? ctx;
+  const { width, height } = getViewMetrics();
+  this.resetRegions();
+  if (!renderContext || width <= 0 || height <= 0) {
+    return;
+  }
+  drawMenuBackdrop(renderContext, width, height);
+  const panelWidth = Math.min(width * 0.6, 520);
+  const panelHeight = Math.min(height * 0.72, 520);
+  const panelX = (width - panelWidth) / 2;
+  const panelY = Math.max(height * 0.14, (height - panelHeight) / 2 - 20);
+  renderContext.save();
+  renderContext.globalAlpha = 0.92;
+  renderContext.fillStyle = 'rgba(5, 8, 20, 0.85)';
+  renderContext.strokeStyle = 'rgba(0, 229, 255, 0.45)';
+  renderContext.lineWidth = 2.4;
+  drawRoundedRect(renderContext, panelX, panelY, panelWidth, panelHeight, 26);
+  renderContext.fill();
+  renderContext.stroke();
+  renderContext.restore();
+  renderContext.save();
+  renderContext.fillStyle = '#e7faff';
+  renderContext.textAlign = 'center';
+  renderContext.textBaseline = 'top';
+  renderContext.font = '700 30px "Segoe UI", sans-serif';
+  renderContext.fillText('Retro Space Run', width / 2, panelY + 28);
+  renderContext.font = '400 16px "Segoe UI", sans-serif';
+  renderContext.fillText('Select a mode to launch into the stars', width / 2, panelY + 68);
+  renderContext.restore();
+  const buttonWidth = Math.min(panelWidth - 120, width * 0.5);
+  const buttonHeight = 54;
+  const buttonGap = 16;
+  const totalButtonsHeight = MENU_BUTTONS.length * buttonHeight + (MENU_BUTTONS.length - 1) * buttonGap;
+  let currentY = panelY + Math.max(110, (panelHeight - totalButtonsHeight) / 2);
+  for (const entry of MENU_BUTTONS) {
+    const region = this.registerButton({
+      name: entry.name,
+      x: width / 2 - buttonWidth / 2,
+      y: currentY,
+      w: buttonWidth,
+      h: buttonHeight,
+    });
+    drawMenuButton(renderContext, region, entry.label);
+    currentY += buttonHeight + buttonGap;
+  }
+  const difficultyMode = getDifficultyMode();
+  const difficultyLabel = typeof difficultyMode === 'string'
+    ? difficultyMode.toUpperCase()
+    : 'NORMAL';
+  const toggleRegion = this.registerButton({
+    name: 'difficultyToggle',
+    x: width / 2 - buttonWidth / 2,
+    y: currentY + 10,
+    w: buttonWidth,
+    h: 46,
+  });
+  drawMenuButton(renderContext, toggleRegion, `Difficulty: ${difficultyLabel}`, {
+    secondary: true,
+    active: this.diffOpen,
+  });
+  if (this.diffOpen) {
+    const options = Object.keys(DIFFICULTY);
+    const optionHeight = 44;
+    const dropdownHeight = optionHeight * options.length;
+    const dropdownX = toggleRegion.x;
+    const dropdownY = toggleRegion.y + toggleRegion.h + 8;
+    drawDropdownContainer(renderContext, dropdownX, dropdownY, toggleRegion.w, dropdownHeight);
+    let optionY = dropdownY;
+    options.forEach((key, index) => {
+      const entryRegion = this.registerDropdown({
+        name: `difficulty_${key}`,
+        x: dropdownX,
+        y: optionY,
+        w: toggleRegion.w,
+        h: optionHeight,
+      });
+      drawDropdownEntry(renderContext, entryRegion, formatDifficultyLabel(key), {
+        active: key === difficultyMode,
+        isFirst: index === 0,
+        isLast: index === options.length - 1,
+      });
+      optionY += optionHeight;
+    });
+  }
+  if (this.debug) {
+    this.debugDrawRegions(renderContext);
+  }
+};
+
+ui.drawOptions = function drawOptions(context = ctx) {
+  const renderContext = context ?? ctx;
+  const { width, height } = getViewMetrics();
+  this.resetRegions();
+  if (!renderContext || width <= 0 || height <= 0) {
+    return;
+  }
+  drawMenuBackdrop(renderContext, width, height);
+};
+
+ui.drawGarage = function drawGarage(context = ctx) {
+  const renderContext = context ?? ctx;
+  const { width, height } = getViewMetrics();
+  this.resetRegions();
+  if (!renderContext || width <= 0 || height <= 0) {
+    return;
+  }
+  drawMenuBackdrop(renderContext, width, height);
+};
+
+ui.drawAchievements = function drawAchievements(context = ctx) {
+  const renderContext = context ?? ctx;
+  const { width, height } = getViewMetrics();
+  this.resetRegions();
+  if (!renderContext || width <= 0 || height <= 0) {
+    return;
+  }
+  drawMenuBackdrop(renderContext, width, height);
+};
 
 const hudLives = document.getElementById('lives');
 const hudScore = document.getElementById('score');
