@@ -9,12 +9,9 @@ import {
   showOverlay,
   hideOverlay,
   showPauseOverlay,
-  updateLives,
   updateScore,
   updateComboMultiplier,
   updateTime,
-  updatePower,
-  updateShield,
   updateLevelChip,
   getActiveThemePalette,
   onThemeChange,
@@ -863,23 +860,23 @@ function addScore(basePoints, { allowFraction = false } = {}) {
 state.addScore = addScore;
 
 function emitLivesChanged() {
-  updateLives(state.lives);
-  GameEvents.emit('lives:changed', state.lives);
+  ui.bindHud(state);
+  GameEvents.emit('lives:changed', { state });
   dlog('Lives', state.lives);
 }
 
 function emitShieldChanged(value = 0, maxValue = 1) {
   const resolvedMax = Number.isFinite(maxValue) && maxValue > 0 ? maxValue : getShieldCapacity(state) || SHIELD_BASE_DURATION;
-  updateShield(value, resolvedMax);
-  GameEvents.emit('shield:changed', { value, max: resolvedMax });
+  ui.bindHud(state);
+  GameEvents.emit('shield:changed', { state, value, max: resolvedMax });
   dlog('Shield', value, '/', resolvedMax);
 }
 
 function emitPowerChanged(label) {
   const clean = typeof label === 'string' && label.trim().length ? label.trim() : 'None';
   const display = clean === 'None' ? 'None' : clean.toUpperCase();
-  updatePower(display);
-  GameEvents.emit('powerup:changed', display);
+  ui.bindHud(state);
+  GameEvents.emit('powerup:changed', { state, label: display });
   dlog('Power-up', display);
 }
 
@@ -1904,6 +1901,7 @@ function startLevel(levelIndex, options = {}) {
   startLevelSpawns(spawnConfig);
   dlog('Level start', { level: targetLevel?.key ?? levelIndex, config: spawnConfig });
   GameEvents.emit('level:started', {
+    state,
     id: targetLevel?.key ?? `L${levelIndex}`,
     index: state.levelIndex,
     name: targetLevel?.name ?? null,
@@ -1912,8 +1910,8 @@ function startLevel(levelIndex, options = {}) {
     lives: state.lives,
     shield: { value: state.player?.shield ?? 0, max: state.shieldCapacity || getShieldCapacity(state) || SHIELD_BASE_DURATION },
     score: state.score,
-    weapon: state.weapon ? { name: state.weapon.name ?? 'Weapon', icon: state.weapon.icon ?? state.weapon.symbol ?? null } : 'None',
-    powerup: state.power?.name ? state.power.name.toUpperCase() : 'None',
+    weapon: state.weapon ? { ...state.weapon } : null,
+    power: state.power ? { ...state.power } : null,
   });
   lastFrame = performance.now();
   requestAnimationFrame(loop);

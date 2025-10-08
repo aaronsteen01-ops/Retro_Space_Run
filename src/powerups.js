@@ -4,9 +4,10 @@
 // CHANGELOG: Emitted GameEvents when power-ups modify shield or HUD state.
 import { rand, TAU, coll, clamp } from './utils.js';
 import { playPow } from './audio.js';
-import { updatePower, updateShield, getViewSize } from './ui.js';
+import { ui, getViewSize } from './ui.js';
 import { resolvePaletteSection } from './themes.js';
 import { GameEvents } from './events.js';
+import { labelPower } from './hud-formatters.js';
 
 const spawnState = {
   last: 0,
@@ -116,9 +117,9 @@ export function applyPower(state, kind, now) {
   duration = Math.round(duration * durationMultiplier);
   state.power.name = kind;
   state.power.until = now + duration;
-  const label = kind.toUpperCase();
-  updatePower(label);
-  GameEvents.emit('powerup:changed', label);
+  let shieldUpdated = false;
+  let shieldValue = state.player?.shield ?? 0;
+  let shieldMax = state.shieldCapacity ?? 0;
   playPow();
   switch (kind) {
     case 'shield':
@@ -126,8 +127,9 @@ export function applyPower(state, kind, now) {
         state.player.shield = duration;
       }
       state.shieldCapacity = duration;
-      updateShield(duration, duration);
-      GameEvents.emit('shield:changed', { value: duration, max: duration });
+      shieldUpdated = true;
+      shieldValue = duration;
+      shieldMax = duration;
       break;
     case 'rapid':
       state.lastShot = 0;
@@ -141,12 +143,21 @@ export function applyPower(state, kind, now) {
     default:
       break;
   }
+  ui.bindHud(state);
+  const powerLabel = labelPower(state.power);
+  GameEvents.emit('powerup:changed', { state, label: powerLabel });
+  if (shieldUpdated) {
+    GameEvents.emit('shield:changed', { state, value: shieldValue, max: shieldMax });
+  }
 }
 
 export function clearExpiredPowers(state, now) {
   if (state.power.name && now > state.power.until) {
     const baseSpeed = Math.max(120, state.player?.baseSpeed ?? 260);
     const baseShield = Math.max(0, state.player?.baseShield ?? 0);
+    let shieldUpdated = false;
+    let shieldValue = baseShield;
+    let shieldMax = Math.max(baseShield, 1);
     if (state.power.name === 'boost' && state.player) {
       state.player.speed = baseSpeed;
     }
@@ -155,22 +166,25 @@ export function clearExpiredPowers(state, now) {
         state.player.shield = baseShield;
       }
       state.shieldCapacity = baseShield;
-      const maxShield = Math.max(baseShield, 1);
-      updateShield(baseShield, maxShield);
-      GameEvents.emit('shield:changed', { value: baseShield, max: maxShield });
+      shieldUpdated = true;
+      shieldValue = baseShield;
+      shieldMax = Math.max(baseShield, 1);
     } else if ((state.player?.shield ?? 0) > baseShield) {
       if (state.player) {
         state.player.shield = baseShield;
       }
       state.shieldCapacity = baseShield;
-      const maxShield = Math.max(baseShield, 1);
-      updateShield(baseShield, maxShield);
-      GameEvents.emit('shield:changed', { value: baseShield, max: maxShield });
+      shieldUpdated = true;
+      shieldValue = baseShield;
+      shieldMax = Math.max(baseShield, 1);
     }
     state.power.name = null;
     state.power.until = 0;
-    updatePower('None');
-    GameEvents.emit('powerup:changed', 'None');
+    ui.bindHud(state);
+    GameEvents.emit('powerup:changed', { state, label: labelPower(state.power) });
+    if (shieldUpdated) {
+      GameEvents.emit('shield:changed', { state, value: shieldValue, max: shieldMax });
+    }
   }
 }
 
@@ -231,16 +245,15 @@ export function drawPowerups(ctx, powerups, palette) {
 export function resetPowerState(state) {
   state.power.name = null;
   state.power.until = 0;
-  updatePower('None');
-  GameEvents.emit('powerup:changed', 'None');
   const baseShield = Math.max(0, state.player?.baseShield ?? 0);
   state.shieldCapacity = baseShield;
   const maxShield = Math.max(baseShield, 1);
-  updateShield(baseShield, maxShield);
-  GameEvents.emit('shield:changed', { value: baseShield, max: maxShield });
   if (state.player) {
     state.player.shield = baseShield;
     const baseSpeed = Math.max(120, state.player.baseSpeed ?? state.player.speed ?? 260);
     state.player.speed = baseSpeed;
   }
+  ui.bindHud(state);
+  GameEvents.emit('powerup:changed', { state, label: labelPower(state.power) });
+  GameEvents.emit('shield:changed', { state, value: baseShield, max: maxShield });
 }
