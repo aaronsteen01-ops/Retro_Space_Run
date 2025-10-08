@@ -158,6 +158,18 @@ const GAME_MODES = Object.freeze({
   ENDLESS: 'endless',
 });
 
+const APP_VIEW_STATES = Object.freeze({
+  MENU: 'MENU',
+  GAMEPLAY: 'GAMEPLAY',
+  ENDLESS: 'ENDLESS',
+  GARAGE: 'GARAGE',
+  ACHIEVEMENTS: 'ACHIEVEMENTS',
+  OPTIONS: 'OPTIONS',
+});
+
+let currentViewState = APP_VIEW_STATES.MENU;
+let previousViewState = APP_VIEW_STATES.MENU;
+
 if (canvas && typeof canvas.addEventListener === 'function') {
   canvas.addEventListener('mousedown', (event) => {
     if (!ui || typeof ui.onClick !== 'function') {
@@ -748,6 +760,7 @@ const state = {
   assistEnabled: getAssistMode(),
   settings: {
     autoFire: getAutoFire(),
+    difficulty: getDifficultyMode(),
   },
   levelContext: { enemyWeights: {}, mutators: {}, themeKey: null, themeBehaviour: null },
   weather: { windX: 0, windDrift: 0, squall: null },
@@ -942,6 +955,7 @@ function applyPlayerDamage(damage) {
 
 onDifficultyModeChange((mode) => {
   applyDifficultyMode(mode);
+  state.settings.difficulty = mode;
   if (state.running && state.level) {
     const config = getDifficultyConfig(state.difficultyMode, state.level?.key ?? state.level);
     startLevelSpawns(config);
@@ -990,21 +1004,22 @@ onInputAction(INPUT_ACTIONS.OPTIONS, () => {
     return;
   }
   if (state.running) {
-    renderOptionsOverlay({
+    setAppState(APP_VIEW_STATES.OPTIONS, {
       context: 'game',
       onClose: () => {
         hideOverlay();
         state.paused = false;
         clearInput();
+        setAppState(APP_VIEW_STATES.GAMEPLAY, { resume: true });
       },
     });
     return;
   }
   if (atMenuScreen) {
-    renderOptionsOverlay({
+    setAppState(APP_VIEW_STATES.OPTIONS, {
       context: 'menu',
       onClose: () => {
-        renderStartOverlay();
+        setAppState(APP_VIEW_STATES.MENU, { force: true });
       },
     });
   }
@@ -1914,6 +1929,7 @@ function startRun(levelIndex = 1, options = {}) {
   state.gameMode = gameMode;
   state.difficultyMode = getDifficultyMode();
   applyDifficultyMode(state.difficultyMode);
+  state.settings.difficulty = state.difficultyMode;
   state.assistEnabled = getAssistMode();
   const selectedShipKey = getSelectedShipKey() || defaultShipKey;
   const selectedShip = getShipByKey(selectedShipKey) ?? getShipByKey(defaultShipKey);
@@ -2114,7 +2130,7 @@ function renderUpgradeSelection({ nextLevelIndex, nextLevel, levelTime, scoreDel
   menuBtn?.addEventListener('click', () => {
     recordRunEnd({ score: state.score, bossesDefeated: state.runStats?.bosses ?? 0 });
     state.runStats = createRunStats({ shipKey: state.ship?.key ?? defaultShipKey });
-    renderStartOverlay();
+    setAppState(APP_VIEW_STATES.MENU);
   });
   let handled = false;
   const buttons = Array.from(document.querySelectorAll('button[data-upgrade]'));
@@ -2258,7 +2274,7 @@ function completeLevel() {
     resetGame(state.levelIndex);
   });
   document.getElementById('summary-menu')?.addEventListener('click', () => {
-    renderStartOverlay();
+    setAppState(APP_VIEW_STATES.MENU);
   });
 }
 
@@ -2323,7 +2339,7 @@ function gameOver() {
     });
   }
   document.getElementById('overlay-menu')?.addEventListener('click', () => {
-    renderStartOverlay({ resetHud: true });
+    setAppState(APP_VIEW_STATES.MENU, { resetHud: true });
   });
 }
 
@@ -2437,7 +2453,7 @@ function bindShipSelectionHandlers({ context = 'start' } = {}) {
       if (context === 'garage') {
         renderGarageOverlay();
       } else {
-        renderStartOverlay();
+        setAppState(APP_VIEW_STATES.MENU, { force: true });
       }
     });
   });
@@ -2484,7 +2500,7 @@ function renderGarageOverlay() {
     </div>
   `);
   document.getElementById('garage-back')?.addEventListener('click', () => {
-    renderStartOverlay();
+    setAppState(APP_VIEW_STATES.MENU);
   });
   bindShipSelectionHandlers({ context: 'garage' });
 }
@@ -2526,7 +2542,7 @@ function renderAchievementsOverlay() {
     </div>
   `);
   document.getElementById('achievements-back')?.addEventListener('click', () => {
-    renderStartOverlay();
+    setAppState(APP_VIEW_STATES.MENU);
   });
 }
 
@@ -2682,7 +2698,8 @@ function renderStartOverlay({ resetHud = false } = {}) {
       id: 'campaign',
       label: 'Start Campaign',
       onActivate: () => {
-        startRun(hasProgress ? highestUnlockedLevel : 1);
+        const targetLevel = hasProgress ? highestUnlockedLevel : 1;
+        setAppState(APP_VIEW_STATES.GAMEPLAY, { level: targetLevel });
       },
       detail: () => {
         const primaryButton = hasProgress
@@ -2728,13 +2745,13 @@ function renderStartOverlay({ resetHud = false } = {}) {
           `,
           onMount: () => {
             document.getElementById('meta-campaign-continue')?.addEventListener('click', () => {
-              startRun(highestUnlockedLevel);
+              setAppState(APP_VIEW_STATES.GAMEPLAY, { level: highestUnlockedLevel });
             });
             document.getElementById('meta-campaign-start')?.addEventListener('click', () => {
-              startRun(1);
+              setAppState(APP_VIEW_STATES.GAMEPLAY, { level: 1 });
             });
             document.getElementById('meta-campaign-restart')?.addEventListener('click', () => {
-              startRun(1);
+              setAppState(APP_VIEW_STATES.GAMEPLAY, { level: 1 });
             });
             const toggle = document.getElementById('meta-campaign-toggle');
             const levelPanelElement = document.getElementById('meta-campaign-levels');
@@ -2761,7 +2778,7 @@ function renderStartOverlay({ resetHud = false } = {}) {
                 return;
               }
               element.addEventListener('click', () => {
-                startRun(levelNumber);
+                setAppState(APP_VIEW_STATES.GAMEPLAY, { level: levelNumber });
               });
             });
             bindDifficultySelect();
@@ -2773,7 +2790,7 @@ function renderStartOverlay({ resetHud = false } = {}) {
       id: 'endless',
       label: 'Endless Mode',
       onActivate: () => {
-        startRun(1, { gameMode: GAME_MODES.ENDLESS });
+        setAppState(APP_VIEW_STATES.ENDLESS);
       },
       detail: () => {
         const endlessStatsBlock = endlessSummaryLine
@@ -2792,7 +2809,7 @@ function renderStartOverlay({ resetHud = false } = {}) {
           `,
           onMount: () => {
             document.getElementById('meta-endless-start')?.addEventListener('click', () => {
-              startRun(1, { gameMode: GAME_MODES.ENDLESS });
+              setAppState(APP_VIEW_STATES.ENDLESS);
             });
           },
         };
@@ -2802,7 +2819,7 @@ function renderStartOverlay({ resetHud = false } = {}) {
       id: 'garage',
       label: 'Garage',
       onActivate: () => {
-        renderGarageOverlay();
+        setAppState(APP_VIEW_STATES.GARAGE);
       },
       detail: () => ({
         html: `
@@ -2817,7 +2834,7 @@ function renderStartOverlay({ resetHud = false } = {}) {
         `,
         onMount: () => {
           document.getElementById('meta-garage-open')?.addEventListener('click', () => {
-            renderGarageOverlay();
+            setAppState(APP_VIEW_STATES.GARAGE);
           });
         },
       }),
@@ -2826,7 +2843,7 @@ function renderStartOverlay({ resetHud = false } = {}) {
       id: 'achievements',
       label: 'Achievements',
       onActivate: () => {
-        renderAchievementsOverlay();
+        setAppState(APP_VIEW_STATES.ACHIEVEMENTS);
       },
       detail: () => ({
         html: `
@@ -2841,7 +2858,7 @@ function renderStartOverlay({ resetHud = false } = {}) {
         `,
         onMount: () => {
           document.getElementById('meta-achievements-open')?.addEventListener('click', () => {
-            renderAchievementsOverlay();
+            setAppState(APP_VIEW_STATES.ACHIEVEMENTS);
           });
         },
       }),
@@ -2850,7 +2867,7 @@ function renderStartOverlay({ resetHud = false } = {}) {
       id: 'options',
       label: 'Options',
       onActivate: () => {
-        renderOptionsOverlay({ context: 'menu' });
+        setAppState(APP_VIEW_STATES.OPTIONS, { context: 'menu' });
       },
       detail: () => {
         const assistEnabled = getAssistMode();
@@ -2871,7 +2888,7 @@ function renderStartOverlay({ resetHud = false } = {}) {
           `,
           onMount: () => {
             document.getElementById('meta-options-open')?.addEventListener('click', () => {
-              renderOptionsOverlay({ context: 'menu' });
+              setAppState(APP_VIEW_STATES.OPTIONS, { context: 'menu' });
             });
           },
         };
@@ -3045,9 +3062,10 @@ function renderOptionsOverlay({ context = 'game', onClose } = {}) {
         hideOverlay();
         state.paused = false;
         clearInput();
+        setAppState(APP_VIEW_STATES.GAMEPLAY, { resume: true });
       }
       : () => {
-        renderStartOverlay();
+        setAppState(APP_VIEW_STATES.MENU, { force: true });
       };
   optionsOverlayOpen = true;
   optionsOverlayCloseHandler = closeHandler;
@@ -3176,6 +3194,90 @@ function renderOptionsOverlay({ context = 'game', onClose } = {}) {
     closeOptionsOverlay();
   });
   closeBtn?.focus();
+}
+
+function normaliseViewState(value) {
+  if (typeof value !== 'string') {
+    return APP_VIEW_STATES.MENU;
+  }
+  const key = value.toUpperCase();
+  return Object.prototype.hasOwnProperty.call(APP_VIEW_STATES, key)
+    ? APP_VIEW_STATES[key]
+    : APP_VIEW_STATES.MENU;
+}
+
+function resetUiInteractionState() {
+  if (ui && typeof ui.resetRegions === 'function') {
+    ui.resetRegions();
+  }
+  if (ui && typeof ui === 'object') {
+    ui.isDiffOpen = false;
+  }
+}
+
+function markMenuContext() {
+  atMenuScreen = true;
+  state.running = false;
+  state.paused = false;
+}
+
+function setAppState(newState, options = {}) {
+  const next = normaliseViewState(newState);
+  if (next === currentViewState && !options.force) {
+    return currentViewState;
+  }
+  previousViewState = currentViewState;
+  currentViewState = next;
+  const isResume = next === APP_VIEW_STATES.GAMEPLAY && options.resume;
+  if (!isResume) {
+    resetUiInteractionState();
+  }
+  switch (next) {
+    case APP_VIEW_STATES.MENU: {
+      renderStartOverlay({ resetHud: Boolean(options.resetHud) });
+      break;
+    }
+    case APP_VIEW_STATES.OPTIONS: {
+      const context = options.context ?? (state.running ? 'game' : 'menu');
+      if (context !== 'game') {
+        markMenuContext();
+      }
+      renderOptionsOverlay({ context, onClose: options.onClose });
+      break;
+    }
+    case APP_VIEW_STATES.GARAGE: {
+      markMenuContext();
+      renderGarageOverlay();
+      break;
+    }
+    case APP_VIEW_STATES.ACHIEVEMENTS: {
+      markMenuContext();
+      renderAchievementsOverlay();
+      break;
+    }
+    case APP_VIEW_STATES.ENDLESS: {
+      hideOverlay();
+      startRun(1, { gameMode: GAME_MODES.ENDLESS });
+      break;
+    }
+    case APP_VIEW_STATES.GAMEPLAY: {
+      if (options.resume) {
+        return currentViewState;
+      }
+      hideOverlay();
+      const desiredLevel = Number.isFinite(options.level)
+        ? clampLevelIndex(options.level)
+        : Math.max(1, highestUnlockedLevel || 1);
+      startRun(desiredLevel);
+      break;
+    }
+    default: {
+      currentViewState = APP_VIEW_STATES.MENU;
+      renderStartOverlay({ resetHud: Boolean(options.resetHud) });
+      break;
+    }
+  }
+  return currentViewState;
 }
 
 function handlePlayerHit() {
@@ -3627,6 +3729,33 @@ function monitorGamepadIdle() {
   requestAnimationFrame(monitorGamepadIdle);
 }
 
+const mainInterface = {
+  setState: setAppState,
+  getState: () => currentViewState,
+  getPreviousState: () => previousViewState,
+  state,
+  settings: state.settings,
+  constants: {
+    STATES: APP_VIEW_STATES,
+    GAME_MODES,
+  },
+  startCampaign(level) {
+    return setAppState(APP_VIEW_STATES.GAMEPLAY, { level });
+  },
+  startEndless() {
+    return setAppState(APP_VIEW_STATES.ENDLESS);
+  },
+  showMenu(options) {
+    return setAppState(APP_VIEW_STATES.MENU, options);
+  },
+};
+
+if (typeof globalThis !== 'undefined') {
+  globalThis.main = mainInterface;
+}
+
+export const main = mainInterface;
+
 monitorGamepadIdle();
 
-renderStartOverlay({ resetHud: true });
+setAppState(APP_VIEW_STATES.MENU, { resetHud: true, force: true });
