@@ -92,6 +92,7 @@ function logInteraction(kind, name, region) {
 export const ui = {
   buttonRegions,
   dropdownRegions,
+  isDiffOpen: false,
   resetRegions() {
     buttonRegions.length = 0;
     dropdownRegions.length = 0;
@@ -145,6 +146,30 @@ export const ui = {
     if (!key) {
       return;
     }
+    const root = typeof globalThis !== 'undefined' ? globalThis : window;
+    const appMain = root?.main;
+    switch (key) {
+      case 'startCampaign':
+        appMain?.setState?.('GAMEPLAY');
+        break;
+      case 'endless':
+        appMain?.setState?.('ENDLESS');
+        break;
+      case 'garage':
+        appMain?.setState?.('GARAGE');
+        break;
+      case 'achievements':
+        appMain?.setState?.('ACHIEVEMENTS');
+        break;
+      case 'options':
+        appMain?.setState?.('OPTIONS');
+        break;
+      case 'toggleDifficulty':
+        this.isDiffOpen = !this.isDiffOpen;
+        break;
+      default:
+        break;
+    }
     const handler = buttonHandlers.get(key);
     if (handler) {
       handler(region);
@@ -155,6 +180,23 @@ export const ui = {
     const key = sanitizeName(name);
     if (!key) {
       return;
+    }
+    if (key.startsWith('difficulty_')) {
+      const diff = key.split('_')[1];
+      if (diff) {
+        const root = typeof globalThis !== 'undefined' ? globalThis : window;
+        const appMain = root?.main;
+        if (appMain?.settings) {
+          appMain.settings.difficulty = diff;
+        }
+        this.isDiffOpen = false;
+        try {
+          root?.localStorage?.setItem?.('difficulty', diff);
+        } catch (err) {
+          /* ignore storage errors */
+        }
+        setDifficulty(diff);
+      }
     }
     const handler = dropdownHandlers.get(key);
     if (handler) {
