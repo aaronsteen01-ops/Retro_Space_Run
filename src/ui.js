@@ -801,11 +801,12 @@ function resolveEventState(payload) {
   return null;
 }
 
-function bindHudInternal(state) {
+function bindHudInternal(state, options = {}) {
   if (!state || typeof state !== 'object') {
     return;
   }
-  applyHudLives(state.lives);
+  const safeLives = Number.isFinite(state.lives) ? state.lives : 0;
+  applyHudLives(safeLives);
   const shieldValue = Number.isFinite(state.player?.shield)
     ? Math.max(0, state.player.shield)
     : 0;
@@ -817,6 +818,12 @@ function bindHudInternal(state) {
     : baseShield;
   const maxShield = Math.max(capacity, baseShield, 1);
   applyHudShield(shieldValue, maxShield);
+  const scoreValue = Number.isFinite(state.score) ? state.score : 0;
+  setHUDScore(scoreValue);
+  const comboMultiplier = Number.isFinite(state.combo?.multiplier)
+    ? Math.max(1, state.combo.multiplier)
+    : 1;
+  applyHudCombo(comboMultiplier, { highlight: Boolean(options.highlightMultiplier) });
   const weaponLabel = labelWeapon(state.weapon);
   const weaponClass = weaponToIconClass(state.weapon);
   const weaponIconGlyph = weaponGlyph(state.weapon);
@@ -833,54 +840,29 @@ function bindHudEventSubscriptions() {
     const state = resolveEventState(payload);
     if (state) {
       bindHudInternal(state);
+      return;
+    }
+    if (Number.isFinite(payload?.score)) {
+      setHUDScore(payload.score);
+    } else if (Number.isFinite(payload)) {
+      setHUDScore(payload);
     }
   };
   GameEvents.on('lives:changed', syncHud);
   GameEvents.on('shield:changed', syncHud);
   GameEvents.on('weapon:changed', syncHud);
   GameEvents.on('powerup:changed', syncHud);
-  GameEvents.on('level:started', (payload = {}) => {
-    const state = resolveEventState(payload);
-    if (state) {
-      bindHudInternal(state);
-    } else {
-      const shield = payload.shield ?? {};
-      applyHudLives(payload.lives);
-      applyHudShield(shield.value, shield.max);
-      const fallbackWeaponState =
-        payload.weapon && typeof payload.weapon === 'object' ? payload.weapon : null;
-      const fallbackLabel = fallbackWeaponState
-        ? labelWeapon(fallbackWeaponState)
-        : typeof payload.weapon === 'string'
-          ? payload.weapon
-          : 'None';
-      const fallbackIcon = fallbackWeaponState
-        ? weaponGlyph(fallbackWeaponState)
-        : typeof payload.icon === 'string'
-          ? payload.icon
-          : '';
-      const fallbackClass = fallbackWeaponState
-        ? weaponToIconClass(fallbackWeaponState)
-        : typeof payload.weaponClass === 'string' && payload.weaponClass.trim().length
-          ? payload.weaponClass
-          : 'hud-icon weapon-icon weapon-icon--none';
-      applyHudWeapon(fallbackLabel, fallbackIcon, fallbackClass);
-      applyHudPowerup(payload.powerup ?? 'None');
-    }
-    if (Number.isFinite(payload.score)) {
-      setHUDScore(payload.score);
-    }
-  });
-  GameEvents.on('score:changed', setHUDScore);
+  GameEvents.on('level:started', syncHud);
+  GameEvents.on('score:changed', syncHud);
   hudEventsBound = true;
 }
 
-ui.bindHud = function bindHud(state) {
-  bindHudInternal(state);
+ui.bindHud = function bindHud(state, options) {
+  bindHudInternal(state, options);
 };
 
-export function bindHud(state) {
-  bindHudInternal(state);
+export function bindHud(state, options) {
+  bindHudInternal(state, options);
 }
 
 function refreshLevelChipRefs() {
@@ -1702,10 +1684,15 @@ export function setHUDScore(value = 0) {
 }
 
 export function updateScore(value) {
+  const state = resolveEventState({ score: value });
+  if (state) {
+    bindHudInternal(state);
+    return;
+  }
   setHUDScore(value);
 }
 
-export function updateComboMultiplier(multiplier = 1, { highlight = false } = {}) {
+function applyHudCombo(multiplier = 1, { highlight = false } = {}) {
   if (!hudComboValue || !hudComboValue.isConnected) {
     refreshComboRefs();
   }
@@ -1723,7 +1710,6 @@ export function updateComboMultiplier(multiplier = 1, { highlight = false } = {}
   hudComboChip.setAttribute('aria-label', label);
   if (highlight) {
     hudComboChip.classList.remove('is-boosting');
-    // Force reflow so the animation can retrigger
     void hudComboChip.offsetWidth;
     hudComboChip.classList.add('is-boosting');
     if (comboBoostTimeout) {
@@ -1733,13 +1719,22 @@ export function updateComboMultiplier(multiplier = 1, { highlight = false } = {}
       hudComboChip?.classList.remove('is-boosting');
       comboBoostTimeout = null;
     }, 520);
-  } else if (!highlight && comboBoostTimeout) {
+  } else if (comboBoostTimeout) {
     clearTimeout(comboBoostTimeout);
     comboBoostTimeout = null;
     hudComboChip.classList.remove('is-boosting');
-  } else if (!highlight) {
+  } else {
     hudComboChip.classList.remove('is-boosting');
   }
+}
+
+export function updateComboMultiplier(multiplier = 1, { highlight = false } = {}) {
+  const state = resolveEventState({ multiplier });
+  if (state) {
+    bindHudInternal(state, { highlightMultiplier: highlight });
+    return;
+  }
+  applyHudCombo(multiplier, { highlight });
 }
 
 export function updateTime(value) {
