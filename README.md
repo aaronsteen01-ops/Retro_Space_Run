@@ -38,8 +38,8 @@ Runs now feed a persistent progression ledger tracked in `src/meta.js`. Total ru
 ### Ship Roster
 The hangar opens with the reliable Pioneer, but defeating three bosses unlocks the precision Vanguard interceptor, while banking 50,000 total score grants access to the wide-spread Nova gunship. Each hull offers unique speed, fire rate, shield, and projectile spread characteristics that noticeably alter the feel of a run.
 
-### Cosmic Abyss Palette
-Clearing Level 3 now awards the Cosmic Abyss visual theme. Once unlocked it becomes selectable alongside existing palettes, bathing the HUD, ship trails, and particle effects in deep-space blues and violets.
+### Cosmic Abyss Sector
+A fourth campaign stage dives into the Cosmic Abyss: dark-blue nebulas, organic gate structures, and a dedicated synth score that fades in on every theme swap. Splitter frigates rupture into mini drones on defeat while shield drones project protective bubbles across nearby foes, adding new tactical wrinkles to late-game and endless runs.
 
 ### Boss Encounter Flow
 Every sector culminates in a bespoke boss fight. Bosses spawn once the timer crosses the late-stage threshold, lock the finish gate, and shift the soundtrack via `audio.js`. Defeating the boss triggers celebratory particles, reopens the gate, and rolls a guaranteed weapon drop.

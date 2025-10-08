@@ -53,6 +53,24 @@ export const STORY_BEATS = [
       'Fleet charts mark the sector safe for convoy passage.',
     ],
   },
+  {
+    levelKey: 'L4',
+    phase: 'intro',
+    title: 'Cosmic Abyss Briefing',
+    textLines: [
+      'Bio-luminescent drifters weave between the gate pylons.',
+      'Disrupt their shield web and reopen the abyssal corridor.',
+    ],
+  },
+  {
+    levelKey: 'L4',
+    phase: 'outro',
+    title: 'Abyss Secured',
+    textLines: [
+      'Shield drones scatter as the abyssal core collapses.',
+      'Convoy routes chart a new passage through the nebula trench.',
+    ],
+  },
 ];
 
 export function getStoryBeat(levelKey, phase) {
