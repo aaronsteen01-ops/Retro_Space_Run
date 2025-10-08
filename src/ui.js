@@ -18,6 +18,7 @@ import {
 } from './difficulty.js';
 import { getMetaValue, updateStoredMeta } from './storage.js';
 import { GameEvents } from './events.js';
+import { showToast as showHudToast } from './effects.js';
 import { isPaletteUnlocked } from './meta.js';
 
 const HUD_STYLE_ID = 'hud-compact-style';
@@ -47,8 +48,6 @@ const hudRoot = document.getElementById('hud');
 const overlay = document.getElementById('overlay');
 let difficultySelect = document.getElementById('difficulty-select');
 
-const buttonRegions = [];
-const dropdownRegions = [];
 const buttonHandlers = new Map();
 const dropdownHandlers = new Map();
 
@@ -126,21 +125,30 @@ function logInteraction(kind, name, region) {
 }
 
 export const ui = {
-  buttonRegions,
-  dropdownRegions,
-  isDiffOpen: false,
+  buttonRegions: [],
+  dropdownRegions: [],
+  diffOpen: false,
+  get isDiffOpen() {
+    return this.diffOpen;
+  },
+  set isDiffOpen(value) {
+    this.diffOpen = Boolean(value);
+  },
   debug: false,
   debugLastClick: null,
   resetRegions() {
-    buttonRegions.length = 0;
-    dropdownRegions.length = 0;
+    this.buttonRegions = [];
+    this.dropdownRegions = [];
   },
   registerButton(region) {
     const normalized = normalizeRegion(region);
     if (!normalized) {
       return null;
     }
-    buttonRegions.push(normalized);
+    if (!Array.isArray(this.buttonRegions)) {
+      this.buttonRegions = [];
+    }
+    this.buttonRegions.push(normalized);
     return normalized;
   },
   registerDropdown(region) {
@@ -148,7 +156,10 @@ export const ui = {
     if (!normalized) {
       return null;
     }
-    dropdownRegions.push(normalized);
+    if (!Array.isArray(this.dropdownRegions)) {
+      this.dropdownRegions = [];
+    }
+    this.dropdownRegions.push(normalized);
     return normalized;
   },
   bindButtonHandler(name, handler) {
@@ -184,35 +195,37 @@ export const ui = {
     if (!key) {
       return;
     }
+    const handler = buttonHandlers.get(key);
     const root = typeof globalThis !== 'undefined' ? globalThis : window;
     const appMain = root?.main;
+    let result;
     switch (key) {
       case 'startCampaign':
-        appMain?.setState?.('GAMEPLAY');
+        result = appMain?.setState?.('GAMEPLAY');
         break;
       case 'endless':
-        appMain?.setState?.('ENDLESS');
+        result = appMain?.setState?.('ENDLESS');
         break;
       case 'garage':
-        appMain?.setState?.('GARAGE');
+        result = appMain?.setState?.('GARAGE');
         break;
       case 'achievements':
-        appMain?.setState?.('ACHIEVEMENTS');
+        result = appMain?.setState?.('ACHIEVEMENTS');
         break;
       case 'options':
-        appMain?.setState?.('OPTIONS');
+        result = appMain?.setState?.('OPTIONS');
         break;
-      case 'toggleDifficulty':
-        this.isDiffOpen = !this.isDiffOpen;
+      case 'difficultyToggle':
+        this.diffOpen = !this.diffOpen;
         break;
       default:
         break;
     }
-    const handler = buttonHandlers.get(key);
     if (handler) {
       handler(region);
     }
     logInteraction('Button', key, region);
+    return result;
   },
   handleDropdown(name, region) {
     const key = sanitizeName(name);
@@ -227,13 +240,16 @@ export const ui = {
         if (appMain?.settings) {
           appMain.settings.difficulty = diff;
         }
-        this.isDiffOpen = false;
         try {
           root?.localStorage?.setItem?.('difficulty', diff);
         } catch (err) {
           /* ignore storage errors */
         }
         setDifficulty(diff);
+        this.diffOpen = false;
+        if (typeof this.toast === 'function') {
+          this.toast(`Difficulty: ${diff}`);
+        }
       }
     }
     const handler = dropdownHandlers.get(key);
@@ -257,10 +273,13 @@ export const ui = {
         return;
       }
     }
-    for (const region of dropdownRegions) {
-      if (isPointInsideRegion(mx, my, region)) {
-        this.handleDropdown(region.name, region);
-        return;
+    if (this.diffOpen) {
+      const dropdowns = Array.isArray(this.dropdownRegions) ? this.dropdownRegions : [];
+      for (const region of dropdowns) {
+        if (isPointInsideRegion(mx, my, region)) {
+          this.handleDropdown(region.name, region);
+          return;
+        }
       }
     }
   },
@@ -283,6 +302,12 @@ export const ui = {
     context.lineTo(point.x, point.y + arm);
     context.stroke();
     context.restore();
+  },
+  toast(message, duration = 1100) {
+    if (!message) {
+      return;
+    }
+    showHudToast(String(message), duration);
   },
 };
 
