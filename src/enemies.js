@@ -32,6 +32,19 @@ const MID_BOSS_BURST_SPEED = 190;
 const MID_BOSS_SPREAD = 0.18;
 const MID_BOSS_SPREAD_SPEED = 240;
 
+const SPLITTER_DEFAULT_RADIUS = 18;
+const SPLITTER_DEFAULT_HP = 5;
+const SPLITTER_ACCEL = 42;
+const SPLITTER_CHILDREN_RANGE = [2, 3];
+const SPLITTER_CHILD_ACCEL = 120;
+
+const SHIELD_DRONE_DEFAULT_RADIUS = 15;
+const SHIELD_DRONE_DEFAULT_HP = 4;
+const SHIELD_DRONE_COOLDOWN_MS = 4200;
+const SHIELD_DRONE_DURATION_MS = 2600;
+const SHIELD_DRONE_RANGE = 180;
+const SHIELD_DRONE_TARGETS = 2;
+
 const randInt = (min, max) => Math.floor(rand(min, max + 1));
 
 function getDifficultyFactor(state, key, fallback = 1) {
@@ -216,6 +229,112 @@ function spawnTurrets(state, count, params) {
   }
 }
 
+function spawnSplitters(state, count, params) {
+  const { w } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const spawnMax = Math.max(viewW - 60, 60);
+  const {
+    vyMin: vyMinRaw = 50,
+    vyMax: vyMaxRaw = 90,
+    accel: accelRaw = SPLITTER_ACCEL,
+    hp = SPLITTER_DEFAULT_HP,
+    radius = SPLITTER_DEFAULT_RADIUS,
+    childRange = SPLITTER_CHILDREN_RANGE,
+    miniAccel = SPLITTER_CHILD_ACCEL,
+    startOffset = [0, 140],
+    startOffsetMin,
+    startOffsetMax,
+    childRangeMin,
+    childRangeMax,
+  } = params;
+  const speedMod = enemySpeedMod(state);
+  const vyMin = vyMinRaw * speedMod;
+  const vyMax = vyMaxRaw * speedMod;
+  const accel = accelRaw * speedMod;
+  const offsetMin = Number.isFinite(startOffsetMin)
+    ? startOffsetMin
+    : Array.isArray(startOffset)
+      ? startOffset[0]
+      : 0;
+  const offsetMax = Number.isFinite(startOffsetMax)
+    ? startOffsetMax
+    : Array.isArray(startOffset)
+      ? startOffset[1]
+      : 120;
+  const [childMinRaw, childMaxRaw] = Array.isArray(childRange)
+    ? childRange
+    : [childRangeMin ?? SPLITTER_CHILDREN_RANGE[0], childRangeMax ?? SPLITTER_CHILDREN_RANGE[1]];
+  const childMin = Math.max(1, Math.floor(childMinRaw ?? SPLITTER_CHILDREN_RANGE[0]));
+  const childMax = Math.max(childMin, Math.floor(childMaxRaw ?? SPLITTER_CHILDREN_RANGE[1]));
+  for (let i = 0; i < count; i++) {
+    state.enemies.push({
+      type: 'splitter',
+      x: rand(60, spawnMax),
+      y: -40 - rand(offsetMin, offsetMax),
+      vx: rand(-20, 20),
+      vy: rand(vyMin, vyMax),
+      r: radius,
+      hp,
+      accel,
+      lobes: Math.max(5, Math.round(params.lobes ?? randInt(5, 7))),
+      wobble: rand(0.85, 1.35),
+      phase: rand(0, TAU),
+      childRange: [childMin, childMax],
+      miniAccel: miniAccel,
+    });
+  }
+}
+
+function spawnShieldDrones(state, count, params) {
+  const { w } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const spawnMax = Math.max(viewW - 60, 60);
+  const {
+    vyMin: vyMinRaw = 45,
+    vyMax: vyMaxRaw = 75,
+    hp = SHIELD_DRONE_DEFAULT_HP,
+    radius = SHIELD_DRONE_DEFAULT_RADIUS,
+    cooldown = SHIELD_DRONE_COOLDOWN_MS,
+    duration = SHIELD_DRONE_DURATION_MS,
+    range = SHIELD_DRONE_RANGE,
+    targets = SHIELD_DRONE_TARGETS,
+    startOffset = [40, 160],
+    startOffsetMin,
+    startOffsetMax,
+  } = params;
+  const speedMod = enemySpeedMod(state);
+  const vyMin = vyMinRaw * speedMod;
+  const vyMax = vyMaxRaw * speedMod;
+  const offsetMin = Number.isFinite(startOffsetMin)
+    ? startOffsetMin
+    : Array.isArray(startOffset)
+      ? startOffset[0]
+      : 0;
+  const offsetMax = Number.isFinite(startOffsetMax)
+    ? startOffsetMax
+    : Array.isArray(startOffset)
+      ? startOffset[1]
+      : 160;
+  for (let i = 0; i < count; i++) {
+    state.enemies.push({
+      type: 'shield-drone',
+      x: rand(60, spawnMax),
+      y: -50 - rand(offsetMin, offsetMax),
+      vx: rand(-18, 18),
+      vy: rand(vyMin, vyMax),
+      r: radius,
+      hp,
+      cooldown: rand(cooldown * 0.6, cooldown * 1.1),
+      cooldownBase: cooldown,
+      shieldDuration: duration,
+      shieldRange: range,
+      shieldTargets: Math.max(1, Math.round(targets)),
+      wobblePhase: rand(0, TAU),
+      wobbleRadius: rand(18, 32),
+    });
+  }
+}
+
 export function spawn(state, type, params = {}) {
   if (!type) {
     return;
@@ -247,6 +366,110 @@ export function spawn(state, type, params = {}) {
     spawnDrones(state, resolvedCount, config);
   } else if (type === 'turret') {
     spawnTurrets(state, resolvedCount, config);
+  } else if (type === 'splitter') {
+    spawnSplitters(state, resolvedCount, config);
+  } else if (type === 'shield-drone') {
+    spawnShieldDrones(state, resolvedCount, config);
+  }
+}
+
+function applyShieldEmitter(state, emitter) {
+  if (!state || !emitter) {
+    return;
+  }
+  const range = Number.isFinite(emitter.shieldRange) ? emitter.shieldRange : SHIELD_DRONE_RANGE;
+  const duration = Number.isFinite(emitter.shieldDuration) ? emitter.shieldDuration : SHIELD_DRONE_DURATION_MS;
+  const maxTargets = Math.max(1, Math.round(emitter.shieldTargets ?? SHIELD_DRONE_TARGETS));
+  if (range <= 0 || duration <= 0 || maxTargets <= 0) {
+    return;
+  }
+  const rangeSq = range * range;
+  const particlesPalette = resolvePaletteSection(state.theme ?? DEFAULT_THEME_PALETTE, 'particles');
+  const shieldColour = particlesPalette.shieldHit || particlesPalette.enemyHitDefault || '#9df5ff';
+  let applied = 0;
+  for (const target of state.enemies) {
+    if (target === emitter || target.type === 'shield-drone' || target.hp <= 0) {
+      continue;
+    }
+    const dx = target.x - emitter.x;
+    const dy = target.y - emitter.y;
+    if (dx * dx + dy * dy > rangeSq) {
+      continue;
+    }
+    if (target.shieldTimer > 0 && target.shieldEmitter !== emitter) {
+      continue;
+    }
+    target.shieldTimer = duration;
+    target.shieldDuration = duration;
+    target.shieldEmitter = emitter;
+    target.shieldStrength = 1;
+    target.shieldPhase = rand(0, TAU);
+    addParticle(state, target.x, target.y, shieldColour, 12, 3, 260);
+    applied += 1;
+    if (applied >= maxTargets) {
+      break;
+    }
+  }
+}
+
+function spawnSplitterChildren(state, enemy) {
+  if (!state || !enemy) {
+    return;
+  }
+  const { w, h } = getViewSize();
+  const viewW = Math.max(w, 1);
+  const viewH = Math.max(h, 1);
+  const spawnMinX = 40;
+  const spawnMaxX = Math.max(spawnMinX, viewW - 40);
+  const spawnMinY = -80;
+  const spawnMaxY = viewH + 60;
+  const [childMinRaw, childMaxRaw] = Array.isArray(enemy.childRange)
+    ? enemy.childRange
+    : SPLITTER_CHILDREN_RANGE;
+  const childMin = Math.max(1, Math.floor(childMinRaw ?? SPLITTER_CHILDREN_RANGE[0]));
+  const childMax = Math.max(childMin, Math.floor(childMaxRaw ?? SPLITTER_CHILDREN_RANGE[1]));
+  const count = randInt(childMin, childMax);
+  const accel = Number.isFinite(enemy.miniAccel) ? enemy.miniAccel : SPLITTER_CHILD_ACCEL;
+  const baseRadius = Math.max(6, Math.round((enemy.r ?? SPLITTER_DEFAULT_RADIUS) * 0.55));
+  for (let i = 0; i < count; i++) {
+    const spawnX = clamp(enemy.x + rand(-8, 8), spawnMinX, spawnMaxX);
+    const spawnY = clamp(enemy.y + rand(-8, 8), spawnMinY, spawnMaxY);
+    state.enemies.push({
+      type: 'drone',
+      x: spawnX,
+      y: spawnY,
+      vx: rand(-accel * 0.6, accel * 0.6),
+      vy: rand(accel * 0.4, accel * 0.9),
+      r: baseRadius,
+      hp: 1,
+      accel,
+      mini: true,
+    });
+  }
+}
+
+function clearEmitterShields(state, emitter) {
+  if (!state || !emitter) {
+    return;
+  }
+  for (const target of state.enemies) {
+    if (target.shieldEmitter === emitter) {
+      target.shieldEmitter = null;
+      target.shieldTimer = 0;
+      target.shieldStrength = 0;
+    }
+  }
+}
+
+export function handleEnemyDestroyed(state, enemy) {
+  if (!state || !enemy) {
+    return;
+  }
+  if (enemy.type === 'splitter') {
+    spawnSplitterChildren(state, enemy);
+  }
+  if (enemy.type === 'shield-drone') {
+    clearEmitterShields(state, enemy);
   }
 }
 
@@ -630,8 +853,22 @@ export function updateEnemies(state, dt, now, player) {
   const defaultTurretBulletSpeed = 220;
   const speedFactor = getDifficultyFactor(state, 'speed', 1);
   const themeSpeed = enemySpeedMod(state);
+  const dtMs = Math.max(0, dt * 1000);
   for (let i = state.enemies.length - 1; i >= 0; i--) {
     const e = state.enemies[i];
+    if (Number.isFinite(e.shieldTimer) && e.shieldTimer > 0) {
+      if (!Number.isFinite(e.shieldPhase)) {
+        e.shieldPhase = rand(0, TAU);
+      }
+      e.shieldTimer = Math.max(0, e.shieldTimer - dtMs);
+      if (e.shieldTimer <= 0) {
+        e.shieldEmitter = null;
+        e.shieldStrength = 0;
+        e.shieldTimer = 0;
+      } else {
+        e.shieldPhase += dt * 3.2;
+      }
+    }
     if (e.type === 'asteroid') {
       e.x += e.vx * dt;
       e.y += e.vy * dt;
@@ -703,6 +940,43 @@ export function updateEnemies(state, dt, now, player) {
       if (e.x < 60 || e.x > viewW - 60) {
         e.vx *= -1;
         e.x = clamp(e.x, 60, viewW - 60);
+      }
+    } else if (e.type === 'splitter') {
+      const accel = Number.isFinite(e.accel) ? e.accel : SPLITTER_ACCEL;
+      e.phase = (e.phase ?? 0) + dt * (e.wobble ?? 1.1);
+      const wobbleForce = Math.sin(now * 0.002 + e.phase) * accel * 0.25;
+      const dx = player.x - e.x;
+      const steer = clamp(dx * 0.02, -accel, accel);
+      e.vx += (wobbleForce + steer) * dt;
+      e.vx = clamp(e.vx, -140, 140);
+      e.vy += Math.sin(now * 0.003 + e.phase * 0.6) * accel * 0.12 * dt;
+      e.x += e.vx * dt;
+      e.y += e.vy * dt;
+      if (e.x < 50) {
+        e.x = 50;
+        e.vx = Math.abs(e.vx || 40) * 0.7;
+      } else if (e.x > viewW - 50) {
+        e.x = viewW - 50;
+        e.vx = -Math.abs(e.vx || 40) * 0.7;
+      }
+    } else if (e.type === 'shield-drone') {
+      e.wobblePhase = (e.wobblePhase ?? 0) + dt * 2.8;
+      const wobbleRadius = Number.isFinite(e.wobbleRadius) ? e.wobbleRadius : 24;
+      e.x += Math.sin(e.wobblePhase) * wobbleRadius * dt;
+      e.y += e.vy * dt;
+      e.vx *= 0.96;
+      const baseCooldown = Number.isFinite(e.cooldownBase) ? e.cooldownBase : SHIELD_DRONE_COOLDOWN_MS;
+      e.cooldown = (e.cooldown ?? baseCooldown) - dtMs;
+      if (e.cooldown <= 0) {
+        e.cooldown = baseCooldown;
+        applyShieldEmitter(state, e);
+      }
+      if (e.x < 60) {
+        e.x = 60;
+        e.wobblePhase += Math.PI / 2;
+      } else if (e.x > viewW - 60) {
+        e.x = viewW - 60;
+        e.wobblePhase += Math.PI / 2;
       }
     }
     if (e.y > viewH + 80) {
@@ -1295,6 +1569,80 @@ export function drawEnemies(ctx, enemies, palette) {
       ctx.stroke();
       ctx.fillStyle = enemyPalette.turretBarrel;
       ctx.fillRect(-2, -8, 4, 8);
+    } else if (e.type === 'splitter') {
+      const lobes = Math.max(5, e.lobes ?? 6);
+      const radius = Math.max(10, e.r ?? SPLITTER_DEFAULT_RADIUS);
+      const phase = e.phase ?? 0;
+      ctx.shadowColor = enemyPalette.splitterGlow ?? enemyPalette.droneGlowInner;
+      ctx.shadowBlur = 14;
+      ctx.fillStyle = enemyPalette.splitterFill ?? enemyPalette.droneGlowInner ?? '#1a1433';
+      ctx.strokeStyle = enemyPalette.splitterStroke ?? enemyPalette.droneCore ?? '#ffffff';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      for (let l = 0; l < lobes; l++) {
+        const ang = (l / lobes) * TAU;
+        const wobble = Math.sin(ang * 2 + phase) * radius * 0.28;
+        const r = radius + wobble;
+        const px = Math.cos(ang) * r;
+        const py = Math.sin(ang) * r;
+        if (l === 0) {
+          ctx.moveTo(px, py);
+        } else {
+          ctx.lineTo(px, py);
+        }
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = enemyPalette.splitterCore ?? enemyPalette.droneCore ?? '#9df5ff';
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 0.4, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    } else if (e.type === 'shield-drone') {
+      const radius = Math.max(10, e.r ?? SHIELD_DRONE_DEFAULT_RADIUS);
+      ctx.shadowColor = enemyPalette.shieldDroneGlow ?? enemyPalette.droneGlowInner;
+      ctx.shadowBlur = 14;
+      ctx.fillStyle = enemyPalette.shieldDroneFill ?? enemyPalette.droneGlowInner ?? '#0d1a33';
+      ctx.strokeStyle = enemyPalette.shieldDroneTrim ?? enemyPalette.droneCore ?? '#3df2ff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+      ctx.lineWidth = 1.2;
+      ctx.globalAlpha = 0.85;
+      ctx.strokeStyle = enemyPalette.shieldDroneInner ?? enemyPalette.shieldDroneTrim ?? '#ffffff';
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 0.55, 0, TAU);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    if (Number.isFinite(e.shieldTimer) && e.shieldTimer > 0) {
+      const duration = Number.isFinite(e.shieldDuration) ? e.shieldDuration : SHIELD_DRONE_DURATION_MS;
+      const ratio = duration > 0 ? clamp(e.shieldTimer / duration, 0, 1) : 1;
+      const baseRadius = Math.max(10, e.r ?? 10);
+      const pulse = Math.sin((e.shieldPhase ?? 0) * 2) * 2;
+      const bubbleRadius = baseRadius + 18 + pulse;
+      const inner = enemyPalette.shieldBubbleInner ?? 'rgba(255, 255, 255, 0.22)';
+      const outer = enemyPalette.shieldBubbleOuter ?? 'rgba(255, 255, 255, 0.05)';
+      const gradient = ctx.createRadialGradient(0, 0, baseRadius * 0.85, 0, 0, bubbleRadius);
+      gradient.addColorStop(0, inner);
+      gradient.addColorStop(1, outer);
+      ctx.globalAlpha = 0.45 + ratio * 0.35;
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(0, 0, bubbleRadius, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = enemyPalette.shieldBubbleRim ?? (enemyPalette.shieldDroneTrim ?? '#3df2ff');
+      ctx.lineWidth = 1.2;
+      ctx.globalAlpha = 0.6 + ratio * 0.3;
+      ctx.beginPath();
+      ctx.arc(0, 0, bubbleRadius, 0, TAU);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
     }
     ctx.restore();
   }

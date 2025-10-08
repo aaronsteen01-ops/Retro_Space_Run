@@ -40,6 +40,7 @@ import {
   playBossDown,
   getVolume,
   setVolume,
+  setMusicTheme,
 } from './audio.js';
 import { resetPlayer, updatePlayer, clampPlayerToBounds, drawPlayer } from './player.js';
 import {
@@ -52,6 +53,7 @@ import {
   drawBoss,
   drawBossHealth,
   isPointInBossBeam,
+  handleEnemyDestroyed,
 } from './enemies.js';
 import {
   resetPowerTimers,
@@ -931,9 +933,10 @@ onDifficultyModeChange((mode) => {
   }
 });
 
-onThemeChange((_, palette) => {
+onThemeChange((key, palette) => {
   activePalette = palette ?? DEFAULT_THEME_PALETTE;
   refreshActivePalette();
+  setMusicTheme(key);
 });
 
 onAssistChange((enabled) => {
@@ -3405,6 +3408,15 @@ function loop(now) {
         const bulletLevel = bullet.level ?? 0;
         state.bullets.splice(j, 1);
         freeBullet(bullet);
+        if (Number.isFinite(enemy.shieldTimer) && enemy.shieldTimer > 0) {
+          enemy.shieldTimer = 0;
+          enemy.shieldEmitter = null;
+          enemy.shieldStrength = 0;
+          const shieldColour = particles.shieldHit ?? particles.enemyHitDefault;
+          addParticle(state, enemy.x, enemy.y, shieldColour, 16, 3.2, 260);
+          playHit();
+          break;
+        }
         enemy.hp -= bullet.damage || 1;
         if (bulletLevel >= 2) {
           shakeScreen(rand(2, 4), 160);
@@ -3417,6 +3429,7 @@ function loop(now) {
         if (enemy.hp <= 0) {
           spawnExplosion(enemy.x, enemy.y, 'small');
           state.enemies.splice(i, 1);
+          handleEnemyDestroyed(state, enemy);
           if (state.runStats) {
             state.runStats.kills = (state.runStats.kills ?? 0) + 1;
           }
