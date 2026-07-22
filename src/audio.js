@@ -128,6 +128,22 @@ export function playBossDown() {
   playSfx('bossDown');
 }
 
+export function playVictory() {
+  // Triumphant ascending fanfare — a major arpeggio capped with a shimmering high note.
+  const notes = [
+    { freq: 392.0, delay: 0.0 }, // G4
+    { freq: 523.25, delay: 0.13 }, // C5
+    { freq: 659.25, delay: 0.26 }, // E5
+    { freq: 783.99, delay: 0.39 }, // G5
+    { freq: 1046.5, delay: 0.56 }, // C6
+  ];
+  for (const note of notes) {
+    playTone('triangle', note.freq, 0.5, 0.26, note.delay);
+    playTone('square', note.freq / 2, 0.42, 0.12, note.delay);
+  }
+  playTone('sine', 1567.98, 0.8, 0.14, 0.64); // sparkle G6
+}
+
 export function toggleAudio() {
   audioOn = !audioOn;
   if (audioOn) {

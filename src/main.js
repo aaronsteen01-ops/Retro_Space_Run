@@ -37,6 +37,7 @@ import {
   playPow,
   playSfx,
   playBossDown,
+  playVictory,
   getVolume,
   setVolume,
   setMusicTheme,
@@ -122,7 +123,7 @@ import {
   getEndlessPersonalBests,
   recordEndlessResult,
 } from './meta.js';
-import { getStoryBeat } from './story.js';
+import { getStoryBeat, CAMPAIGN_PROLOGUE, CAMPAIGN_FINALE } from './story.js';
 import {
   SHIP_CATALOGUE,
   getShipByKey,
@@ -170,6 +171,10 @@ let previousViewState = APP_VIEW_STATES.MENU;
 let themeBootReady = false;
 let mainInterfaceReady = false;
 let menuBooted = false;
+
+// Shown once per session so campaign retries and death-restarts don't replay the
+// framing prologue; a page reload starts a fresh session and shows it again.
+let campaignPrologueSeen = false;
 
 function maybeBootMenu() {
   if (menuBooted || !themeBootReady || !mainInterfaceReady) {
@@ -238,8 +243,11 @@ function dismissStoryOverlay({ hide = false } = {}) {
   storyOverlayState.active = false;
 }
 
-function showStoryOverlay(beat) {
+function showStoryOverlay(beat, options = {}) {
   if (!beat || !overlayElement) {
+    if (typeof options.onDone === 'function') {
+      options.onDone();
+    }
     return;
   }
   dismissStoryOverlay({ hide: true });
@@ -268,6 +276,9 @@ function showStoryOverlay(beat) {
     dismissStoryOverlay();
     if (shouldHide) {
       hideOverlay();
+    }
+    if (typeof options.onDone === 'function') {
+      options.onDone();
     }
   };
 
@@ -1634,11 +1645,25 @@ function levelIntro(level) {
   `);
   const storyKey = typeof level?.key === 'string' ? level.key : null;
   const storyIntro = storyKey ? getStoryBeat(storyKey, 'intro') : null;
+  const showPrologue =
+    state.gameMode === GAME_MODES.CAMPAIGN &&
+    state.levelIndex === 1 &&
+    !campaignPrologueSeen;
   const introDuration = storyIntro ? 1200 : 1600;
   state.levelIntroTimeout = window.setTimeout(() => {
     hideOverlay();
     state.levelIntroTimeout = null;
-    if (storyIntro) {
+    if (showPrologue) {
+      campaignPrologueSeen = true;
+      // Prologue first (the premise), then flow into the sector briefing.
+      showStoryOverlay(CAMPAIGN_PROLOGUE, {
+        onDone: () => {
+          if (storyIntro) {
+            showStoryOverlay(storyIntro);
+          }
+        },
+      });
+    } else if (storyIntro) {
       showStoryOverlay(storyIntro);
     }
   }, introDuration);
@@ -2267,25 +2292,134 @@ function completeLevel() {
     });
     return;
   }
-  const header = `LEVEL ${state.levelIndex} COMPLETE`;
-  const restartLabel = `Restart Level ${state.levelIndex}`;
-  recordRunEnd({ score: state.score, bossesDefeated: state.runStats?.bosses ?? 0 });
+  // Final sector cleared — the campaign is won. Capture the run tally before the
+  // run-stats reset, then hand off to the victory finale.
+  const finalScore = state.score;
+  const bossCount = state.runStats?.bosses ?? 0;
+  const killCount = state.runStats?.kills ?? 0;
+  recordRunEnd({ score: finalScore, bossesDefeated: bossCount });
+  recordBestScore(finalScore);
+  const achievements = getAchievementProgress();
+  const earnedAchievements = achievements.filter((entry) => entry.earned).length;
   state.runStats = createRunStats({ shipKey: state.ship?.key ?? defaultShipKey });
-  recordBestScore(state.score);
-  showOverlay(`
-    <h1><span class="cyan">${header}</span></h1>
-    <p>${currentLevel?.name ?? 'Sector'} cleared in <strong>${levelTime}s</strong>.</p>
-    <p>Score gained: <strong>${Math.max(0, scoreDelta)}</strong> · Total Score: <strong>${state.score}</strong></p>
-    <div class="overlay-actions">
-      <button id="restart-level" class="btn" autofocus>${restartLabel}</button>
-      <button id="summary-menu" class="btn btn-secondary">Menu</button>
-    </div>
-  `);
-  document.getElementById('restart-level')?.addEventListener('click', () => {
-    resetGame(state.levelIndex);
+  renderVictorySequence({
+    levelTime,
+    finalScore,
+    bossCount,
+    killCount,
+    earnedAchievements,
+    totalAchievements: achievements.length,
+    shipName: state.ship?.name ?? 'Pioneer',
+    difficulty: state.difficultyMode,
+    sectorName: currentLevel?.name ?? 'the final sector',
   });
-  document.getElementById('summary-menu')?.addEventListener('click', () => {
-    setAppState(APP_VIEW_STATES.MENU);
+}
+
+function renderVictorySequence(summary = {}) {
+  atMenuScreen = false;
+  optionsOverlayOpen = false;
+  optionsOverlayCloseHandler = null;
+  const {
+    levelTime = 0,
+    finalScore = 0,
+    bossCount = 0,
+    killCount = 0,
+    earnedAchievements = 0,
+    totalAchievements = 0,
+    shipName = 'Pioneer',
+    difficulty = 'normal',
+    sectorName = 'the final sector',
+  } = summary;
+  playBossDown();
+  playVictory();
+  const finaleLines = Array.isArray(CAMPAIGN_FINALE?.textLines)
+    ? CAMPAIGN_FINALE.textLines
+        .map((line) => `<p class="victory-card__line">${line}</p>`)
+        .join('')
+    : '';
+  const difficultyLabel = typeof difficulty === 'string' && difficulty.length
+    ? difficulty.charAt(0).toUpperCase() + difficulty.slice(1)
+    : 'Normal';
+  const isBest = finalScore >= bestScore && finalScore > 0;
+  const stat = (label, value) => `
+    <div class="victory-stat">
+      <span class="victory-stat__value">${value}</span>
+      <span class="victory-stat__label">${label}</span>
+    </div>`;
+  showOverlay(`
+    <div class="victory-card" role="status" aria-live="polite">
+      <div class="victory-card__spark" aria-hidden="true"></div>
+      <p class="victory-card__eyebrow">Campaign Complete</p>
+      <h1 class="victory-card__title"><span class="cyan">MISSION</span> <span class="heart">ACCOMPLISHED</span></h1>
+      <div class="victory-card__body">${finaleLines}</div>
+      <div class="victory-stats">
+        ${stat('Final Score', formatNumber(finalScore))}
+        ${stat('Bosses Felled', formatNumber(bossCount))}
+        ${stat('Hostiles Cleared', formatNumber(killCount))}
+        ${stat('Achievements', `${earnedAchievements}/${totalAchievements}`)}
+      </div>
+      <p class="victory-card__meta">
+        Ship: <strong>${shipName}</strong> · Difficulty: <strong>${difficultyLabel}</strong> ·
+        ${sectorName} cleared in <strong>${Math.floor(levelTime)}s</strong>${isBest ? ' · <span class="cyan">New Best!</span>' : ''}
+      </p>
+      <div class="overlay-actions">
+        <button id="victory-credits" class="btn" autofocus>Roll Credits</button>
+        <button id="victory-replay" class="btn btn-secondary">Play Again</button>
+        <button id="victory-menu" class="btn btn-secondary">Menu</button>
+      </div>
+    </div>
+  `, { className: 'overlay--victory' });
+  document.getElementById('victory-credits')?.addEventListener('click', () => {
+    renderCreditsRoll();
+  });
+  document.getElementById('victory-replay')?.addEventListener('click', () => {
+    campaignPrologueSeen = true;
+    startRun(1, { gameMode: GAME_MODES.CAMPAIGN });
+  });
+  document.getElementById('victory-menu')?.addEventListener('click', () => {
+    setAppState(APP_VIEW_STATES.MENU, { resetHud: true });
+  });
+}
+
+function renderCreditsRoll() {
+  atMenuScreen = false;
+  showOverlay(`
+    <div class="credits-roll" role="dialog" aria-label="Credits">
+      <button id="credits-close" class="credits-roll__close btn btn-secondary">Return to Menu</button>
+      <div class="credits-roll__viewport">
+        <div class="credits-roll__scroll">
+          <div class="credits-roll__logo">RETRO <span class="cyan">SPACE</span> <span class="heart">RUN</span></div>
+          <p class="credits-roll__tag">A neon-soaked arcade runner</p>
+          <div class="credits-roll__section">
+            <p class="credits-roll__role">Created by</p>
+            <p class="credits-roll__name">Aaron Steen</p>
+          </div>
+          <div class="credits-roll__section">
+            <p class="credits-roll__role">Design · Code · Art · Sound</p>
+            <p class="credits-roll__name">Aaron Steen</p>
+          </div>
+          <div class="credits-roll__section">
+            <p class="credits-roll__role">Engine</p>
+            <p class="credits-roll__name">HTML5 Canvas · Web Audio</p>
+          </div>
+          <div class="credits-roll__section">
+            <p class="credits-roll__role">Built with</p>
+            <p class="credits-roll__name">AI, one commit at a time</p>
+          </div>
+          <div class="credits-roll__note">
+            <p>This game began as a first experiment with code and AI —</p>
+            <p>and grew, commit by commit, into a journey across the stars.</p>
+          </div>
+          <div class="credits-roll__section">
+            <p class="credits-roll__role">Thanks for playing</p>
+          </div>
+          <div class="credits-roll__the-end">THE END</div>
+        </div>
+      </div>
+    </div>
+  `, { className: 'overlay--credits' });
+  document.getElementById('credits-close')?.addEventListener('click', () => {
+    setAppState(APP_VIEW_STATES.MENU, { resetHud: true });
   });
 }
 

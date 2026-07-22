@@ -73,6 +73,27 @@ export const STORY_BEATS = [
   },
 ];
 
+// Campaign bookends — a framing prologue shown on a fresh campaign launch, and a
+// grand finale shown after the final sector falls. These sit outside the per-level
+// beat table because they belong to the whole run, not a single sector.
+export const CAMPAIGN_PROLOGUE = {
+  title: 'Retro Space Run',
+  textLines: [
+    'The last colonies survive on convoys threading the dark between stars.',
+    'You are their lone escort — one nimble runner against the void.',
+    'Four sectors stand between the fleet and safe passage. Launch.',
+  ],
+};
+
+export const CAMPAIGN_FINALE = {
+  title: 'Passage Secured',
+  textLines: [
+    'The abyssal core goes dark, and the trench falls silent at last.',
+    'Behind you the convoy lights stretch home in an unbroken line.',
+    'Every sector cleared. Every beacon lit. The run is yours, pilot.',
+  ],
+};
+
 export function getStoryBeat(levelKey, phase) {
   if (!levelKey || !phase) {
     return null;
