@@ -855,6 +855,48 @@ export const THEME_BEHAVIOURS = {
       },
     },
   },
+  'neon-void': {
+    key: 'neon-void',
+    icon: '🕳️',
+    title: 'Neon Void',
+    summary: 'Sparse void, swift hostiles, scarce boosts.',
+    overlay: {
+      kind: 'laser',
+      intensity: 0.22,
+      speed: 0.4,
+      spacing: 300,
+      colours: {
+        primary: 'rgba(109, 255, 141, 0.18)',
+        secondary: 'rgba(196, 61, 255, 0.16)',
+      },
+    },
+    spawnModifiers: {
+      enemySpeedMultiplier: 1.12,
+      powerupIntervalMultiplier: 1.2,
+      enemyWeightMultipliers: {
+        drone: 1.2,
+        strafer: 1.1,
+      },
+    },
+    paletteAdjustments: {
+      particles: {
+        enemyHitDefault: '#6dff8d',
+        enemyHitStrafer: '#c43dff',
+        bossHit: '#c43dff',
+        bossCore: '#a6ffc0',
+      },
+      bullets: {
+        playerLevels: ['#8dffab', '#c9ffd8', '#f2fff6'],
+        highlight: '#e7ccff',
+        muzzleEdge: '#c9ffd8',
+        enemyGlow: '#6dff8daa',
+      },
+      stars: {
+        bright: '#6dff8d',
+        dim: '#c43dff',
+      },
+    },
+  },
 };
 
 export const DEFAULT_THEME_PALETTE = THEMES[DEFAULT_THEME_KEY].palette;

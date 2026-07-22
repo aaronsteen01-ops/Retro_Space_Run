@@ -511,6 +511,10 @@ function formatDifficultyLabel(key) {
 }
 
 ui.drawMainMenu = function drawMainMenu(context = ctx) {
+  // The interactive main menu is owned by the HTML overlay (renderStartOverlay in
+  // main.js). This canvas pass only paints the backdrop behind it, so the two menu
+  // systems no longer draw competing panels on top of one another. It registers no hit
+  // regions, which keeps the canvas click router inert while the overlay is up.
   const renderContext = context ?? ctx;
   const { width, height } = getViewMetrics();
   this.resetRegions();
@@ -518,83 +522,6 @@ ui.drawMainMenu = function drawMainMenu(context = ctx) {
     return;
   }
   drawMenuBackdrop(renderContext, width, height);
-  const panelWidth = Math.min(width * 0.6, 520);
-  const panelHeight = Math.min(height * 0.72, 520);
-  const panelX = (width - panelWidth) / 2;
-  const panelY = Math.max(height * 0.14, (height - panelHeight) / 2 - 20);
-  renderContext.save();
-  renderContext.globalAlpha = 0.92;
-  renderContext.fillStyle = 'rgba(5, 8, 20, 0.85)';
-  renderContext.strokeStyle = 'rgba(0, 229, 255, 0.45)';
-  renderContext.lineWidth = 2.4;
-  drawRoundedRect(renderContext, panelX, panelY, panelWidth, panelHeight, 26);
-  renderContext.fill();
-  renderContext.stroke();
-  renderContext.restore();
-  renderContext.save();
-  renderContext.fillStyle = '#e7faff';
-  renderContext.textAlign = 'center';
-  renderContext.textBaseline = 'top';
-  renderContext.font = '700 30px "Segoe UI", sans-serif';
-  renderContext.fillText('Retro Space Run', width / 2, panelY + 28);
-  renderContext.font = '400 16px "Segoe UI", sans-serif';
-  renderContext.fillText('Select a mode to launch into the stars', width / 2, panelY + 68);
-  renderContext.restore();
-  const buttonWidth = Math.min(panelWidth - 120, width * 0.5);
-  const buttonHeight = 54;
-  const buttonGap = 16;
-  const totalButtonsHeight = MENU_BUTTONS.length * buttonHeight + (MENU_BUTTONS.length - 1) * buttonGap;
-  let currentY = panelY + Math.max(110, (panelHeight - totalButtonsHeight) / 2);
-  for (const entry of MENU_BUTTONS) {
-    const region = this.registerButton({
-      name: entry.name,
-      x: width / 2 - buttonWidth / 2,
-      y: currentY,
-      w: buttonWidth,
-      h: buttonHeight,
-    });
-    drawMenuButton(renderContext, region, entry.label);
-    currentY += buttonHeight + buttonGap;
-  }
-  const difficultyMode = getDifficultyMode();
-  const difficultyLabel = typeof difficultyMode === 'string'
-    ? difficultyMode.toUpperCase()
-    : 'NORMAL';
-  const toggleRegion = this.registerButton({
-    name: 'difficultyToggle',
-    x: width / 2 - buttonWidth / 2,
-    y: currentY + 10,
-    w: buttonWidth,
-    h: 46,
-  });
-  drawMenuButton(renderContext, toggleRegion, `Difficulty: ${difficultyLabel}`, {
-    secondary: true,
-    active: this.diffOpen,
-  });
-  if (this.diffOpen) {
-    const options = Object.keys(DIFFICULTY);
-    const optionHeight = 44;
-    const dropdownHeight = optionHeight * options.length;
-    const dropdownX = toggleRegion.x;
-    const dropdownY = toggleRegion.y + toggleRegion.h + 8;
-    drawDropdownContainer(renderContext, dropdownX, dropdownY, toggleRegion.w, dropdownHeight);
-    let optionY = dropdownY;
-    options.forEach((key, index) => {
-      const entryRegion = this.registerDropdown({
-        name: `difficulty_${key}`,
-        x: dropdownX,
-        y: optionY,
-        w: toggleRegion.w,
-        h: optionHeight,
-      });
-      drawDropdownEntry(renderContext, entryRegion, formatDifficultyLabel(key), {
-        active: key === difficultyMode,
-        isFirst: index === 0,
-        isLast: index === options.length - 1,
-      });
-      optionY += optionHeight;
-    });
-  }
   if (this.debug) {
     this.debugDrawRegions(renderContext);
   }

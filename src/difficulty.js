@@ -69,6 +69,23 @@ const LEVEL_SPAWN_OVERRIDES = Object.freeze({
       ],
     },
   },
+  L3: {
+    asteroids: {
+      interval: 1.4,
+      countRange: [2, 3],
+      params: { vy: [100, 190], vx: [-70, 70], radiusMin: 11, radiusMax: 24 },
+    },
+    waves: {
+      initialDelay: 2.4,
+      intervalRange: [6.8, 8.8],
+      patterns: [
+        { weight: 1.1, entries: [{ type: 'strafer', count: 4, params: { fireCd: [820, 1200] } }] },
+        { weight: 0.85, entries: [{ type: 'turret', count: 2, params: { fireCd: [1000, 1450], bulletSpeed: 270 } }] },
+        { weight: 0.8, entries: [{ type: 'drone', count: 4, params: { steerAccel: 34 } }] },
+        { weight: 0.65, entries: [{ type: 'asteroid', count: 6, params: { vy: [110, 190] } }] },
+      ],
+    },
+  },
   L4: {
     asteroids: {
       interval: 1.5,
