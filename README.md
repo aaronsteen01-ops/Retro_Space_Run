@@ -102,4 +102,6 @@ Controllers with standard gamepad mappings inherit from the browser’s default 
 ---
 
 ## 🤝 Contributing
-Bug reports and pull requests are welcome. Please follow the module structure above, favour Australian English in documentation, and profile changes with the performance tips noted earlier.
+Bug reports and pull requests are welcome. Please follow the module structure above, favour Australian English in documentation, and profile changes with the performance tips noted earlier. 
+
+Thanks, Aaron
