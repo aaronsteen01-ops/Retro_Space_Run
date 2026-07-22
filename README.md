@@ -1,6 +1,6 @@
-# 🚀 Retro Space Run v0.2
+# 🚀 Retro Space Run v1.0
 
-Retro Space Run is a neon-soaked arcade runner built on HTML5 Canvas. You pilot a nimble ship through asteroid fields and synthetic bosses while tuning a persistent arsenal for the long haul. The project now ships as a set of ES modules, making it easier to extend, optimise, and theme.
+Retro Space Run is a neon-soaked arcade runner built on HTML5 Canvas. You pilot a nimble ship through five themed sectors of asteroid fields and synthetic bosses, build a persistent arsenal, and break through to a triumphant campaign finale. The project ships as a set of ES modules, making it easier to extend, optimise, and theme.
 
 ---
 
@@ -14,7 +14,7 @@ The codebase lives under `src/` and is split into focused modules:
 - `powerups.js` — manages timed buffs, drop logic, and visual effects for temporary boosts.
 - `audio.js` — wires up the Web Audio API context, re-usable synth nodes, and SFX triggers for shots, hits, and loot.
 - `ui.js` — provides canvas references, overlay toggles, HUD updates, and theme change hooks.
-- `themes.js` — defines theme palettes and, in v0.2, exposes the soon-to-launch selector configuration so new palettes can be dropped in without touching gameplay code.
+- `themes.js` — defines theme palettes and the live selector configuration so new palettes can be dropped in without touching gameplay code.
 - `utils.js` — houses helper maths, collision helpers, and particle utilities shared across systems.
 
 Each module imports and exports explicit functions, so you can develop or test components in isolation without dragging in the entire game loop.
@@ -38,13 +38,33 @@ Runs now feed a persistent progression ledger tracked in `src/meta.js`. Total ru
 ### Ship Roster
 The hangar opens with the reliable Pioneer, but defeating three bosses unlocks the precision Vanguard interceptor, while banking 50,000 total score grants access to the wide-spread Nova gunship. Each hull offers unique speed, fire rate, shield, and projectile spread characteristics that noticeably alter the feel of a run.
 
-### Cosmic Abyss Sector
-A fourth campaign stage dives into the Cosmic Abyss: dark-blue nebulas, organic gate structures, and a dedicated synth score that fades in on every theme swap. Splitter frigates rupture into mini drones on defeat while shield drones project protective bubbles across nearby foes, adding new tactical wrinkles to late-game and endless runs.
+### Five-Sector Campaign
+The campaign runs across five bespoke sectors, each with its own palette, weather mutators, wave scripts, and boss duo:
+
+1. **Debris Drift** — a calm opening sweep through shattered hulls.
+2. **Ion Squalls** — static storms shear the escort corridor.
+3. **Ember Breaker** — forge furnaces ignite the void lanes.
+4. **Cosmic Abyss** — dark-blue nebulas where splitter frigates rupture into mini drones and shield drones project protective bubbles.
+5. **Neon Void** — the finale sector: a purple-and-green wound in space guarded by the Void Sovereign.
 
 ### Boss Encounter Flow
 Every sector culminates in a bespoke boss fight. Bosses spawn once the timer crosses the late-stage threshold, lock the finish gate, and shift the soundtrack via `audio.js`. Defeating the boss triggers celebratory particles, reopens the gate, and rolls a guaranteed weapon drop.
 
+### Campaign Finale & Credits
+Clearing the Neon Void triggers the **Mission Accomplished** finale — a triumphant victory screen with a run tally (score, bosses felled, hostiles cleared, achievements, and new-best flag) and a fanfare, followed by an optional scrolling credits roll. A framing prologue opens each fresh campaign.
+
+### Power-ups & Achievements
+Timed **Shield**, **Rapid**, and **Boost** pickups are joined by **Blast**, an instant defensive shockwave that wipes incoming enemy fire. Eight achievements track feats from *First Blood* to *Untouchable Legend* (clear the whole campaign without losing a life).
+
 ---
+
+## 🌐 Play Online
+The game is a self-contained static site and ships with a GitHub Pages deploy workflow (`.github/workflows/deploy.yml`). To go live:
+
+1. In the repository, open **Settings → Pages → Build and deployment** and set **Source: GitHub Actions**.
+2. Merge to `main` (or run the *Deploy to GitHub Pages* workflow manually). Each push to `main` then redeploys automatically.
+
+Once enabled, it will be playable at `https://aaronsteen01-ops.github.io/Retro_Space_Run/`.
 
 ## 🛠️ Running the Game
 
