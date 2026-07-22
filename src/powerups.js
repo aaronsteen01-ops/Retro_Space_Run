@@ -2,7 +2,7 @@
  * powerups.js — spawning, application, and rendering of power-ups for Retro Space Run.
  */
 // CHANGELOG: Emitted GameEvents when power-ups modify shield or HUD state.
-import { rand, TAU, coll, clamp } from './utils.js';
+import { rand, TAU, coll, clamp, addParticle } from './utils.js';
 import { playPow } from './audio.js';
 import { ui, getViewSize } from './ui.js';
 import { resolvePaletteSection } from './themes.js';
@@ -13,7 +13,7 @@ const spawnState = {
   last: 0,
 };
 
-const kinds = ['shield', 'rapid', 'boost'];
+const kinds = ['shield', 'rapid', 'boost', 'blast'];
 const GUARANTEE_CHECKPOINTS_MS = [20000, 40000];
 
 function pickPowerupType(lastType = null) {
@@ -104,7 +104,31 @@ export function ensureGuaranteedPowerups(state, now) {
   spawnState.last = now;
 }
 
+function applyBlast(state) {
+  // Instant defensive shockwave: wipe incoming fire and reward the clear. Unlike the
+  // timed buffs, this fires immediately and never occupies the HUD power slot.
+  const clearedBullets = Array.isArray(state.enemyBullets) ? state.enemyBullets.length : 0;
+  if (Array.isArray(state.enemyBullets)) {
+    state.enemyBullets.length = 0;
+  }
+  const particlesPalette = resolvePaletteSection(state.theme, 'particles');
+  const burstColour = particlesPalette?.bossCore || particlesPalette?.enemyHitDefault || '#6dff8d';
+  const { w, h } = getViewSize();
+  const px = state.player?.x ?? Math.max(w, 1) / 2;
+  const py = state.player?.y ?? Math.max(h, 1) / 2;
+  addParticle(state, px, py, burstColour, 64, 6, 620);
+  if (clearedBullets > 0) {
+    state.score = (state.score ?? 0) + clearedBullets * 5;
+    GameEvents.emit('score:changed', state.score);
+  }
+  playPow();
+}
+
 export function applyPower(state, kind, now) {
+  if (kind === 'blast') {
+    applyBlast(state);
+    return;
+  }
   const baseDuration = 8000;
   let duration = baseDuration;
   if (kind === 'shield') {
@@ -236,6 +260,17 @@ export function drawPowerups(ctx, powerups, palette) {
       ctx.lineTo(-6, 8);
       ctx.lineTo(6, 8);
       ctx.closePath();
+      ctx.stroke();
+    } else if (p.type === 'blast') {
+      // Radiating shockwave burst.
+      ctx.strokeStyle = powerPalette.blast || powerPalette.rapid || '#6dff8d';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i = 0; i < 8; i++) {
+        const a = (TAU / 8) * i;
+        ctx.moveTo(Math.cos(a) * 3, Math.sin(a) * 3);
+        ctx.lineTo(Math.cos(a) * 10, Math.sin(a) * 10);
+      }
       ctx.stroke();
     }
     ctx.restore();

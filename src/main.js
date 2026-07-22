@@ -2198,12 +2198,16 @@ function renderUpgradeSelection({ nextLevelIndex, nextLevel, levelTime, scoreDel
 
 function buildAchievementSnapshot(levelKey) {
   const resolvedLevel = typeof levelKey === 'string' && levelKey.trim().length > 0 ? levelKey.trim() : null;
+  const campaignCleared =
+    state.gameMode === GAME_MODES.CAMPAIGN && state.levelIndex >= LEVELS.length;
   return {
     kills: state.runStats?.kills ?? 0,
     bossesDefeated: state.runStats?.bosses ?? 0,
     livesLost: state.runStats?.livesLost ?? 0,
     score: state.score ?? 0,
     level: resolvedLevel,
+    difficulty: state.difficultyMode ?? null,
+    campaignCleared,
   };
 }
 

@@ -71,6 +71,24 @@ export const STORY_BEATS = [
       'Convoy routes chart a new passage through the nebula trench.',
     ],
   },
+  {
+    levelKey: 'L5',
+    phase: 'intro',
+    title: 'Neon Void Threshold',
+    textLines: [
+      'The lane dead-ends at a wound in space — the Neon Void.',
+      'Something vast stirs in the dark. Hold the line and break through.',
+    ],
+  },
+  {
+    levelKey: 'L5',
+    phase: 'outro',
+    title: 'Void Broken',
+    textLines: [
+      'The Sovereign shatters into fading green light.',
+      'Beyond the wound lies open space — and the way home.',
+    ],
+  },
 ];
 
 // Campaign bookends — a framing prologue shown on a fresh campaign launch, and a

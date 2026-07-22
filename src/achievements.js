@@ -25,6 +25,30 @@ export const ACHIEVEMENTS = [
     description: 'Reach a score of 100,000.',
     condition: (stats) => (stats.score ?? 0) >= 100000,
   },
+  {
+    id: 'emberGhost',
+    name: 'Ember Ghost',
+    description: 'Clear Ember Breaker without losing a life.',
+    condition: (stats) => (stats.livesLost ?? 0) === 0 && (stats.level ?? '') === 'L3',
+  },
+  {
+    id: 'homewardBound',
+    name: 'Homeward Bound',
+    description: 'Complete the campaign.',
+    condition: (stats) => Boolean(stats.campaignCleared),
+  },
+  {
+    id: 'ironPilot',
+    name: 'Iron Pilot',
+    description: 'Complete the campaign on Hard.',
+    condition: (stats) => Boolean(stats.campaignCleared) && (stats.difficulty ?? '') === 'hard',
+  },
+  {
+    id: 'untouchableLegend',
+    name: 'Untouchable Legend',
+    description: 'Complete the campaign without losing a life.',
+    condition: (stats) => Boolean(stats.campaignCleared) && (stats.livesLost ?? 0) === 0,
+  },
 ];
 
 function normaliseStats(stats = {}) {
@@ -38,6 +62,8 @@ function normaliseStats(stats = {}) {
     livesLost: safeNumber(stats.livesLost),
     score: safeNumber(stats.score),
     level: typeof stats.level === 'string' ? stats.level : null,
+    difficulty: typeof stats.difficulty === 'string' ? stats.difficulty : null,
+    campaignCleared: Boolean(stats.campaignCleared),
   };
 }
 

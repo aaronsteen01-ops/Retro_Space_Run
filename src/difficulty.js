@@ -114,6 +114,39 @@ const LEVEL_SPAWN_OVERRIDES = Object.freeze({
       ],
     },
   },
+  L5: {
+    asteroids: {
+      interval: 1.5,
+      countRange: [2, 4],
+      params: { vy: [100, 200], vx: [-70, 70], radiusMin: 11, radiusMax: 25 },
+    },
+    waves: {
+      initialDelay: 2.2,
+      intervalRange: [6.2, 8.2],
+      patterns: [
+        {
+          weight: 1.15,
+          entries: [
+            { type: 'drone', count: 5, params: { steerAccel: 44 } },
+          ],
+        },
+        {
+          weight: 1,
+          entries: [
+            { type: 'splitter', count: 2, params: { hp: 7, accel: 54, childRange: [2, 3], startOffset: [20, 120] } },
+          ],
+        },
+        {
+          weight: 0.9,
+          entries: [
+            { type: 'shield-drone', count: 1, params: { cooldown: 3200, duration: 3400, range: 210 } },
+          ],
+        },
+        { weight: 0.8, entries: [{ type: 'turret', count: 2, params: { fireCd: [820, 1200], bulletSpeed: 280 } }] },
+        { weight: 0.7, entries: [{ type: 'strafer', count: 4, params: { fireCd: [720, 1080] } }] },
+      ],
+    },
+  },
 });
 
 function cloneConfig(config) {
